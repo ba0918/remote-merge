@@ -469,8 +469,6 @@ async fn batch_read_cut_off_without_exit_status_is_a_connection_error() {
 #[tokio::test]
 async fn test_ssh_write_file_small() {
     let handle = start_test_server().await;
-    // mkdir -p コマンドのレジストリ（write_file が事前に呼ぶ）
-    handle.registry.register("mkdir -p", "", 0);
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -486,7 +484,10 @@ async fn test_ssh_write_file_small() {
 
     let content = "Hello, world!\nLine 2\n";
     client
-        .write_file("/var/www/app/test.txt", content)
+        .run_with_input(
+            &remote_merge_ssh::change_scripts::write("/var/www/app/test.txt", false),
+            content.as_bytes(),
+        )
         .await
         .expect("write_file に失敗");
 
@@ -503,7 +504,6 @@ async fn test_ssh_write_file_small() {
 #[tokio::test]
 async fn test_ssh_write_file_large_chunked() {
     let handle = start_test_server().await;
-    handle.registry.register("mkdir -p", "", 0);
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -520,7 +520,10 @@ async fn test_ssh_write_file_large_chunked() {
     // 100KB のデータ — 32KB チャンクで 4 チャンクに分割されるはず
     let content: String = "A".repeat(100 * 1024);
     client
-        .write_file("/var/www/app/large.txt", &content)
+        .run_with_input(
+            &remote_merge_ssh::change_scripts::write("/var/www/app/large.txt", false),
+            content.as_bytes(),
+        )
         .await
         .expect("write_file (large) に失敗");
 
@@ -537,7 +540,6 @@ async fn test_ssh_write_file_large_chunked() {
 #[tokio::test]
 async fn test_ssh_write_file_bytes_large_chunked() {
     let handle = start_test_server().await;
-    handle.registry.register("mkdir -p", "", 0);
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -554,7 +556,10 @@ async fn test_ssh_write_file_bytes_large_chunked() {
     // 64KB のバイナリデータ（NUL バイト含む）
     let binary_data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
     client
-        .write_file_bytes("/var/www/app/binary.bin", &binary_data)
+        .run_with_input(
+            &remote_merge_ssh::change_scripts::write("/var/www/app/binary.bin", true),
+            &remote_merge_ssh::change_scripts::write_input(&binary_data, true),
+        )
         .await
         .expect("write_file_bytes (large) に失敗");
 

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
-
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
@@ -92,11 +90,6 @@ pub(crate) trait TargetIo {
         rel_path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()>;
-    fn stat_files(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>;
     fn chmod_file(
         &mut self,
         runtime: &mut CoreRuntime,

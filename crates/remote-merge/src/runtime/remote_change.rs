@@ -35,22 +35,8 @@ impl CoreRuntime {
             (RemoteRoute::Agent, RemoteChange::Symlink { target }) => {
                 agent_route::symlink(self, server, path, target)
             }
-            (
-                RemoteRoute::Ssh,
-                RemoteChange::Write {
-                    content,
-                    is_binary: true,
-                },
-            ) => self.write_remote_file_bytes(server, path, content),
-            (
-                RemoteRoute::Ssh,
-                RemoteChange::Write {
-                    content,
-                    is_binary: false,
-                },
-            ) => {
-                let text = std::str::from_utf8(content)?;
-                self.write_remote_file(server, path, text)
+            (RemoteRoute::Ssh, RemoteChange::Write { content, is_binary }) => {
+                self.ssh_write(server, path, content, *is_binary)
             }
             (RemoteRoute::Ssh, RemoteChange::Chmod { mode }) => self.ssh_chmod(server, path, *mode),
             (RemoteRoute::Ssh, RemoteChange::Remove) => self.ssh_remove(server, path),

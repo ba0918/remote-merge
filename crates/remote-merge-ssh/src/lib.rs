@@ -1,10 +1,13 @@
+pub mod change_scripts;
 pub mod client;
 pub mod command_limit;
 pub mod contents;
 pub mod contents_output;
 pub mod contents_script;
 pub mod contents_stream;
-pub mod entry_link;
+#[cfg(all(test, unix))]
+mod contents_tests_support;
+pub mod entry_links;
 pub mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;

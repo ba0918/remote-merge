@@ -1,6 +1,5 @@
 //! リモートの比較先。そのサーバに選んだ経路だけで行い、読み取りの `接続断` は一度だけやり直す
 
-use chrono::{DateTime, Utc};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::children::ChildListing;
@@ -71,15 +70,6 @@ impl TargetIo for RemoteTargetIo {
         content: &[u8],
     ) -> anyhow::Result<()> {
         self.write(rt, path, content, true)
-    }
-
-    fn stat_files(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        let name = &self.name;
-        rt.read_on_route(name, |rt| rt.remote_stat(name, paths))
     }
 
     fn chmod_file(

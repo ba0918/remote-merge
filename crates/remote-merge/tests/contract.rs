@@ -21,6 +21,9 @@ mod backup_storage;
 mod backup_store_failure;
 #[path = "contract/backup_support.rs"]
 mod backup_support;
+#[cfg(feature = "test-utils")]
+#[path = "contract/change_failures_agree.rs"]
+mod change_failures_agree;
 #[path = "contract/cli_results.rs"]
 mod cli_results;
 #[path = "contract/cli_usage.rs"]

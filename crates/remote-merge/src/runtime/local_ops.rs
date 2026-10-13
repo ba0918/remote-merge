@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
 use remote_merge_core::machine_ops::{self, EntryLink, PermissionMode};
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation, PathResult, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
@@ -16,25 +15,17 @@ pub(crate) fn op_error(
     OpError::new(operation, path.as_typed(), failure).into()
 }
 
-pub(super) fn modified(
-    root: &Path,
-    paths: &[EntryPath],
-) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-    paths
-        .iter()
-        .map(|path| {
-            let modified = match machine_ops::modified(root, path) {
-                Ok(modified) => Some(modified),
-                Err(OpFailure::NotFound) => None,
-                Err(failure) => return Err(op_error(Operation::Stat, path, failure)),
-            };
-            Ok((path.as_typed().to_string(), modified))
-        })
-        .collect()
+pub(super) fn entry_link_target(root: &Path, path: &EntryPath) -> anyhow::Result<Option<String>> {
+    link_target(path, machine_ops::entry_link(root, path))
 }
 
-pub(super) fn entry_link_target(root: &Path, path: &EntryPath) -> anyhow::Result<Option<String>> {
-    match machine_ops::entry_link(root, path) {
+/// 項目のリンク先の答えを、`TargetIo::entry_link_target` の形にする。symlink でないか、ないか、
+/// 途中がディレクトリでなければ None で、ほかの失敗はその種類の誤り。ローカルと SSH の経路が使う
+pub(super) fn link_target(
+    path: &EntryPath,
+    link: Result<EntryLink, OpFailure>,
+) -> anyhow::Result<Option<String>> {
+    match link {
         Ok(EntryLink::Link(target)) => Ok(Some(target)),
         Ok(EntryLink::NotALink) | Err(OpFailure::NotFound | OpFailure::NotADirectory) => Ok(None),
         Err(failure) => Err(op_error(Operation::ReadEntryLink, path, failure)),

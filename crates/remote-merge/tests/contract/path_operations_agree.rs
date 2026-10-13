@@ -60,6 +60,8 @@ fn serve_ssh_request() -> bool {
             "read" => runtime.read_file_bytes(&side, path, false).map(|_| ()),
             "remove" => runtime.remove_file(&side, path),
             "chmod" => runtime.chmod_file(&side, path, 0o644),
+            "write" => runtime.write_file(&side, path, "x"),
+            "symlink" => runtime.create_symlink(&side, path, "t"),
             other => panic!("{other}"),
         }),
         ["list", path] => listing_text(

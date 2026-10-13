@@ -19,7 +19,7 @@ pub enum ContentsFailure<E> {
 }
 
 /// `asked`（結果のキーとリモートのパス）を、コマンド行の長さで分けて尋ねる
-fn in_commands<T, E>(
+pub(crate) fn in_commands<T, E>(
     asked: &[(String, String)],
     base: &str,
     max_len: usize,

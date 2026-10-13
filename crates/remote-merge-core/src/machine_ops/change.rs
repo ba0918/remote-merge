@@ -7,11 +7,17 @@ use super::{failed, full_path, PermissionMode};
 use crate::op_failure::OpFailure;
 use crate::relative_path::EntryPath;
 
-/// ない親ディレクトリを作る。途中の symlink は辿る（REQ-merge-004）
+/// ない親ディレクトリを作る。途中の symlink は辿る（REQ-merge-004）。作ろうとした親がすでにあって
+/// ディレクトリでなければ、途中の要素がディレクトリでない失敗にする（REQ-paths-020）
 fn create_parents(path: &Path) -> Result<(), OpFailure> {
-    match path.parent() {
-        Some(parent) => std::fs::create_dir_all(parent).map_err(failed),
-        None => Ok(()),
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    match std::fs::create_dir_all(parent) {
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(OpFailure::NotADirectory)
+        }
+        other => other.map_err(failed),
     }
 }
 
@@ -19,10 +25,25 @@ fn create_parents(path: &Path) -> Result<(), OpFailure> {
 /// 作らないので、inode・所有者・権限・ハードリンクが残る。最後の要素が symlink なら辿らずに失敗する
 /// （REQ-merge-038）
 pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFailure> {
+    let mut file = open_for_write(root, entry, true)?;
+    file.write_all(content).map_err(failed)
+}
+
+/// 書き込み先を開く。`first` なら親を作り、作るか古い中身を切り詰めて開く（分けて書く最初の分）。
+/// そうでなければ後ろに書き足すために開く。どちらも最後の要素が symlink なら辿らずに失敗する
+pub fn open_for_write(
+    root: &Path,
+    entry: &EntryPath,
+    first: bool,
+) -> Result<std::fs::File, OpFailure> {
     let path = full_path(root, entry);
-    create_parents(&path)?;
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    if first {
+        create_parents(&path)?;
+        options.write(true).create(true).truncate(true);
+    } else {
+        options.append(true);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -34,8 +55,7 @@ pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFai
             "the destination is a symbolic link".to_string(),
         ));
     }
-    let mut file = options.open(&path).map_err(failed)?;
-    file.write_all(content).map_err(failed)
+    options.open(&path).map_err(failed)
 }
 
 /// 項目を消す。末尾の symlink はリンクだけを消し、ディレクトリとないパスは消さずに失敗する

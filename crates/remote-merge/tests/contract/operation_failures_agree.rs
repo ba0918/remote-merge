@@ -27,14 +27,14 @@ fn state(root: &Path, _: &Path) {
     fs::write(root.join("f"), "f\n").unwrap();
 }
 
-fn kind<T>(result: Result<T, OpFailure>) -> String {
+pub(super) fn kind<T>(result: Result<T, OpFailure>) -> String {
     match result {
         Ok(_) => "ok".into(),
         Err(failure) => format!("{failure:?}"),
     }
 }
 
-fn anyhow_kind<T>(result: anyhow::Result<T>) -> String {
+pub(super) fn anyhow_kind<T>(result: anyhow::Result<T>) -> String {
     match result {
         Ok(_) => "ok".into(),
         Err(error) => match failure_of(&error) {

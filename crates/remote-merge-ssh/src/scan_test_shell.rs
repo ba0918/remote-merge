@@ -69,7 +69,7 @@ pub fn shell_command_with_path(script: &str, bin: Option<&Path>) -> Command {
     });
     let mut command = Command::new("docker");
     command
-        .args(["run", "--rm", "-u", &user, "-v"])
+        .args(["run", "--rm", "-i", "-u", &user, "-v"])
         .arg(format!("{temp}:{temp}"));
     if let Some(path) = &path {
         command.args(["-e", &format!("PATH={path}")]);

@@ -13,9 +13,6 @@ use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
-use super::tree_parser::{
-    build_mkdir_command, build_write_bytes_command, build_write_text_command, shell_escape,
-};
 use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
 use crate::login_shell::wrap_for_login_shell;
@@ -529,34 +526,6 @@ impl SshClient {
         Ok(channel)
     }
 
-    /// ディレクトリ取得のデフォルトタイムアウト（秒）
-    pub const DIR_TIMEOUT_SECS: u64 = 30;
-
-    /// `remote_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を返す。
-    /// 親ディレクトリは一覧しない。`rel` は root_dir からのパス（文言に使う）
-    pub async fn entry_link_target(
-        &mut self,
-        remote_path: &str,
-        rel: &str,
-    ) -> crate::error::Result<Option<String>> {
-        let command = super::entry_link::link_target_command(remote_path);
-        let output = tokio::time::timeout(
-            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
-            self.run_command(&command),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: self.server_name.clone(),
-            timeout_sec: Self::DIR_TIMEOUT_SECS,
-        })??;
-        super::entry_link::parse_link_target_output(
-            &output.stdout,
-            &output.stderr,
-            output.exit_code,
-            rel,
-        )
-    }
-
     /// 事実を尋ねるスクリプトを動かし、標準出力・標準エラー・終了コードをそのまま返す。
     /// 終了ステータスを受け取れなかったときは接続断の誤りにする
     pub async fn run_bytes(
@@ -696,169 +665,49 @@ impl SshClient {
         Ok((stderr, exit_code))
     }
 
-    /// リモートファイルに内容を書き込む（stdin 経由の cat >）
-    ///
-    /// 親ディレクトリが存在しない場合は自動的に作成する。
-    pub async fn write_file(
+    /// コマンドを実行し、`input` を標準入力に送って閉じ、標準出力・標準エラー・終了コードを返す。
+    /// 終了ステータスを受け取らずにチャネルが終わったときは接続断の誤りにする
+    pub async fn run_with_input(
         &mut self,
-        remote_path: &str,
-        content: &str,
-    ) -> crate::error::Result<()> {
-        // 親ディレクトリを作成（存在しなければ）
-        if let Some(cmd) = build_mkdir_command(remote_path) {
-            let _ = self.exec(&cmd).await;
-        }
-
-        let command = build_write_text_command(remote_path);
-        let mut channel = self.open_channel_with_retry().await?;
-
-        channel
-            .exec(true, wrap_for_login_shell(&command))
-            .await
-            .map_err(|_e| AppError::SshExec {
-                command: command.clone(),
-            })?;
-
-        self.send_and_finish_channel(
-            &mut channel,
-            content.as_bytes(),
-            &format!("write {}", remote_path),
-        )
-        .await?;
-
-        tracing::info!(target: "remote_merge::ssh::client", "Remote file write completed: {}", remote_path);
-        Ok(())
-    }
-
-    /// リモートファイルをバイト列として読み込む（バイナリファイル対応）
-    ///
-    /// `openssl base64` でエンコードされたデータを取得し、デコードして返す。
-    /// UTF-8 変換を行わないため、バイナリファイルでもデータが破壊されない。
-    pub async fn read_file_bytes(&mut self, remote_path: &str) -> crate::error::Result<Vec<u8>> {
-        let base64_output = self.exec_strict(&read_file_command(remote_path)).await?;
-        decode_base64_output(&base64_output)
-    }
-
-    /// リモートファイルにバイト列を書き込む（バイナリファイル対応）
-    ///
-    /// コンテンツを base64 エンコードし、`openssl base64 -d` でデコードして書き込む。
-    /// 親ディレクトリが存在しない場合は自動的に作成する。
-    pub async fn write_file_bytes(
-        &mut self,
-        remote_path: &str,
-        content: &[u8],
-    ) -> crate::error::Result<()> {
-        // 親ディレクトリを作成（存在しなければ）
-        if let Some(cmd) = build_mkdir_command(remote_path) {
-            let _ = self.exec(&cmd).await;
-        }
-        let command = build_write_bytes_command(remote_path);
-        self.decode_bytes_into(remote_path, content, &command).await
-    }
-
-    /// root だけが書き込めるディレクトリのリモートファイルに、sudo でバイト列を書き込む。
-    ///
-    /// 親ディレクトリは作らない（呼び出し側が sudo で用意する）。
-    pub async fn write_file_bytes_with_sudo(
-        &mut self,
-        remote_path: &str,
-        content: &[u8],
-    ) -> crate::error::Result<()> {
-        // -A の理由は build_write_bytes_command と同じ
-        let command = format!(
-            "sudo openssl base64 -d -A -out {}",
-            shell_escape(remote_path)
-        );
-        self.decode_bytes_into(remote_path, content, &command).await
-    }
-
-    /// バイト列を base64 にして、標準入力をデコードして書き込む `command` に送る。
-    async fn decode_bytes_into(
-        &mut self,
-        remote_path: &str,
-        content: &[u8],
         command: &str,
-    ) -> crate::error::Result<()> {
-        use base64::Engine;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(content);
-
+        input: &[u8],
+    ) -> crate::error::Result<(Vec<u8>, Vec<u8>, u32)> {
         let mut channel = self.open_channel_with_retry().await?;
-
         channel
             .exec(true, wrap_for_login_shell(command))
             .await
             .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),
             })?;
-
-        // openssl base64 -d は入力末尾に改行が必要（改行がないとデコードしない）
-        let mut encoded_with_newline = encoded.into_bytes();
-        encoded_with_newline.push(b'\n');
-
-        self.send_and_finish_channel(
-            &mut channel,
-            &encoded_with_newline,
-            &format!("write (bytes) {}", remote_path),
-        )
-        .await?;
-
-        tracing::info!(target: "remote_merge::ssh::client", "Remote file write (bytes) completed: {}", remote_path);
-        Ok(())
-    }
-
-    /// データ送信 → EOF → 終了コード待ち → チャネル close を一括で行う。
-    ///
-    /// エラー発生時もチャネルを確実に close してリソースリークを防ぐ。
-    async fn send_and_finish_channel(
-        &self,
-        channel: &mut russh::Channel<russh::client::Msg>,
-        data: &[u8],
-        description: &str,
-    ) -> crate::error::Result<()> {
-        // データ送信（エラー時は close してから return）
-        if let Err(e) = self.send_data_chunked(channel, data).await {
+        if let Err(error) = self.send_data_chunked(&mut channel, input).await {
             let _ = channel.close().await;
-            return Err(e);
+            return Err(error);
         }
-
-        // EOF 送信
-        if let Err(e) = channel.eof().await {
+        if let Err(error) = channel.eof().await {
             let _ = channel.close().await;
             return Err(AppError::SshDisconnected {
                 host: self.server_name.clone(),
-                message: format!("Failed to send EOF: {}", e),
+                message: format!("Failed to send EOF: {error}"),
             }
             .into());
         }
-
-        // 終了コード待ち
-        let mut exit_code = None;
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-            if let ChannelMsg::ExitStatus { exit_status } = msg {
-                exit_code = Some(exit_status);
+        let (mut stdout, mut stderr, mut exit_code) = (Vec::new(), Vec::new(), None);
+        while let Some(message) = channel.wait().await {
+            match message {
+                ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
+                ChannelMsg::ExtendedData { ref data, ext: 1 } => stderr.extend_from_slice(data),
+                ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
+                _ => {}
             }
         }
-
-        // チャネルを明示的に閉じてリソースを解放
         let _ = channel.close().await;
-
-        // 終了コードチェック
-        match exit_code {
-            Some(0) => Ok(()),
-            Some(code) => anyhow::bail!(AppError::SshExec {
-                command: format!("{}: exit={}", description, code),
-            }),
-            None => anyhow::bail!(AppError::SshDisconnected {
+        let Some(exit_code) = exit_code else {
+            anyhow::bail!(AppError::SshDisconnected {
                 host: self.server_name.clone(),
-                message: format!(
-                    "Write completion unknown: no exit status for {}",
-                    description
-                ),
-            }),
-        }
+                message: "Remote command ended without an exit status".into(),
+            });
+        };
+        Ok((stdout, stderr, exit_code))
     }
 
     /// チャネルにデータをチャンク分割で送信する。
@@ -887,16 +736,6 @@ impl SshClient {
         &self.server_name
     }
 
-    /// リモートファイルのパーミッションを変更する。
-    pub async fn chmod_file(&mut self, path: &str, mode: u32) -> crate::error::Result<()> {
-        if mode > 0o777 {
-            anyhow::bail!("Invalid permission mode: {:o}", mode);
-        }
-        let cmd = format!("chmod {:o} {}", mode, shell_escape(path));
-        self.exec_strict(&cmd).await?;
-        Ok(())
-    }
-
     /// 接続を切断する
     pub async fn disconnect(self) -> crate::error::Result<()> {
         self.session
@@ -913,21 +752,6 @@ fn bytes_to_string(bytes: Vec<u8>) -> String {
         Ok(s) => s,
         Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
     }
-}
-
-/// openssl base64 の出力（改行含む）をデコードする
-///
-/// openssl base64 は76文字ごとに改行を挿入する。
-/// `base64::STANDARD` は改行文字を受け付けないため、改行・空白を除去してからデコードする。
-fn decode_base64_output(base64_output: &str) -> crate::error::Result<Vec<u8>> {
-    use base64::Engine;
-    let cleaned: String = base64_output
-        .chars()
-        .filter(|c| !c.is_ascii_whitespace())
-        .collect();
-    base64::engine::general_purpose::STANDARD
-        .decode(&cleaned)
-        .map_err(|e| anyhow::anyhow!("Failed to decode base64 output from remote: {}", e))
 }
 
 // build_preferred は ssh::preferred モジュールに移動
@@ -1057,45 +881,9 @@ fn resolve_password(
     config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
 }
 
-/// openssl はディレクトリを読むと "Is a directory" を出すのに終了コード 0 で空を返すため、
-/// 読んだ後にディレクトリでないことを確かめて失敗させる。openssl を先に置くのは、
-/// 存在しないパスなどで openssl 自身のエラーをそのまま返すため。
-fn read_file_command(remote_path: &str) -> String {
-    let escaped = shell_escape(remote_path);
-    format!("openssl base64 -in {escaped} && test ! -d {escaped}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn reading_a_directory_fails() {
-        let root = tempfile::TempDir::new().unwrap();
-        let dir = root.path().join("some dir");
-        std::fs::create_dir(&dir).unwrap();
-        let output = std::process::Command::new("sh")
-            .args(["-c", &read_file_command(dir.to_str().unwrap())])
-            .output()
-            .unwrap();
-        assert!(!output.status.success(), "{output:?}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn reading_a_regular_file_returns_its_content() {
-        let root = tempfile::TempDir::new().unwrap();
-        let file = root.path().join("some file.txt");
-        std::fs::write(&file, "file body\n").unwrap();
-        let output = std::process::Command::new("sh")
-            .args(["-c", &read_file_command(file.to_str().unwrap())])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let encoded = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(decode_base64_output(&encoded).unwrap(), b"file body\n");
-    }
 
     #[test]
     fn test_timeout_config_mapping() {
@@ -1126,65 +914,6 @@ mod tests {
     }
 
     // ── base64 decode tests ──
-
-    #[test]
-    fn test_decode_base64_output_normal() {
-        // "Hello, world!" を base64 エンコードした文字列
-        let encoded = "SGVsbG8sIHdvcmxkIQ==\n";
-        let result = decode_base64_output(encoded).unwrap();
-        assert_eq!(result, b"Hello, world!");
-    }
-
-    #[test]
-    fn test_decode_base64_output_with_line_breaks() {
-        // openssl base64 は76文字ごとに改行を挿入する。
-        // 80バイトのデータ → base64 で108文字 → 76文字+改行+残り
-        use base64::Engine;
-        let data: Vec<u8> = (0..80).collect();
-        let mut encoded = String::new();
-        let full = base64::engine::general_purpose::STANDARD.encode(&data);
-        // 76文字改行をシミュレート
-        for (i, ch) in full.chars().enumerate() {
-            encoded.push(ch);
-            if (i + 1) % 76 == 0 {
-                encoded.push('\n');
-            }
-        }
-        encoded.push('\n');
-
-        let result = decode_base64_output(&encoded).unwrap();
-        assert_eq!(result, data);
-    }
-
-    #[test]
-    fn test_decode_base64_output_invalid() {
-        let invalid = "!!!not-base64!!!\n";
-        let result = decode_base64_output(invalid);
-        assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(
-            err.contains("Failed to decode base64"),
-            "unexpected error: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_decode_base64_output_empty() {
-        // 空文字列（空ファイル）のデコード
-        let result = decode_base64_output("").unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_decode_base64_output_binary_data() {
-        // NULバイトを含むバイナリデータのラウンドトリップ
-        use base64::Engine;
-        let binary_data: Vec<u8> = vec![0x00, 0xFF, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_data);
-        let result = decode_base64_output(&encoded).unwrap();
-        assert_eq!(result, binary_data);
-    }
 
     #[test]
     fn test_channel_data_chunk_size_is_within_ssh_window() {

@@ -169,13 +169,27 @@ impl CoreRuntime {
         }
 
         // Step 2: .tmp パスに書き込み
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        if sudo {
-            self.rt
-                .block_on(ssh_client.write_file_bytes_with_sudo(&tmp_path, &binary_bytes))?;
+        let tmp = tmp_path.as_str();
+        let upload = if sudo {
+            format!(
+                "sudo openssl base64 -d -A -out {}",
+                remote_merge_ssh::tree_parser::shell_escape(tmp)
+            )
         } else {
-            self.rt
-                .block_on(ssh_client.write_file_bytes(&tmp_path, &binary_bytes))?;
+            remote_merge_ssh::change_scripts::write(tmp, true)
+        };
+        let input = remote_merge_ssh::change_scripts::write_input(&binary_bytes, true);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let (_, stderr, exit) = self
+            .rt
+            .block_on(ssh_client.run_with_input(&upload, &input))?;
+        if exit != 0 {
+            anyhow::bail!(
+                "Agent upload failed: server={}, path={}, exit={exit}, stderr={}",
+                server_name,
+                tmp,
+                String::from_utf8_lossy(&stderr).trim_end()
+            );
         }
 
         // Step 3: chmod + checksum + version + mv（1 exec）

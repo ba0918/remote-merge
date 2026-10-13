@@ -2,6 +2,11 @@
 
 use super::support::*;
 
+fn mode_of(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).unwrap().permissions().mode() & 0o7777
+}
+
 #[test]
 fn write_file_propagates_metadata_config() {
     let (tmp, mut d) = setup_with_config(MetadataConfig {
@@ -49,7 +54,7 @@ fn write_file_chunked_saved_metadata_management() {
     )
     .unwrap();
 
-    // 1st chunk: is_first_chunk=true → SavedMetadata を保存する
+    // 最初の分: 書き込み先がもとからあったことを覚える
     let resp1 = single(
         d.dispatch(AgentRequest::WriteFile {
             path: "existing.txt".into(),
@@ -61,11 +66,9 @@ fn write_file_chunked_saved_metadata_management() {
     );
     assert_eq!(resp1, AgentResponse::Changed { failure: None });
 
-    // SavedMetadata がディスパッチャーに保存されていることを確認
-    assert!(d.saved_metadata.contains_key("existing.txt"));
-    assert!(d.saved_metadata["existing.txt"].is_some());
+    assert_eq!(d.writing.get("existing.txt"), Some(&false));
 
-    // 2nd chunk: is_last_chunk=true → SavedMetadata を使ってメタデータを復元
+    // 最後の分: 既存のファイルはその場で書き換えたので、権限はもとのまま
     let resp2 = single(
         d.dispatch(AgentRequest::WriteFile {
             path: "existing.txt".into(),
@@ -83,9 +86,9 @@ fn write_file_chunked_saved_metadata_management() {
         b"chunk1chunk2"
     );
 
-    // 転送完了後、saved_metadata がクリーンアップされていること
-    assert!(!d.saved_metadata.contains_key("existing.txt"));
-    assert!(!d.written_paths.contains("existing.txt"));
+    assert_eq!(mode_of(&tmp.path().join("existing.txt")), 0o755);
+    // 書き終えたら覚えたことを消す
+    assert!(!d.writing.contains_key("existing.txt"));
 }
 
 #[test]
@@ -111,6 +114,7 @@ fn write_file_new_file_uses_config_defaults() {
         fs::read_to_string(tmp.path().join("brand_new.txt")).unwrap(),
         "data"
     );
-    // saved_metadata はクリーンアップ済み
-    assert!(!d.saved_metadata.contains_key("brand_new.txt"));
+    // 新しく作ったファイルには既定の権限が付く
+    assert_eq!(mode_of(&tmp.path().join("brand_new.txt")), 0o600);
+    assert!(!d.writing.contains_key("brand_new.txt"));
 }

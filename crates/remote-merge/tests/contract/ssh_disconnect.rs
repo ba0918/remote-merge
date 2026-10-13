@@ -34,7 +34,10 @@ async fn a_write_without_a_completion_reply_fails_without_automatically_repeatin
     .await
     .unwrap();
     let result = client
-        .write_file_bytes("/tmp/fixture/file.txt", b"replacement")
+        .run_with_input(
+            &remote_merge_ssh::change_scripts::write("/tmp/fixture/file.txt", true),
+            &remote_merge_ssh::change_scripts::write_input(b"replacement", true),
+        )
         .await;
     assert!(
         result.is_err(),

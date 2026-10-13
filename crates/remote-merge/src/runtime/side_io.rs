@@ -5,8 +5,6 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
-
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -152,17 +150,6 @@ impl CoreRuntime {
     }
 
     // ── メタデータ ──
-
-    /// Side に基づいてファイルの mtime を取得する
-    pub fn stat_files(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        let rel_paths = checked_entries(rel_paths)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.stat_files(self, &rel_paths)
-    }
 
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
@@ -878,22 +865,6 @@ mod tests {
     }
 
     #[test]
-    fn test_stat_files_local() {
-        let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
-
-        let mut rt = create_test_runtime(&tmp);
-        let paths = vec!["a.txt".to_string(), "nonexistent.txt".to_string()];
-        let results = rt.stat_files(&Side::Local, &paths).unwrap();
-
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].0, "a.txt");
-        assert!(results[0].1.is_some());
-        assert_eq!(results[1].0, "nonexistent.txt");
-        assert!(results[1].1.is_none());
-    }
-
-    #[test]
     fn test_is_side_available_local() {
         let rt = CoreRuntime::new_for_test();
         assert!(rt.is_side_available(&Side::Local));
@@ -1253,7 +1224,6 @@ mod tests {
                 rt.read_file_bytes(side, root, true).map(|_| ()),
                 rt.read_file_bytes(side, root, false).map(|_| ()),
                 rt.current_link_target(side, root).map(|_| ()),
-                rt.stat_files(side, &[root.to_string()]).map(|_| ()),
                 rt.read_files(side, &[root.to_string()], SizeLimit::Enforced)
                     .map(|_| ()),
                 rt.try_hash_compare(&Side::Local, side, &[root.to_string()])
@@ -1522,17 +1492,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut rt = create_test_runtime(&tmp);
         let result = rt.chmod_file(&Side::Local, "../outside.sh", 0o755);
-        assert!(result.is_err());
-    }
-
-    // ── stat_files パストラバーサル ──
-
-    #[test]
-    fn test_stat_files_path_traversal_rejected() {
-        let tmp = TempDir::new().unwrap();
-        let mut rt = create_test_runtime(&tmp);
-        let paths = vec!["../../../etc/passwd".to_string()];
-        let result = rt.stat_files(&Side::Local, &paths);
         assert!(result.is_err());
     }
 

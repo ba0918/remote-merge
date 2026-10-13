@@ -477,6 +477,10 @@ impl server::Handler for LocalHandler {
                 .spawn()?;
             child.stdin.take().unwrap().write_all(&encoded)?;
             let result = child.wait_with_output()?;
+            // 本物の SSH と同じく、標準入力を受けたコマンドの標準エラーも返す
+            if !result.stderr.is_empty() {
+                session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
+            }
             session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
             session.eof(channel)?;
             session.close(channel)?;

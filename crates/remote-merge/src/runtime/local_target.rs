@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
 use remote_merge_core::machine_ops;
 use remote_merge_core::op_failure::{Operation, PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -65,14 +64,6 @@ impl TargetIo for LocalTargetIo {
         content: &[u8],
     ) -> anyhow::Result<()> {
         super::local_ops::write(&self.root, path, content)
-    }
-
-    fn stat_files(
-        &mut self,
-        _: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        super::local_ops::modified(&self.root, paths)
     }
 
     fn chmod_file(

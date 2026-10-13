@@ -46,6 +46,7 @@ root でない利用者で、C ロケール（`LC_ALL=C`）で確かめた。対
 - `cat`・`rm`・`chmod`・`stat -L -c %s`・`sha256sum`・`ls -ldn` の失敗の文言も、ない・途中がディレクトリでない・権限がないで、上と同じ三つの文言で終わる（前に付く文言は道具と版で違う）。
 - 他人の持ち物のファイルの権限を変えようとすると、`chmod` は "Operation not permitted"（EPERM）で終わる。
 - 読む権限のないファイル（mode 000）は `[ -e ]` が真で `[ -r ]` が偽になり、`cat`・`sha256sum` は "Permission denied" で終わる。
+- `mkdir -p` で、作ろうとした親がすでにある通常ファイルのとき、CentOS 6・7・手元・BusyBox は "File exists" で、CentOS 5 は "exists but is not a directory" で終わる。その下（`f/a` の `f` が通常ファイル）なら、どれも "Not a directory" で終わる。書き込めないディレクトリの下に作ろうとすると "Permission denied" で終わる。ロケールを C にしないと、引用符などの文言が変わる。
 
 ## ハッシュ・大きさ・書き込み
 

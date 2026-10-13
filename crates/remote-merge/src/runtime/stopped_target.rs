@@ -5,8 +5,6 @@ use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::outcome::ScanRequest;
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
-
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
@@ -53,13 +51,6 @@ impl TargetIo for StoppedTargetIo {
         _: &EntryPath,
         _: &[u8],
     ) -> anyhow::Result<()> {
-        self.refuse(rt)
-    }
-    fn stat_files(
-        &mut self,
-        rt: &mut CoreRuntime,
-        _: &[EntryPath],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         self.refuse(rt)
     }
     fn chmod_file(&mut self, rt: &mut CoreRuntime, _: &EntryPath, _: u32) -> anyhow::Result<()> {

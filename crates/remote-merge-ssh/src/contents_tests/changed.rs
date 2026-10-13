@@ -9,8 +9,8 @@ use std::path::Path;
 use remote_merge_core::op_failure::OpFailure;
 
 use super::super::*;
-use super::tools::{bin_with, run_with_only};
-use super::{paths, run};
+use super::paths;
+use crate::contents_tests_support::{bin_with, run, run_with_only};
 
 const BOUNDARY: &str = "0123456789abcdef0123456789abcdef";
 

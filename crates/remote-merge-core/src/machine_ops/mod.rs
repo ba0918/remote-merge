@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use sha2::{Digest as _, Sha256};
 
-pub use change::{chmod, create_symlink, remove, write};
+pub use change::{chmod, create_symlink, open_for_write, remove, write};
 pub use mode::{ModeTooWide, PermissionMode};
 
 use crate::op_failure::{check_size, from_io_error, OpFailure, SizeLimit};
@@ -107,3 +107,7 @@ pub fn entry_link(root: &Path, entry: &EntryPath) -> Result<EntryLink, OpFailure
 
 #[cfg(all(test, unix))]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "parents_tests.rs"]
+mod parents_tests;

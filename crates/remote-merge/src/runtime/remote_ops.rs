@@ -1,7 +1,6 @@
 //! リモートの操作を、そのサーバに選んだ経路で一度だけ行う。経路を選び直さず、やり直しもしない
 //! （やり直しは `route_retry`、確かめは `confirm` が決める）
 
-use chrono::{DateTime, Utc};
 use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
@@ -22,17 +21,6 @@ impl CoreRuntime {
         match self.remote_route(server)? {
             RemoteRoute::Agent => agent_route::inspect(self, server, path),
             RemoteRoute::Ssh => self.ssh_inspect(server, path),
-        }
-    }
-
-    pub(crate) fn remote_stat(
-        &mut self,
-        server: &str,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        match self.remote_route(server)? {
-            RemoteRoute::Agent => agent_route::stat(self, server, paths),
-            RemoteRoute::Ssh => self.stat_remote_files(server, paths),
         }
     }
 

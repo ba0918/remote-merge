@@ -4,13 +4,13 @@
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
 /// 出力を前から読む
-struct Cursor<'a> {
+pub(crate) struct Cursor<'a> {
     rest: &'a [u8],
 }
 
 impl<'a> Cursor<'a> {
     /// 目印を探し、その後ろから読む。ログインシェルが先に出したものは飛ばす
-    fn after_marker(stdout: &'a [u8], marker: &str) -> Result<Self, String> {
+    pub(crate) fn after_marker(stdout: &'a [u8], marker: &str) -> Result<Self, String> {
         let mark = [marker.as_bytes(), b"\0"].concat();
         let start = stdout
             .windows(mark.len())
@@ -22,7 +22,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// NUL までの欄
-    fn field(&mut self) -> Result<&'a [u8], String> {
+    pub(crate) fn field(&mut self) -> Result<&'a [u8], String> {
         let end = self
             .rest
             .iter()
@@ -53,14 +53,14 @@ impl<'a> Cursor<'a> {
             .ok_or_else(|| format!("not a number: {:?}", String::from_utf8_lossy(field)))
     }
 
-    fn expect(&mut self, tag: &[u8]) -> Result<(), String> {
+    pub(crate) fn expect(&mut self, tag: &[u8]) -> Result<(), String> {
         match self.field()? {
             field if field == tag => Ok(()),
             other => Err(format!("unexpected {:?}", String::from_utf8_lossy(other))),
         }
     }
 
-    fn end(mut self) -> Result<(), String> {
+    pub(crate) fn end(mut self) -> Result<(), String> {
         self.expect(b"@END")?;
         if self.rest.is_empty() {
             Ok(())

@@ -8,16 +8,7 @@ use std::path::Path;
 use remote_merge_core::op_failure::OpFailure;
 
 use super::*;
-use crate::scan_test_shell::shell_command;
-use tools::{bin_with, run_with_only};
-
-pub(super) fn run(script: &str) -> Result<Vec<u8>, String> {
-    let output = shell_command(script).output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-    }
-    Ok(output.stdout)
-}
+use crate::contents_tests_support::{bin_with, run, run_with_only};
 
 pub(super) fn paths(root: &Path, rels: &[&str]) -> Vec<(String, String)> {
     rels.iter()

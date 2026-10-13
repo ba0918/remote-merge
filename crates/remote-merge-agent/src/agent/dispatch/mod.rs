@@ -3,24 +3,24 @@
 
 mod changes;
 mod reads;
+mod writes;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::{EntryPath, RelPath, RelPathError};
 
-use super::file_io::{self, SavedMetadata};
+use super::file_io;
 use super::protocol::{AgentRequest, AgentResponse, WireFailure};
 use super::server::MetadataConfig;
 
 pub struct Dispatcher {
     root_dir: PathBuf,
     metadata_config: MetadataConfig,
-    /// 分けて送られる書き込みの、最初の分を書く前の書き込み先の所有者と権限
-    pub(crate) saved_metadata: HashMap<String, Option<SavedMetadata>>,
-    /// 分けて送られる書き込みで、最初の分を書き終えたパス
-    pub(crate) written_paths: HashSet<String>,
+    /// 分けて送られる書き込みで最初の分を書き終えたパスと、最初の分を書く前に書き込み先が
+    /// なかったか
+    pub(crate) writing: HashMap<String, bool>,
 }
 
 /// 一つのパスの要求で、パスを拒んだときの応答
@@ -37,8 +37,7 @@ impl Dispatcher {
         Self {
             root_dir,
             metadata_config,
-            saved_metadata: HashMap::new(),
-            written_paths: HashSet::new(),
+            writing: HashMap::new(),
         }
     }
 
@@ -76,12 +75,12 @@ impl Dispatcher {
                 Err(refusal) => refused(refusal),
             },
             AgentRequest::Symlink { path, target } => match EntryPath::parse(&path) {
-                Ok(path) => vec![changes::symlink(
+                Ok(path) => vec![changes::changed(writes::symlink(
                     root,
                     &path,
                     &target,
                     &self.metadata_config,
-                )],
+                ))],
                 Err(refusal) => refused(refusal),
             },
             AgentRequest::Remove { path } => match EntryPath::parse(&path) {
@@ -97,46 +96,34 @@ impl Dispatcher {
         })
     }
 
-    /// 書き込みの一つの分を書く。分けて送られるときは、最初の分で取った書き込み先の所有者と
-    /// 権限を最後の分まで持つ
+    /// 書き込みの一つの分を書く。分けて送られるときは、最初の分の前に書き込み先がなかったかを
+    /// 最後の分まで覚える
     fn write(&mut self, path: &EntryPath, content: &[u8], more_to_follow: bool) -> AgentResponse {
         let key = path.as_typed().to_string();
-        let first = !self.written_paths.contains(&key);
-        let saved = self.saved_metadata.get(&key).cloned().flatten();
-        let written = file_io::write_file_with_metadata(
-            &self.root_dir,
-            path,
-            content,
-            first,
-            !more_to_follow,
-            saved.as_ref(),
-            &self.metadata_config,
-        );
-        match written {
-            Ok(taken) if more_to_follow => {
-                if first {
-                    self.saved_metadata.insert(key.clone(), taken);
-                    self.written_paths.insert(key);
-                }
-                AgentResponse::Changed { failure: None }
-            }
-            Ok(_) => {
-                self.forget(&key);
-                AgentResponse::Changed { failure: None }
-            }
-            Err(error) => {
-                self.forget(&key);
-                let failure = remote_merge_core::op_failure::from_error(&error);
-                AgentResponse::Changed {
-                    failure: Some(wire(&failure)),
-                }
-            }
+        let part = match self.writing.get(&key) {
+            Some(created) => writes::Part {
+                first: false,
+                last: !more_to_follow,
+                created: *created,
+            },
+            None => writes::Part {
+                first: true,
+                last: !more_to_follow,
+                created: writes::is_new(&self.root_dir, path),
+            },
+        };
+        let written =
+            writes::write_part(&self.root_dir, path, content, &part, &self.metadata_config);
+        if written.is_ok() && more_to_follow {
+            self.writing.insert(key, part.created);
+        } else {
+            self.forget(&key);
         }
+        changes::changed(written)
     }
 
     fn forget(&mut self, key: &str) {
-        self.saved_metadata.remove(key);
-        self.written_paths.remove(key);
+        self.writing.remove(key);
     }
 }
 

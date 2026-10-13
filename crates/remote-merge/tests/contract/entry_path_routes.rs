@@ -37,7 +37,6 @@ fn refusals_for_each_operation(core: &mut CoreRuntime, side: &Side, root: &str) 
         core.create_symlink(side, root, "x"),
         core.read_file_bytes(side, root, true).map(|_| ()),
         core.current_link_target(side, root).map(|_| ()),
-        core.stat_files(side, &[root.to_string()]).map(|_| ()),
     ]
     .into_iter()
     .map(|result| {

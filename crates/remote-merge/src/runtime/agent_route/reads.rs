@@ -1,19 +1,12 @@
-//! エージェントの経路の読み取り（中身・更新時刻・ハッシュ・項目のリンク先）。
+//! エージェントの経路の読み取り（中身・ハッシュ・項目のリンク先）。
 //! エージェントが答えた失敗の種類は、操作とパスを添えた誤りにする
 
-use chrono::{DateTime, Utc};
-use remote_merge_core::op_failure::{
-    failure_of, OpError, OpFailure, Operation, PathResult, SizeLimit,
-};
+use remote_merge_core::op_failure::{failure_of, OpFailure, PathResult, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
 use super::{with_agent, AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE};
-use crate::agent::protocol::{FileHashResult, StatResult};
+use crate::agent::protocol::FileHashResult;
 use crate::runtime::core::CoreRuntime;
-
-fn failed(operation: Operation, path: &str, failure: OpFailure) -> anyhow::Error {
-    OpError::new(operation, path, failure).into()
-}
 
 /// パスごとの中身か失敗の種類。上限を超えるファイルはエージェントが中身を送らない
 pub(crate) fn read_entries(
@@ -33,42 +26,6 @@ pub(crate) fn read_entries(
         })?);
     }
     Ok(answers)
-}
-
-/// 一度に送るパスの数の上限ごとに分けて尋ねる。どれかの回が失敗したら全体の失敗にする
-fn stat_in_batches(
-    rt: &mut CoreRuntime,
-    server_name: &str,
-    paths: &[EntryPath],
-) -> anyhow::Result<Vec<StatResult>> {
-    let mut stats = Vec::new();
-    for batch in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        stats.extend(with_agent(rt, server_name, |agent| {
-            agent.stat_files(batch)
-        })?);
-    }
-    Ok(stats)
-}
-
-/// パスごとの更新時刻。ないパスは None、そのほかの失敗は誤り
-pub(crate) fn stat(
-    rt: &mut CoreRuntime,
-    server_name: &str,
-    paths: &[EntryPath],
-) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-    stat_in_batches(rt, server_name, paths)?
-        .into_iter()
-        .map(|result| match result {
-            StatResult::Ok(stat) => {
-                let modified = DateTime::from_timestamp(stat.mtime_secs, stat.mtime_nanos);
-                Ok((stat.path, modified))
-            }
-            StatResult::Failed { path, failure } => match OpFailure::from(failure) {
-                OpFailure::NotFound => Ok((path, None)),
-                failure => Err(failed(Operation::Stat, &path, failure)),
-            },
-        })
-        .collect()
 }
 
 /// 項目そのものが symlink ならそのリンク先。symlink でないか、ないか、途中がディレクトリでなければ None
