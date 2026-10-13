@@ -71,40 +71,6 @@ fn answer(mut child: Child) {
             let state = state[5..].to_string();
             return answer_root_state(child, &state);
         }
-        "missing root" => {
-            let text = [ExternalLinks::Stop, ExternalLinks::Follow]
-                .into_iter()
-                .flat_map(|external| {
-                    [
-                        CompareScope::Whole,
-                        CompareScope::Below(vec!["d".into()]),
-                        CompareScope::Entries(vec!["d/a.txt".into()]),
-                    ]
-                    .map(|scope| (scope, external))
-                })
-                .map(|(scope, external)| {
-                    let mut request = request(scope, Method::Metadata, Follow::No);
-                    request.external_links = external;
-                    let compared = child.runtime.compare(&sides, &request, &NothingUsed);
-                    let kind = compared.as_ref().err().map(|error| {
-                        error.chain().find_map(|cause| {
-                            cause.downcast_ref::<ScanFailure>().cloned().or_else(|| {
-                                cause
-                                    .downcast_ref::<ScanStopped>()
-                                    .map(|stopped| stopped.failure.clone())
-                            })
-                        })
-                    });
-                    format!(
-                        "{}kind={kind:?} stopped={}",
-                        comparison_text(compared),
-                        child.runtime.has_stopped()
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("--\n");
-            return child.answer(&text);
-        }
         "blocked" => (
             vec![
                 CompareScope::Entries(vec!["d/a.txt".into(), "b.txt".into()]),
