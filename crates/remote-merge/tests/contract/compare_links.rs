@@ -4,7 +4,9 @@
 //! （docs/ir/compare/judgement.md の REQ-compare-008、docs/ir/compare/flow.md の REQ-compare-004）の
 //! 契約テスト。左はローカル、右と参照先は調べる経路。
 
+use std::ffi::OsStr;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 
 use remote_merge::runtime::{CompareScope, ExternalLinks};
@@ -33,6 +35,11 @@ fn answer(mut child: Child) {
             let mut diff = request(CompareScope::Whole, Method::Content, Follow::Yes);
             diff.external_links = ExternalLinks::Stop;
             comparison_text(child.runtime.compare(&sides, &diff, &DiffUses))
+        }
+        "status" => {
+            let sides = child.sides(false);
+            let status = request(CompareScope::Whole, Method::Metadata, Follow::No);
+            comparison_text(child.runtime.compare(&sides, &status, &NothingUsed))
         }
         other => panic!("{other}"),
     };
@@ -113,6 +120,33 @@ fn ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_
              shared/a.txt left-right=differs not-collected:ref\n\
              asked left hash=[] read=[\"shared/a.txt\"]\n\
              asked right hash=[] read=[\"shared/a.txt\"]\n",
+            "{route:?}"
+        );
+    }
+}
+
+// @kotowari[REQ-compare-008]
+#[test]
+fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_three_routes() {
+    let name =
+        "req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_three_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            symlink(OsStr::from_bytes(b"t\xfd"), root.join("same-bytes")).unwrap();
+        }
+        symlink(OsStr::from_bytes(b"t\xff"), left.join("other-bytes")).unwrap();
+        symlink(OsStr::from_bytes(b"t\xfe"), right.join("other-bytes")).unwrap();
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, &test_name(name), "status");
+        assert_eq!(
+            text,
+            "other-bytes left-right=differs\n\
+             same-bytes left-right=same\n",
             "{route:?}"
         );
     }

@@ -25,9 +25,9 @@ pub enum SideState {
         mtime: Option<Mtime>,
     },
     Directory,
-    /// 末尾の symlink。`target` はリンク文字列
+    /// 末尾の symlink。`target` はリンク文字列のバイト列
     Symlink {
-        target: String,
+        target: Vec<u8>,
         points_to: LinkPoint,
     },
 }

@@ -34,9 +34,9 @@ fn names_and_link_targets_are_listed_as_read() {
             })
             .unwrap()
     };
-    assert_eq!(target("tab"), "a\tb.txt");
-    assert_eq!(target("nl"), "end\n");
-    assert_eq!(target("bs"), "a\\b");
+    assert_eq!(target("tab"), b"a\tb.txt");
+    assert_eq!(target("nl"), b"end\n");
+    assert_eq!(target("bs"), b"a\\b");
 }
 
 // @kotowari[REQ-scan-002, EX-scan-003]

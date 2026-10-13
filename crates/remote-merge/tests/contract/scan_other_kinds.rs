@@ -24,7 +24,7 @@ pub(super) fn listing_text(listing: anyhow::Result<Listing>) -> String {
                     ListedKind::File => "file".to_string(),
                     ListedKind::Directory => "directory".to_string(),
                     ListedKind::Symlink { target, points_to } => {
-                        format!("symlink {target} {points_to:?}")
+                        format!("symlink {} {points_to:?}", String::from_utf8_lossy(target))
                     }
                     ListedKind::Other => "other".to_string(),
                 };

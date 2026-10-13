@@ -84,8 +84,9 @@ pub struct ScanRequest {
 pub enum ListedKind {
     File,
     Directory,
+    /// `target` はリンク文字列のバイト列（UTF-8 でなくてもそのまま）
     Symlink {
-        target: String,
+        target: Vec<u8>,
         points_to: LinkPoint,
     },
     /// 通常ファイル・ディレクトリ・symlink のどれでもないもの（FIFO・ソケット・デバイス。

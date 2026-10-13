@@ -148,3 +148,43 @@ fn two_directories_are_the_same() {
         );
     }
 }
+
+/// root_dir に `text` を指す symlink "l" だけを置いて、このマシンの集め方で走査した "l" の状態
+#[cfg(unix)]
+fn scanned_link(text: &[u8]) -> SideState {
+    use crate::scan::exclude::Exclude;
+    use crate::scan::outcome::{ScanRequest, ScanScope};
+    use crate::scan::this_machine::MachineCollector;
+    use std::os::unix::ffi::OsStrExt;
+    let temp = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(text), temp.path().join("l")).unwrap();
+    let request = ScanRequest {
+        scope: ScanScope::Whole,
+        max_entries: 10,
+    };
+    let listing = crate::scan::drive::scan(
+        &mut MachineCollector::new(temp.path().to_path_buf()),
+        &Exclude::new(&[]),
+        &request,
+    )
+    .unwrap();
+    SideState::of_entry(&listing.entries[0])
+}
+
+// @kotowari[REQ-compare-008, TBL-compare-001]
+#[cfg(unix)]
+#[test]
+fn links_whose_texts_differ_only_in_bytes_that_are_not_utf8_differ() {
+    for method in BOTH {
+        assert_eq!(
+            judge_states(&scanned_link(b"t\xff"), &scanned_link(b"t\xfe"), method),
+            decided(Verdict::Differs),
+            "{method:?}"
+        );
+        assert_eq!(
+            judge_states(&scanned_link(b"t\xff"), &scanned_link(b"t\xff"), method),
+            decided(Verdict::Same),
+            "{method:?}"
+        );
+    }
+}

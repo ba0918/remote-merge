@@ -23,7 +23,7 @@ fn a_listing_larger_than_one_frame_is_returned_whole_and_the_agent_stays_usable(
     assert_eq!(listing.entries.len(), 5000);
     assert!(listing.entries.iter().all(|entry| matches!(
         &entry.kind,
-        remote_merge_core::scan::outcome::ListedKind::Symlink { target: t, .. } if *t == target
+        remote_merge_core::scan::outcome::ListedKind::Symlink { target: t, .. } if *t == target.as_bytes()
     )));
     client.ping().unwrap();
 }

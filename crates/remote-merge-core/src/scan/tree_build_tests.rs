@@ -120,3 +120,23 @@ fn an_entry_of_another_kind_is_kept_out_of_the_old_tree() {
     assert!(tree.find_node("pipe").is_none());
     assert!(tree.find_node("a.txt").is_some());
 }
+
+// @kotowari[REQ-merge-033]
+#[test]
+fn a_link_target_that_is_not_utf8_has_replacement_characters_in_the_old_tree() {
+    let kind = ListedKind::Symlink {
+        target: b"bad\xff".to_vec(),
+        points_to: LinkPoint::Missing,
+    };
+    let listing = Listing {
+        entries: vec![entry("l", kind)],
+        ..Listing::default()
+    };
+    let tree = to_tree("/root", listing);
+    assert_eq!(
+        tree.find_node("l").unwrap().kind,
+        NodeKind::Symlink {
+            target: "bad\u{fffd}".into()
+        }
+    );
+}

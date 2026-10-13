@@ -57,8 +57,10 @@ fn node_of(entry: &ListedEntry) -> Option<FileNode> {
         ListedKind::Symlink { target, points_to } => {
             let is_dir = *points_to == LinkPoint::Directory;
             (
+                // 古い木は UTF-8 として読めないリンク先を置換文字にして載せ、merge が変わっていない
+                // ことを確かめられないものとして扱う（docs/ir/merge/concurrency.md の REQ-merge-033）
                 NodeKind::Symlink {
-                    target: target.clone(),
+                    target: String::from_utf8_lossy(target).into_owned(),
                 },
                 is_dir.then(BTreeMap::new),
                 is_dir,

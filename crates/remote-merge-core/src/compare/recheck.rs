@@ -7,9 +7,14 @@ use super::verdict::{SideFailure, Undecidable};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Observed {
     Absent,
-    File { hash: String },
+    File {
+        hash: String,
+    },
     Directory,
-    Symlink { target: String },
+    /// `target` はリンク文字列のバイト列
+    Symlink {
+        target: Vec<u8>,
+    },
     Other,
 }
 

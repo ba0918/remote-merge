@@ -73,9 +73,9 @@ fn nothing_below_an_excluded_directory_is_read_or_stops_the_scan() {
     assert_eq!(fake.asked_paths(), [""]);
 }
 
-// @kotowari[REQ-merge-033]
+// @kotowari[REQ-compare-008]
 #[test]
-fn a_link_target_that_is_not_utf8_is_listed_with_replacement_characters() {
+fn a_link_target_that_is_not_utf8_is_listed_as_its_bytes() {
     let mut fake = Fake::default()
         .with(b"", root(Some(vec![link(b"l", b"bad\xff")])))
         .with(b"l", link_answer(LinkTarget::Missing, None));
@@ -84,7 +84,7 @@ fn a_link_target_that_is_not_utf8_is_listed_with_replacement_characters() {
     assert_eq!(
         listing.entries[0].kind,
         ListedKind::Symlink {
-            target: "bad\u{fffd}".into(),
+            target: b"bad\xff".to_vec(),
             points_to: crate::scan::outcome::LinkPoint::Missing
         }
     );
