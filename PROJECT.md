@@ -49,6 +49,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 | Run | `cargo run -- status --left local --right <server>`（サブコマンドなしは使い方を出して終了コード 2） |
 | Spec check | `kotowari check` |
 | Real OpenSSH/sudo tests | `scripts/run-container-e2e.sh`（Docker 必須、通常テストと別パッケージ） |
+| Old remote tools | `REMOTE_MERGE_TEST_SCAN_IMAGE=centos:5 cargo nextest run -p remote-merge-ssh`（Docker 必須。centos:5〜7・busybox:1.37.0 などのコンテナの sh と道具でリモートのスクリプトを動かす。イメージを指定しないと、コンテナでしか確かめられない試験は飛ばす。`REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE=1` を置くと、飛ばさずに失敗にする。`REMOTE_MERGE_TEST_REQUIRE_FISH=1` は fish がないときに同じく失敗にする） |
 
 ## Conventions specific to this project
 

@@ -55,13 +55,24 @@ pub fn shell_command(script: &str) -> Command {
 /// 検索の権限がないときの答えをそのコンテナの道具で確かめるために使う
 pub fn container_shell_as_user(script: &str) -> Option<Command> {
     let image = std::env::var("REMOTE_MERGE_TEST_SCAN_IMAGE").unwrap_or_default();
-    if image.is_empty() {
-        return None;
-    }
+    let required = std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE")
+        .is_some_and(|value| !value.is_empty());
+    let image = image_to_use(&image, required)?;
     let mut command = Command::new("docker");
     command.args(["run", "--rm", "-i", "--user", "1000:1000"]);
-    command.args([image.as_str(), "/bin/sh", "-c", script]);
+    command.args([image, "/bin/sh", "-c", script]);
     Some(command)
+}
+
+/// コンテナで試す試験が使うイメージ。指定がなければ None で、その試験は飛ばす。ただし
+/// `REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE` が空でなければ（`required`）、飛ばさずに失敗にする
+/// （`REMOTE_MERGE_TEST_REQUIRE_FISH` と同じ考え。コンテナで確かめるはずの試験が黙って抜けない）
+fn image_to_use(image: &str, required: bool) -> Option<&str> {
+    assert!(
+        !(image.is_empty() && required),
+        "a container image is required by REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE but REMOTE_MERGE_TEST_SCAN_IMAGE is not set"
+    );
+    (!image.is_empty()).then_some(image)
 }
 
 /// [`shell_command`] の、`bin` を PATH の先頭に置いたもの（find が -exec で起こす sh を差し替える）
@@ -195,4 +206,21 @@ pub fn scan_with(collector: &mut dyn Collector, rule: &Exclude, scope: ScanScope
         listing
     });
     format!("{result:?}")
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_image_is_skipped_unless_it_is_required() {
+        assert_eq!(image_to_use("", false), None);
+        assert_eq!(image_to_use("centos:5", true), Some("centos:5"));
+    }
+
+    #[test]
+    #[should_panic(expected = "REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE")]
+    fn a_missing_image_fails_when_it_is_required() {
+        image_to_use("", true);
+    }
 }
