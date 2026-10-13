@@ -11,7 +11,7 @@ use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScop
 use remote_merge_core::scan::this_machine::MachineCollector;
 
 use crate::child_listing::into_child_listing;
-use crate::scan_result::into_tree;
+use crate::scan_result::{into_listing, into_tree};
 use crate::tree::{FileNode, FileTree};
 
 /// 走査が件数の上限に当たって打ち切られたこと（REQ-scan-008）。文は上限の上げ方とパスの指定の
@@ -84,6 +84,19 @@ pub fn scan_tree(
         scan(root, exclude, request),
         request.max_entries,
         fail,
+        || missing_root(root),
+    )
+}
+
+/// このマシンで走査して一覧にする。件数の上限での打ち切りと循環は一覧の印のまま返す
+pub fn scan_listing(
+    root: &Path,
+    exclude: &[String],
+    request: &ScanRequest,
+) -> anyhow::Result<Listing> {
+    into_listing(
+        &root.display().to_string(),
+        scan(root, exclude, request),
         || missing_root(root),
     )
 }

@@ -28,6 +28,7 @@ pub(crate) mod scan_entry;
 pub(crate) mod scripted_agent;
 mod side_hashes;
 pub mod side_io;
+mod side_listing;
 mod side_reads;
 pub mod size_limit;
 mod ssh_changes;

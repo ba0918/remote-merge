@@ -8,7 +8,7 @@ use remote_merge_core::scan::drive::scan;
 use remote_merge_core::scan::exclude::Exclude;
 use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
 use remote_merge_engine::child_listing::into_child_listing;
-use remote_merge_engine::scan_result::into_tree;
+use remote_merge_engine::scan_result::{into_listing, into_tree};
 use remote_merge_ssh::scan_collect::SshCollector;
 
 use super::core::CoreRuntime;
@@ -34,6 +34,19 @@ impl CoreRuntime {
             fail_on_truncation,
             || remote_root_missing(server_name, &root),
         )
+    }
+
+    /// SSH の経路の集め方と走査の規則で走査した一覧
+    pub(crate) fn scan_remote_listing(
+        &mut self,
+        server_name: &str,
+        request: &ScanRequest,
+    ) -> anyhow::Result<Listing> {
+        let exclude = self.config.filter.exclude.clone();
+        let (root, scanned) = self.scan_over_ssh(server_name, request, &exclude)?;
+        into_listing(&remote_shown_root(server_name, &root), scanned, || {
+            remote_root_missing(server_name, &root)
+        })
     }
 
     /// SSH の経路で、走査の集め方を深さ一つにしたもので子の一覧を取る（D6）

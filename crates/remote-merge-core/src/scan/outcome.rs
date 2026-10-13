@@ -72,7 +72,13 @@ pub struct ScanRequest {
 pub enum ListedKind {
     File,
     Directory,
-    Symlink { target: String, is_dir: bool },
+    Symlink {
+        target: String,
+        is_dir: bool,
+    },
+    /// 通常ファイル・ディレクトリ・symlink のどれでもないもの（FIFO・ソケット・デバイス。
+    /// docs/ir/scan/listing.md の REQ-scan-021）。中身は読まない
+    Other,
 }
 
 /// 一覧に載せた項目。`path` は root_dir からのパス

@@ -3,7 +3,7 @@
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{Listing, ScanRequest};
 use std::collections::HashMap;
 
 use super::core::CoreRuntime;
@@ -106,6 +106,15 @@ impl TargetIo for RemoteTargetIo {
     ) -> anyhow::Result<FileTree> {
         let name = &self.name;
         rt.read_on_route(name, |rt| rt.remote_scan(name, request, fail))
+    }
+
+    fn scan_listing(
+        &mut self,
+        rt: &mut CoreRuntime,
+        request: &ScanRequest,
+    ) -> anyhow::Result<Listing> {
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_scan_listing(name, request))
     }
 
     fn fetch_children(

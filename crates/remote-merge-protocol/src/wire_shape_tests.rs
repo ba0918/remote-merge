@@ -122,6 +122,7 @@ fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
             target: "t".into(),
             is_dir: false,
         },
+        ListedKind::Other,
     ];
     let scopes = vec![
         ScanScope::Whole,
@@ -134,7 +135,10 @@ fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
     ];
     for kind in &kinds {
         match kind {
-            ListedKind::File | ListedKind::Directory | ListedKind::Symlink { .. } => {}
+            ListedKind::File
+            | ListedKind::Directory
+            | ListedKind::Symlink { .. }
+            | ListedKind::Other => {}
         }
     }
     for scope in &scopes {
@@ -191,7 +195,7 @@ fn every_kind_of_entry_and_scope_keeps_its_wire_shape() {
         .collect();
     assert_eq!(
         hex(&serialize_response(&chunk).unwrap()),
-        "81a9547265654368756e6b959397a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b92a174c20000000000c290c3c0",
+        "81a9547265654368756e6b959497a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b92a174c2000000000097a165a54f746865720000000000c290c3c0",
         "bump PROTOCOL_VERSION"
     );
     assert_eq!(requests.join(","), "81a84c697374547265659292a557686f6c650190,81a84c69737454726565929281a65374617274739394a161c3c30094a162c2c30194a163c2c2020190,81a84c69737454726565929281a84368696c6472656ea1640190", "bump PROTOCOL_VERSION");

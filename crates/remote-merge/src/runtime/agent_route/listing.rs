@@ -3,9 +3,9 @@
 
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::{ScanError, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
 use remote_merge_engine::child_listing::into_child_listing;
-use remote_merge_engine::scan_result::into_tree;
+use remote_merge_engine::scan_result::{into_listing, into_tree};
 
 use super::with_agent;
 use crate::runtime::core::CoreRuntime;
@@ -32,6 +32,22 @@ pub(crate) fn list_children(
         path.as_str(),
         scanned.map_err(ScanError::Failure),
         max_entries,
+        || remote_root_missing(server_name, &root_dir),
+    )
+}
+
+/// エージェントで、ローカルと同じ集め方と規則で走査した一覧
+pub(crate) fn scan_listing(
+    rt: &mut CoreRuntime,
+    server_name: &str,
+    request: &ScanRequest,
+) -> anyhow::Result<Listing> {
+    let root_dir = rt.get_server_config(server_name)?.root_dir.clone();
+    let exclude = rt.config.filter.exclude.clone();
+    let scanned = with_agent(rt, server_name, |agent| agent.list_tree(request, &exclude))?;
+    into_listing(
+        &remote_shown_root(server_name, &root_dir),
+        scanned.map_err(ScanError::Failure),
         || remote_root_missing(server_name, &root_dir),
     )
 }

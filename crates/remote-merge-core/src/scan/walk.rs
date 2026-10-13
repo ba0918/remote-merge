@@ -166,12 +166,14 @@ impl<'a> Walk<'a> {
         let text = std::str::from_utf8(path).ok();
         // UTF-8 として読めないリンク先は置換文字にして載せ、merge が変わっていないことを確かめ
         // られないものとして扱う（docs/ir/merge/concurrency.md の REQ-merge-033）
-        let kind = match target {
-            None => ListedKind::File,
-            Some(target) => ListedKind::Symlink {
+        let kind = match (target, &entry.kind) {
+            (Some(target), _) => ListedKind::Symlink {
                 target: String::from_utf8_lossy(target).into_owned(),
                 is_dir: false,
             },
+            // その他の種類は通常ファイルとせず、その種類のまま載せる（REQ-scan-021）
+            (None, RawKind::Other) => ListedKind::Other,
+            (None, _) => ListedKind::File,
         };
         let listed = match text {
             Some(text) => {

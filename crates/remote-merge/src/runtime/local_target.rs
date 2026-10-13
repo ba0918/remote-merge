@@ -7,7 +7,7 @@ use remote_merge_core::machine_ops;
 use remote_merge_core::op_failure::{Operation, PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{Listing, ScanRequest};
 
 use super::core::CoreRuntime;
 use super::local_ops::op_error;
@@ -101,6 +101,14 @@ impl TargetIo for LocalTargetIo {
         fail: bool,
     ) -> anyhow::Result<FileTree> {
         remote_merge_engine::local_io::scan_tree(&self.root, &self.exclude, request, fail)
+    }
+
+    fn scan_listing(
+        &mut self,
+        _: &mut CoreRuntime,
+        request: &ScanRequest,
+    ) -> anyhow::Result<Listing> {
+        remote_merge_engine::local_io::scan_listing(&self.root, &self.exclude, request)
     }
 
     fn fetch_children(

@@ -100,3 +100,19 @@ fn an_empty_directory_has_loaded_children() {
         Some(0)
     );
 }
+
+// 段 5 で比べる流れに載せ替えるまで、古いコマンドがその他の種類を読みに行かないよう、古い木には載せない
+// @kotowari[REQ-scan-021]
+#[test]
+fn an_entry_of_another_kind_is_kept_out_of_the_old_tree() {
+    let listing = Listing {
+        entries: vec![
+            entry("pipe", ListedKind::Other),
+            entry("a.txt", ListedKind::File),
+        ],
+        ..Listing::default()
+    };
+    let tree = to_tree("/root", listing);
+    assert!(tree.find_node("pipe").is_none());
+    assert!(tree.find_node("a.txt").is_some());
+}

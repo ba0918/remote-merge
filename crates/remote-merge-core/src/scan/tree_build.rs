@@ -12,7 +12,12 @@ pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
     let mut top: BTreeMap<String, FileNode> = BTreeMap::new();
     let mut entries = listing.entries;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
+    // その他の種類は、段 5 で比べる流れに載せ替えるまで古いコマンドが読みに行かないよう、古い木には
+    // 載せない（一覧には残る。docs/decision/records/2026-10-12-foundation-4.md の E8）
     for entry in entries {
+        let Some(node) = node_of(&entry) else {
+            continue;
+        };
         let elements: Vec<&str> = entry.path.split('/').collect();
         let (name, parents) = elements.split_last().expect("split yields one element");
         let siblings = parents.iter().fold(&mut top, |children, parent| {
@@ -21,7 +26,6 @@ pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
                 .or_insert_with(|| FileNode::new_dir_with_children(*parent, Vec::new()));
             holder.children.get_or_insert_with(BTreeMap::new)
         });
-        let node = node_of(name, &entry);
         match siblings.get_mut(*name) {
             // 先に子から器として作った親に、一覧の項目の中身を移す
             Some(existing) => {
@@ -44,10 +48,12 @@ pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
     tree
 }
 
-fn node_of(name: &str, entry: &ListedEntry) -> FileNode {
+fn node_of(entry: &ListedEntry) -> Option<FileNode> {
+    let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
     let (kind, children, link_is_dir) = match &entry.kind {
         ListedKind::File => (NodeKind::File, None, false),
         ListedKind::Directory => (NodeKind::Directory, Some(BTreeMap::new()), false),
+        ListedKind::Other => return None,
         ListedKind::Symlink { target, is_dir } => (
             NodeKind::Symlink {
                 target: target.clone(),
@@ -56,7 +62,7 @@ fn node_of(name: &str, entry: &ListedEntry) -> FileNode {
             *is_dir,
         ),
     };
-    FileNode {
+    Some(FileNode {
         name: name.to_string(),
         kind,
         size: Some(entry.size),
@@ -65,7 +71,7 @@ fn node_of(name: &str, entry: &ListedEntry) -> FileNode {
         children,
         link_is_dir,
         mtime_digits: entry.mtime_digits,
-    }
+    })
 }
 
 #[cfg(test)]

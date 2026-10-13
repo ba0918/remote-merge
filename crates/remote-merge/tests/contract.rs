@@ -125,6 +125,9 @@ mod dry_run_failures;
 mod entry_path_routes;
 #[path = "contract/filters.rs"]
 mod filters;
+#[cfg(feature = "test-utils")]
+#[path = "contract/flow_support.rs"]
+mod flow_support;
 #[path = "contract/init.rs"]
 mod init;
 #[cfg(feature = "test-utils")]
@@ -245,6 +248,9 @@ mod scan_names_as_read_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_non_utf8_names.rs"]
 mod scan_non_utf8_names;
+#[cfg(feature = "test-utils")]
+#[path = "contract/scan_other_kinds.rs"]
+mod scan_other_kinds;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_partial_starts.rs"]
 mod scan_partial_starts;

@@ -2,7 +2,7 @@
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-003・REQ-ssh-023）。
 
 use remote_merge_core::relative_path::{EntryPath, RelPath};
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{Listing, ScanRequest};
 use std::collections::HashMap;
 
 use crate::tree::{FileNode, FileTree};
@@ -76,6 +76,9 @@ impl TargetIo for StoppedTargetIo {
         _: &ScanRequest,
         _: bool,
     ) -> anyhow::Result<FileTree> {
+        self.refuse(rt)
+    }
+    fn scan_listing(&mut self, rt: &mut CoreRuntime, _: &ScanRequest) -> anyhow::Result<Listing> {
         self.refuse(rt)
     }
     fn fetch_children(

@@ -5,7 +5,7 @@ use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{Listing, ScanRequest};
 
 use super::agent_route;
 use super::core::CoreRuntime;
@@ -59,6 +59,17 @@ impl CoreRuntime {
         match self.remote_route(server)? {
             RemoteRoute::Agent => agent_route::scan(self, server, request, fail_on_truncation),
             RemoteRoute::Ssh => self.scan_remote_tree(server, request, fail_on_truncation),
+        }
+    }
+
+    pub(crate) fn remote_scan_listing(
+        &mut self,
+        server: &str,
+        request: &ScanRequest,
+    ) -> anyhow::Result<Listing> {
+        match self.remote_route(server)? {
+            RemoteRoute::Agent => agent_route::scan_listing(self, server, request),
+            RemoteRoute::Ssh => self.scan_remote_listing(server, request),
         }
     }
 

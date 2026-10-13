@@ -10,7 +10,7 @@ use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{Listing, ScanRequest};
 
 /// 一覧した子に include を当てる
 pub(crate) fn included_children(
@@ -116,6 +116,13 @@ pub(crate) trait TargetIo {
         request: &ScanRequest,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree>;
+    /// 走査の規則で走査した一覧（起点と件数の上限は `request`）。件数の上限での打ち切りと循環は
+    /// 一覧の印のまま返す
+    fn scan_listing(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        request: &ScanRequest,
+    ) -> anyhow::Result<Listing>;
     fn fetch_children(
         &mut self,
         runtime: &mut CoreRuntime,

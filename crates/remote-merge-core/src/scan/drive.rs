@@ -195,3 +195,7 @@ mod scope_tests;
 #[cfg(test)]
 #[path = "drive_changed_tests.rs"]
 mod changed_tests;
+
+#[cfg(test)]
+#[path = "drive_kind_tests.rs"]
+mod kind_tests;
