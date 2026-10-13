@@ -34,3 +34,25 @@ fn the_isolated_homes_of_a_command_without_config_are_removed_with_the_command()
         data_home.display()
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_command_whose_isolated_homes_cannot_be_removed_says_so() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let command = remote_merge_cmd();
+    let data_home = xdg_data_home(&command).unwrap();
+    let homes = data_home.parent().unwrap().to_path_buf();
+    let locked = data_home.join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(locked.join("x"), "x").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(command)));
+
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::remove_dir_all(&homes).unwrap();
+    assert!(dropped.is_err(), "the failed removal was not reported");
+}

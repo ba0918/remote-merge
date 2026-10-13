@@ -483,10 +483,10 @@ impl CliEnv {
 // ─── CLI コマンド生成（config なし） ─────────────────────
 
 /// 一時ディレクトリの XDG_DATA_HOME と XDG_CACHE_HOME を持つ Command。一時ディレクトリは Command と
-/// 一緒に消える
+/// 一緒に消え、消せなければ知らせる
 pub struct IsolatedCommand {
     command: Command,
-    _homes: TempDir,
+    _homes: remote_merge_core::test_tree::TestTree,
 }
 
 impl std::ops::Deref for IsolatedCommand {
@@ -518,7 +518,7 @@ pub fn remote_merge_cmd() -> IsolatedCommand {
     if let Ok(path) = std::env::var("PATH") {
         cmd.env("PATH", path);
     }
-    let homes = TempDir::new().expect("Failed to create isolated homes");
+    let homes = remote_merge_core::test_tree::TestTree::new();
     let data_home = homes.path().join("data");
     // 診断ログを開発者のキャッシュに書かない
     let cache_home = homes.path().join("cache");
