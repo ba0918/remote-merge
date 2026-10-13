@@ -13,8 +13,10 @@ pub(crate) const EXISTS: &str = "@RMEXISTS";
 
 /// 自分の mkdir が作った親（位置引数の番号を `c` に下から順に入れたもの）を消す文。消せずに残った
 /// ものは、名前と rmdir の文言を NUL で区切り、目印を付けて標準エラーに出す（名前に改行が入りうる
-/// ため）。位置引数の番号は数字だけなので、eval に名前は入らない
-const UNDO_PARENTS: &str = "for i in $c; do eval \"x=\\${$i}\"; e=$(rmdir -- \"$x\" 2>&1) || [ ! -e \"$x\" ] || printf '\\n@RMLEFT\\000%s\\000%s\\000' \"$x\" \"$e\" >&2; done\n";
+/// ため）。消えていたもの（リンク切れの symlink も含めて何もないもの）は消せたものとし、別のものに
+/// 替わっていたものは rmdir が消さないので残ったものになる（ローカルの経路と同じ。D43）。位置引数の
+/// 番号は数字だけなので、eval に名前は入らない
+const UNDO_PARENTS: &str = "for i in $c; do eval \"x=\\${$i}\"; e=$(rmdir -- \"$x\" 2>&1) || { [ ! -e \"$x\" ] && [ ! -L \"$x\" ]; } || printf '\\n@RMLEFT\\000%s\\000%s\\000' \"$x\" \"$e\" >&2; done\n";
 
 /// 親ディレクトリを作る文。まだない親を位置引数に下から順に覚え、上から一つずつ mkdir で作る。
 /// 作ったものに数えるのは自分の mkdir が成功したものだけで（番号を `c` に入れる）、作る前に別の誰かが
@@ -62,27 +64,54 @@ pub(crate) fn parent_step(full: &str, drain: &str) -> String {
     )
 }
 
+/// 作ったディレクトリ `dirs`（下から順）を、書き込みのコマンドが失敗したときと同じ文で消すコマンド。
+/// 消せずに残ったものは同じ目印で標準エラーに出す（三つの経路の判断を比べる契約テストで使う）
+pub fn remove_created_dirs(dirs: &[&str]) -> String {
+    let words: String = dirs
+        .iter()
+        .map(|dir| format!(" {}", shell_escape(dir)))
+        .collect();
+    let numbers: Vec<String> = (1..=dirs.len()).map(|i| i.to_string()).collect();
+    format!(
+        "LC_ALL=C; export LC_ALL\nset --{words}; c='{}'\n{UNDO_PARENTS}",
+        numbers.join(" ")
+    )
+}
+
 /// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
 pub(crate) fn creating(create: &str) -> String {
     format!("( {create}\n); s=$?\nif [ $s != 0 ]; then\n{UNDO_PARENTS}exit $s; fi\n")
 }
 
-/// 標準入力を `writer` に通した中身を、新しいファイル `full` として作って書くコマンド。noclobber
-/// （`set -C`）の `>` は O_EXCL で開くので、確かめた後に同じパスに何かが現れていれば（別のファイルへの
-/// ハードリンクや symlink を含む）開かずに失敗し、目印を出す。noclobber は、すでにある通常ファイル
-/// でないもの（デバイスなど）を指す symlink を辿って開くので、開いた後にパスが symlink なら書かずに
-/// 失敗する。失敗で終わるときも標準入力を読み切る
+/// 標準入力を `writer` に通した中身を、新しいファイル `full` として作って書くコマンド。確かめた後に
+/// 同じパスに何かが現れていれば（別のファイルへのハードリンクや symlink を含む）開かずに失敗し、
+/// ローカルの経路の EEXIST と同じく "File exists" にする目印を出す。失敗で終わるときも標準入力を
+/// 読み切る。
+///
+/// dd が `oflag=nofollow` と `conv=excl` を受け付けるか（coreutils）を実行時に確かめ、受け付ければ dd が
+/// O_EXCL|O_NOFOLLOW で開く。受け付けなければ（BusyBox）noclobber（`set -C`）の `>` で O_EXCL で開く。
+/// noclobber は、すでにある通常ファイルでないもの（デバイスや FIFO）を指す symlink を辿って開くので、
+/// 開いた後にパスが symlink なら書かずに同じ目印で失敗する（開くまでの窓は FLAG-merge-021 に残す）。
+/// コマンド置換の中では case を使わない（CentOS 5 の bash 3.2 は、パターンの ")" をコマンド置換の
+/// 終わりと読んで構文の誤りにする）
 pub(crate) fn new_file(full: &str, writer: &str) -> String {
     format!(
         concat!(
-            "p={p}; set -C; r=1\n",
-            "{{ r=0\n",
-            " if [ -L \"$p\" ]; then cat >/dev/null; printf 'Too many levels of symbolic links\\n' >&2; exit 1; fi\n",
-            " {writer}\n",
-            "}} >\"$p\" || {{\n",
-            " cat >/dev/null\n",
-            " if [ $r = 1 ] && {{ [ -e \"$p\" ] || [ -L \"$p\" ]; }}; then printf '\\n{exists}\\n' >&2; fi\n",
-            " exit 1; }}",
+            "p={p}; fail() {{ cat >/dev/null; exit 1; }}\n",
+            "if dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null && dd if=/dev/null conv=excl count=0 </dev/null >/dev/null 2>&1; then\n",
+            " q=; if dd if=/dev/null of=/dev/null status=none 2>/dev/null; then q=status=none; fi\n",
+            " s=$( {{ {{ {writer} 3>&-; echo $? >&3; }} | {{ e=$(dd of=\"$p\" bs=65536 oflag=nofollow conv=excl $q 2>&1) && exit 0; c=$?\n",
+            "  if [ \"${{e%File exists}}\" != \"$e\" ]; then printf '\\n{exists}\\n' >&2; else printf '%s\\n' \"$e\" >&2; fi; exit $c; }} 3>&-; }} 3>&1 ) || fail\n",
+            " [ \"$s\" = 0 ] || fail\n",
+            "else\n",
+            " set -C; r=1\n",
+            " {{ r=0\n",
+            "  if [ -L \"$p\" ]; then cat >/dev/null; printf '\\n{exists}\\n' >&2; exit 1; fi\n",
+            "  {writer}\n",
+            " }} >\"$p\" || {{\n",
+            "  if [ $r = 1 ] && {{ [ -e \"$p\" ] || [ -L \"$p\" ]; }}; then printf '\\n{exists}\\n' >&2; fi\n",
+            "  fail; }}\n",
+            "fi",
         ),
         p = shell_escape(full),
         writer = writer,

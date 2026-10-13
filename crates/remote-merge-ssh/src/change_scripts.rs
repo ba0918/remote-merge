@@ -38,11 +38,11 @@ pub fn write(full: &str, binary: bool) -> String {
         shell_escape(full)
     ));
     script.push_str(&parent_step(full, drain));
-    // dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由をローカルの経路の
-    // O_NOFOLLOW と同じ文言で出す
+    // 既存の書き込み先で、dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由を
+    // ローカルの経路の O_NOFOLLOW と同じ文言で出す（新しいファイルの手順は、現れた symlink を自分で断る）
     script.push_str(&format!(
         concat!(
-            "if [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
+            "if [ $n = 0 ] && [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
             " {drain}printf 'Too many levels of symbolic links\\n' >&2; exit 1\n",
             "fi\n",
         ),

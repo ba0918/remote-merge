@@ -85,6 +85,74 @@ fn a_hard_link_placed_after_the_check_for_a_new_file_is_not_written_like_this_ma
     }
 }
 
+// 通常ファイルでないものを指す symlink が現れたときも、ローカルの経路の EEXIST と同じ "File exists"
+// にする
+// @kotowari[REQ-merge-043]
+#[test]
+fn a_link_to_a_device_placed_after_the_check_for_a_new_file_is_file_exists_like_this_machine() {
+    for nofollow in [true, false] {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("new/a.txt");
+        let bin = bin_with(&["cat", "dd", "rmdir"]);
+        if !nofollow {
+            put_dd_without_nofollow(bin.path());
+        }
+        put_mkdir(
+            bin.path(),
+            "",
+            &format!("/bin/ln -s /dev/null '{}'", target.display()),
+        );
+
+        let result = run_with_only(bin.path(), &write(target.to_str().unwrap(), false), b"x");
+
+        let Err(OpFailure::Io(message)) = result else {
+            panic!("nofollow={nofollow}: {result:?}");
+        };
+        assert!(message.starts_with("File exists; "), "{message}");
+    }
+}
+
+/// `bin` に、受けた引数を `log` に書いてから本物の dd を動かす dd を置く
+fn put_logging_dd(bin: &Path, log: &Path) {
+    let path = bin.join("dd");
+    fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\necho \"$*\" >>'{}'\nfor d in /usr/bin /bin; do [ -x \"$d/dd\" ] && exec \"$d/dd\" \"$@\"; done\nexit 127\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// conv=excl を受け付ける dd があれば、新しいファイルは dd が O_EXCL と O_NOFOLLOW で開く（noclobber の
+// ように、通常ファイルでないものを指す symlink を辿って開かない）
+#[test]
+fn a_new_file_is_opened_by_a_dd_with_excl_and_nofollow_when_the_dd_accepts_them() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("a.txt");
+    let log = root.path().join("dd.log");
+    let bin = bin_with(&["cat", "mkdir", "rmdir"]);
+    put_logging_dd(bin.path(), &log);
+    let accepts = run_with_only(
+        bin.path(),
+        "dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null && dd if=/dev/null conv=excl count=0 </dev/null >/dev/null 2>&1",
+        b"",
+    )
+    .is_ok();
+
+    let result = run_with_only(bin.path(), &write(target.to_str().unwrap(), false), b"x");
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(fs::read(&target).unwrap(), b"x");
+    let calls = fs::read_to_string(&log).unwrap();
+    let opened_by_dd = calls.lines().any(|call| {
+        call.contains(&format!("of={}", target.display())) && call.contains("conv=excl")
+    });
+    assert_eq!(opened_by_dd, accepts, "{calls}");
+}
+
 // @kotowari[REQ-merge-042]
 #[test]
 fn a_parent_made_by_someone_else_before_the_mkdir_is_not_removed_after_a_failure() {

@@ -60,6 +60,8 @@ mod config_values;
 #[cfg(feature = "test-utils")]
 #[path = "contract/config_values_cli.rs"]
 mod config_values_cli;
+#[path = "contract/created_removal_agree.rs"]
+mod created_removal_agree;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
 #[cfg(all(unix, feature = "test-utils"))]
