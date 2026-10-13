@@ -69,7 +69,7 @@ merge・sync・rollback の symlink の更新は、比べたときにあった�
 - verification: review
 - how_to_verify: ローカルとエージェントは "crates/remote-merge-core/src/machine_ops/new_file_tests.rs" の a_hard_link_placed_after_the_check_for_a_new_file_is_not_written（書き込み先がないと確かめた後・開く前に、別のファイルへのハードリンクを置く）と a_destination_gone_after_the_check_is_made_as_a_new_file、SSH は "crates/remote-merge-ssh/src/change_scripts_race_tests.rs" の a_hard_link_placed_after_the_check_for_a_new_file_is_not_written_like_this_machine と a_link_to_a_device_placed_after_the_check_for_a_new_file_is_file_exists_like_this_machine（dd が "oflag=nofollow" と "conv=excl" を受け付けるときと受け付けないときに、親を作った直後にハードリンクか /dev/null への symlink を置く mkdir を PATH に置いて、生成したコマンドを sh で実行する）と a_new_file_is_opened_by_a_dd_with_excl_and_nofollow_when_the_dd_accepts_them、確かめたときにあった書き込み先が消えたときは "crates/remote-merge-ssh/src/change_scripts_gone_tests.rs" の a_destination_gone_with_its_parent_after_the_check_is_made_again_from_the_parent と a_destination_gone_after_the_check_is_made_as_a_new_file_like_this_machine（最初の呼び出しで書き込み先か親を消す dd を PATH に置く）、エージェントが分けて送られた書き込みの後の分を最初の分で開いたファイルに書くことは "crates/remote-merge-agent/src/agent/dispatch/tests/write_races.rs" の later_parts_go_to_the_file_opened_for_the_first_part_even_if_the_path_is_swapped を読み、どの経路でも書き込みが "File exists" の I/O の失敗になり、ハードリンク先のファイルが変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。書き込み先がないと確かめた後に同じパスに項目が現れる競合でだけ起きるため、契約テストでは作らない。
 
-書き込み先がないときの書き込みは、新しいファイルとして作り、ないと確かめた後に同じパスに何か（別のファイルへのハードリンク・どこを指すかによらない symlink・通常ファイル）が現れていれば、それを開かず、書き換えず、所有者も変えずに、どの経路でも I/O の失敗（理由は "File exists"）にする。
+書き込み先がないときの書き込みは、新しいファイルとして作り、ないと確かめた後に同じパスに何か（並行する別の作業が作った通常ファイル・どこを指すかによらない symlink・別のファイルへのハードリンク）が現れていれば、それを開かず、書き換えず、所有者も変えずに、どの経路でも I/O の失敗（理由は "File exists"）にする。
 確かめたときにあった書き込み先が開く前に消えていたときも（親ごと消えていたときは、ない親を作り直して）、どの経路でも新しいファイルとして作る（REQ-merge-042 のとおりログインした利用者の持ち物になる）。
 エージェントが分けて送られた中身を書くときは、後の分も最初の分で開いたファイルに書き、書いている間に書き込み先のパスが別のファイルに差し替えられても、差し替えたファイルに書かない。
 既存の書き込み先の書き換えは REQ-merge-039 による。
@@ -150,8 +150,8 @@ When それぞれの経路で "a.txt" に新しい中身を merge する
 Then どの経路でも "a.txt" の inode と所有者は書く前と同じで、ハードリンクの別の名前からも新しい中身が読める
 
 @id=EX-merge-065 @about=REQ-merge-043 @source=docs/decision/records/2026-10-12-foundation-3.md#D37
-Scenario: 新しいファイルを作る間に書き込み先へハードリンクが置かれる
-Given sudo=true のサーバで、書き込み先 "new.txt" がないと確かめた後、作る前に、書き込み先のディレクトリに書ける利用者が "new.txt" に root の持ち物のファイルへのハードリンクを置いた
+Scenario: 新しいファイルを作る間に並行する作業が同じファイルを作る
+Given sudo=true のサーバで、書き込み先 "new.txt" がないと確かめた後、作る前に、並行する別のデプロイが "new.txt" を作った
 When "new.txt" を merge する
-Then "new.txt" は failed に出て、リンク先のファイルの中身と所有者は変わらない
+Then "new.txt" は failed に出て、別のデプロイが作った "new.txt" の中身と所有者は変わらない
 ```

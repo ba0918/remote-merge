@@ -33,7 +33,8 @@ REQ-merge-041 の how_to_verify は、契約テストを作らない理由（比
 ### FLAG-merge-021: dd が nofollow を受け付けないリモートの書き込みの競合
 - kind: gap
 - related: REQ-merge-038, REQ-paths-013
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-12-foundation-3.md#D12, docs/decision/records/2026-10-12-foundation-3.md#D37, docs/decision/records/2026-10-12-foundation-3.md#D44
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-12-foundation-3.md#D12, docs/decision/records/2026-10-12-foundation-3.md#D37, docs/decision/records/2026-10-12-foundation-3.md#D44, docs/decision/records/2026-10-12-foundation.md#A11
 
 エージェントを使わないリモートで dd が "oflag=nofollow" を受け付けないときだけ、通常ファイルの書き込みは、書く直前に書き込み先が symlink でないことを確かめてから書く。その確認と書き込みの間に書き込み先が symlink に替わると、リンク先へ書く競合が残る。受け付けない dd があることは "docs/remote-tools.md" に書いた道具の限界で、ほかの経路は書き込み先を開くときに symlink を辿らない。
 エージェントを使わないリモートで dd が "conv=excl" を受け付けない（BusyBox など）ときだけ、新しいファイルを作る書き込み（REQ-merge-043）は、シェルの noclobber の `>` で開く。noclobber は、すでにある通常ファイルでないもの（デバイスや FIFO）を指す symlink を辿って開くので、書き込み先がないと確かめた後に、そのような symlink が置かれると、開いた後にパスが symlink かを確かめて書かずに失敗するまでの間に、リンク先を開く（FIFO なら開くところで待つ）競合が残る。書くのはログインした利用者の権限で、中身は書かない。"conv=excl" を受け付ける dd では、dd が O_EXCL|O_NOFOLLOW で開くので、この競合はない。
+どちらの競合も、確かめと書き込みの間に誰かが書き込み先を symlink にすり替えたときにだけ起き、並行するふつうの作業では起きないので、security の境界（出典の foundation A11）の外として直す対象にしない。
