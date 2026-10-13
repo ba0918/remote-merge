@@ -2,6 +2,7 @@
 
 use super::contents::{read_outcome, ReadOutcome};
 use super::verdict::{SideFailure, Undecidable};
+use crate::op_failure::OpFailure;
 
 /// 書き込み先のパスの、比べたときと変更の直前の状態。通常ファイルはハッシュで表す
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +37,8 @@ pub fn check_before_change(compared: &Observed, now: Result<Observed, SideFailur
     match now {
         Ok(now) if now == *compared => ChangeCheck::Unchanged,
         Ok(_) => ChangeCheck::Changed,
+        // 集め直した状態ではあったファイルのハッシュが「ない」の失敗なら、比べた後に消えたもの
+        Err(failed) if failed.failure == OpFailure::NotFound => ChangeCheck::Changed,
         Err(failed) => match read_outcome([failed]) {
             ReadOutcome::Disconnected(failed) => ChangeCheck::Disconnected(failed),
             ReadOutcome::Undecidable(why) => ChangeCheck::Undecidable(why),

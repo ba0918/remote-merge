@@ -65,3 +65,16 @@ fn a_failure_to_collect_the_state_again_is_undecidable_unless_it_is_a_disconnect
         ChangeCheck::Disconnected(lost)
     );
 }
+
+// @kotowari[REQ-compare-015]
+#[test]
+fn a_destination_whose_hash_is_not_found_again_has_changed() {
+    let gone = SideFailure {
+        role: Role::Right,
+        failure: OpFailure::NotFound,
+    };
+    assert_eq!(
+        check_before_change(&file("h"), Err(gone)),
+        ChangeCheck::Changed
+    );
+}

@@ -94,6 +94,9 @@ Position: 段 4 の仕様（E1〜E29）を書いた。比べる流れの IR は 
 - E31 子の一覧の結果の単体テスト（`crates/remote-merge-engine/src/child_listing_tests.rs` の `a_listed_directory_gives_its_children_and_a_truncated_listing_keeps_what_was_read`）が、件数の上限で打ち切った子の一覧を、印のない読めた子の一覧として返すことを固めていたものを、読めた子を持つ不完全な一覧の誤り（`ChildrenTruncated`）として返すことを確かめるように直す。
   - why: E11 と [REQ-cli-021](../../ir/cli/symlink-diff.md#REQ-cli-021)・[REQ-scan-004](../../ir/scan/limits.md#REQ-scan-004) は、子の一覧が上限を超えたら不完全な一覧として知らせると決めている。今のテストは、FLAG-cli-049 で持ち越していた黙った打ち切りを固めていた。
   - decided_by: Claude（E19 と E11 から導いた。自走の指示により決めた）
+- E32 変更の直前にもう一度集めた状態では通常ファイルだったパスのハッシュが「ない」の失敗になったときは、比べた後にそのパスが変わったものとして、変えずに failed に出す（理由は変わったことを示す文）。[REQ-compare-015](../../ir/compare/reading.md#REQ-compare-015) の文をこれに合わせる。
+  - why: E9 は、もう一度集めた状態が「ない」の失敗以外で読めないときだけを判定できないとしており、「ない」の失敗は比べた後に消えたこと、つまり変わったことを表す。REQ-compare-015 は E9 のこの区別を書き落とし、どの失敗も判定できないとしていた。変更の直前の判定だけの扱いなので、比べるときの読み込みの失敗からないことを決めない [REQ-compare-003](../../ir/compare/flow.md#REQ-compare-003) とは矛盾しない。
+  - decided_by: Claude（E9 と利用者の品質の基準から導いた。自走の指示により決めた）
 
 ## Rejected
 

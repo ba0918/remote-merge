@@ -44,12 +44,14 @@
 
 ### REQ-compare-015: 変更の直前に書き込み先をもう一度判定する
 - kind: event_driven
-- source: docs/decision/records/2026-10-12-foundation-4.md#E9
+- source: docs/decision/records/2026-10-12-foundation-4.md#E9, docs/decision/records/2026-10-12-foundation-4.md#E32
 - verification: unit
 
 merge と sync は、書き込み・symlink の作成と置き換え・削除・--hunks の書き込みのどれでも、その変更の直前に書き込み先のそのパスの状態をもう一度集め、通常ファイルならハッシュも取り、比べたときと種類・リンク文字列・ハッシュのどれかが違うとき、または比べたときになかったパスが現れたときは、変えずにそのパスを failed に出してほかのパスを続ける。
 そのために、比べる流れは、書き換えるか消す予定の書き込み先の通常ファイルのハッシュを比べるときに取る。
-もう一度集めた状態かハッシュが `接続断` 以外の失敗になったときは、変えずに REQ-compare-013 の判定できないとして扱う。
+もう一度集めた状態では通常ファイルだったパスのハッシュが、ない の失敗（paths/operations.md の REQ-paths-020）になったときは、比べた後にそのパスが変わったものとして、変えずに failed に出す。
+これは変更の直前の判定だけの扱いで、比べるときの読み込みの失敗からないことを決めない REQ-compare-003 は変わらない。
+もう一度集めた状態かハッシュがそれ以外の `接続断` でない失敗になったときは、変えずに REQ-compare-013 の判定できないとして扱う。
 
 ## Decision tables
 
