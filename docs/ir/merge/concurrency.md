@@ -21,6 +21,16 @@ merge と sync は、比べたときから書き込み先の中身が変わっ�
 比べたときに symlink だった書き込み先のリンク先が UTF-8 として読めないバイトか置換文字 U+FFFD を含むときは、変わっていないことを確かめられないので、変わったファイルと同じく書かずに failed に出す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
+### REQ-merge-044: 書いている間に root_dir ごと消えたら、その書き込み先への処理を止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-12-foundation-3.md#D47
+- verification: unit
+
+merge・sync・rollback が書き込み先に変更を行っている間に、その書き込み先の root_dir がなくなった（ディレクトリでなくなったものを含む）と分かったときは、どの経路でも、そのファイルを root_dir がないことと書き込み先の root_dir（リモートは "サーバ名:パス"）が分かる error で failed に出し、その書き込み先でまだ処理していない残りのファイルを変更せずに、手を付けていないことが分かる error で failed に出し、終了コード 2 を返す。
+root_dir がない文言は最初のファイルの error に一度だけ出す。
+それまでに済んだファイルはそのまま結果に出し、root_dir もその親も作り直さない。
+sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
+
 ### REQ-merge-038: 最後の要素が symlink のパスへ通常ファイルを書かない
 - kind: prohibition
 - source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A1, docs/decision/records/2026-10-05-ssh-strict-exec.md#A3, docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14, docs/decision/records/2026-10-05-harden-security.md#A6, docs/decision/records/2026-10-12-foundation-3.md#D12
@@ -155,4 +165,10 @@ Scenario: 新しいファイルを作る間に並行する作業が同じファ�
 Given sudo=true のサーバで、書き込み先 "new.txt" がないと確かめた後、作る前に、並行する別のデプロイが "new.txt" を作った
 When "new.txt" を merge する
 Then "new.txt" は failed に出て、別のデプロイが作った "new.txt" の中身と所有者は変わらない
+
+@id=EX-merge-066 @about=REQ-merge-044 @source=docs/decision/records/2026-10-12-foundation-3.md#D47
+Scenario: 三つのファイルの merge の二つ目の前に root_dir ごと消える
+Given "a.txt"・"b.txt"・"c.txt" を merge し、"a.txt" を書いた後、"b.txt" を書く前に、書き込み先の root_dir が中身ごと消えた
+When merge の結果を見る
+Then "a.txt" は書き込まれ、"b.txt" は root_dir がない失敗、"c.txt" は手を付けていない失敗として failed に出て、root_dir は作り直されず、終了コード 2 を返す
 ```
