@@ -102,3 +102,7 @@ impl RootWatch {
 
 #[path = "root_watch_io.rs"]
 mod io;
+
+#[cfg(test)]
+#[path = "root_watch_tests.rs"]
+mod tests;

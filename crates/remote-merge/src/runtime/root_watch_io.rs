@@ -14,22 +14,26 @@ use crate::runtime::target_io::TargetIo;
 use crate::tree::{FileNode, FileTree};
 
 impl TargetIo for RootWatch {
-    /// 親がないか途中がディレクトリでないと答えたときだけ、root_dir を確かめ直す（書き戻しが親の
-    /// ないファイルを飛ばす前に、root_dir ごと消えたことを見分ける）
+    /// ふつうでない答えのときだけ root_dir を確かめ直す。root_dir 直下のパスの親（root_dir そのもの）が
+    /// ないと答えたときと、途中がディレクトリでないと答えたときで、深いパスの親がない（新しい木を
+    /// 作る）というふつうの答えでは尋ね直さない（書き戻しが親のないファイルを飛ばす前に、root_dir ごと
+    /// 消えたことを見分ける）
     fn inspect_path(
         &mut self,
         rt: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<ResolvedPath> {
         let resolved = self.inner.inspect_path(rt, path)?;
-        let parent_gone = matches!(
-            resolved,
+        let directly_under_root = !path.as_str().trim_end_matches('/').contains('/');
+        let unusual = match resolved {
             ResolvedPath::Missing {
                 parent_exists: false,
                 ..
-            } | ResolvedPath::AncestorNotDirectory { .. }
-        );
-        if !parent_gone || path.is_root() || !self.root_is_gone(rt) {
+            } => directly_under_root,
+            ResolvedPath::AncestorNotDirectory { .. } => true,
+            _ => false,
+        };
+        if !unusual || path.is_root() || !self.root_is_gone(rt) {
             return Ok(resolved);
         }
         let gone = OpError::new(Operation::Read, path.as_str(), OpFailure::RootGone).into();
