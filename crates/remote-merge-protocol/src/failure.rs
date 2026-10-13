@@ -12,8 +12,15 @@ pub enum WireFailure {
     NotFound,
     NotADirectory,
     PermissionDenied,
-    TooLarge { size: u64, limit: u64 },
-    Io { reason: String },
+    TooLarge {
+        size: u64,
+        limit: u64,
+    },
+    Io {
+        reason: String,
+    },
+    /// 変更の途中で root_dir がなくなっていた（v13）
+    RootGone,
 }
 
 impl From<&OpFailure> for WireFailure {
@@ -29,6 +36,7 @@ impl From<&OpFailure> for WireFailure {
             OpFailure::Io(reason) => Self::Io {
                 reason: reason.clone(),
             },
+            OpFailure::RootGone => Self::RootGone,
             OpFailure::ToolMissing(_) | OpFailure::Disconnected(_) => Self::Io {
                 reason: failure.to_string(),
             },
@@ -44,6 +52,7 @@ impl From<WireFailure> for OpFailure {
             WireFailure::PermissionDenied => Self::PermissionDenied,
             WireFailure::TooLarge { size, limit } => Self::TooLarge { size, limit },
             WireFailure::Io { reason } => Self::Io(reason),
+            WireFailure::RootGone => Self::RootGone,
         }
     }
 }

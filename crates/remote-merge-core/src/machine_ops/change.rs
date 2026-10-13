@@ -61,7 +61,7 @@ pub fn create_symlink_creating(
     target: &str,
 ) -> Result<Vec<PathBuf>, OpFailure> {
     let path = full_path(root, entry);
-    let new_dirs = create_parents(&path)?;
+    let new_dirs = create_parents(root, &path)?;
     match std::os::unix::fs::symlink(target, &path) {
         Ok(()) => Ok(new_dirs),
         Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),

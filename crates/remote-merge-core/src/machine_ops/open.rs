@@ -52,7 +52,7 @@ pub fn open_for_write_with(
             }
         }
     }
-    let new_dirs = create_parents(&path)?;
+    let new_dirs = create_parents(root, &path)?;
     match open_new(&path) {
         Ok(file) => Ok(Opened {
             file,

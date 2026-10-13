@@ -1,5 +1,6 @@
 //! ローカルの経路。エージェントと同じ `machine_ops` を呼び、失敗は操作の失敗の型で返す
 
+use super::root_gone::with_shown_root;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -64,6 +65,7 @@ impl TargetIo for LocalTargetIo {
         content: &[u8],
     ) -> anyhow::Result<()> {
         super::local_ops::write(&self.root, path, content)
+            .map_err(|error| with_shown_root(error, &self.root.display().to_string()))
     }
 
     fn chmod_file(
@@ -88,6 +90,7 @@ impl TargetIo for LocalTargetIo {
     ) -> anyhow::Result<()> {
         machine_ops::create_symlink(&self.root, path, target)
             .map_err(|failure| op_error(Operation::CreateSymlink, path, failure))
+            .map_err(|error| with_shown_root(error, &self.root.display().to_string()))
     }
 
     fn fetch_tree(&mut self, _: &mut CoreRuntime) -> anyhow::Result<FileTree> {

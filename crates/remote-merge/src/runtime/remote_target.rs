@@ -29,6 +29,13 @@ impl RemoteTargetIo {
     ) -> anyhow::Result<()> {
         let name = &self.name;
         rt.change_on_route(name, |rt| rt.remote_change(name, path, &change))
+            .map_err(|error| match rt.get_server_config(name) {
+                Ok(server) => super::root_gone::with_shown_root(
+                    error,
+                    &super::side_io::remote_shown_root(name, &server.root_dir),
+                ),
+                Err(_) => error,
+            })
     }
 
     fn write(

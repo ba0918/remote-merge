@@ -7,13 +7,15 @@ use std::path::{Path, PathBuf};
 use super::failed;
 use crate::op_failure::{os_reason, OpFailure};
 
-/// `path` の親のうち、まだないもの（上から順）
-fn missing_parents(path: &Path) -> Vec<PathBuf> {
+/// `path` の親のうち、root_dir `root` より下でまだないもの（上から順）
+fn missing_parents(root: &Path, path: &Path) -> Vec<PathBuf> {
     let mut missing: Vec<PathBuf> = path
         .ancestors()
         .skip(1)
         .take_while(|ancestor| {
-            !ancestor.as_os_str().is_empty() && std::fs::symlink_metadata(ancestor).is_err()
+            *ancestor != root
+                && !ancestor.as_os_str().is_empty()
+                && std::fs::symlink_metadata(ancestor).is_err()
         })
         .map(Path::to_path_buf)
         .collect();
@@ -21,25 +23,30 @@ fn missing_parents(path: &Path) -> Vec<PathBuf> {
     missing
 }
 
-/// ない親ディレクトリを作り、作ったもの（上から順）を返す。途中の symlink は辿る（REQ-merge-004）。
-/// 作ろうとした親がすでにあってディレクトリでなければ、途中の要素がディレクトリでない失敗にする
-/// （REQ-paths-020）
-pub(super) fn create_parents(path: &Path) -> Result<Vec<PathBuf>, OpFailure> {
-    create_parents_with(path, |dir| std::fs::create_dir(dir))
+/// root_dir `root` の下のない親ディレクトリを作り、作ったもの（上から順）を返す。途中の symlink は
+/// 辿る（REQ-merge-004）。作ろうとした親がすでにあってディレクトリでなければ、途中の要素がディレクトリで
+/// ない失敗にする（REQ-paths-020）。root_dir がない（ディレクトリでない）ときは、root_dir もその親も
+/// 作らずに root_dir がない失敗にする（D47）
+pub(super) fn create_parents(root: &Path, path: &Path) -> Result<Vec<PathBuf>, OpFailure> {
+    create_parents_with(root, path, |dir| std::fs::create_dir(dir))
 }
 
 /// [`create_parents`] の、一つのディレクトリを作る手段 `mkdir` を受け取るもの。作ったものに数えるのは
 /// `mkdir` が成功したものだけで、作る前に別の誰かが作ったディレクトリは数えない（後で所有者を付けたり
 /// 消したりしない。docs/decision/records/2026-10-12-foundation-3.md の D39）
 pub(super) fn create_parents_with(
+    root: &Path,
     path: &Path,
     mut mkdir: impl FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<Vec<PathBuf>, OpFailure> {
+    if !root.is_dir() {
+        return Err(OpFailure::RootGone);
+    }
     let Some(parent) = path.parent() else {
         return Ok(Vec::new());
     };
     let mut made = Vec::new();
-    for dir in missing_parents(path) {
+    for dir in missing_parents(root, path) {
         match mkdir(&dir) {
             Ok(()) => made.push(dir),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}

@@ -49,7 +49,8 @@ pub fn classify(error: &anyhow::Error) -> Failure {
                 | OpFailure::PermissionDenied
                 | OpFailure::TooLarge { .. }
                 | OpFailure::ToolMissing(_)
-                | OpFailure::Io(_) => Failure::Refused,
+                | OpFailure::Io(_)
+                | OpFailure::RootGone => Failure::Refused,
             };
         }
         // 確かめた変更の失敗は、そのサーバへの処理を止めた `接続断` のまま

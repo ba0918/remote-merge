@@ -1,4 +1,4 @@
-//! 操作の失敗の種類を運ぶ通信の形（通信の版 12）。形が変わったらここが落ちるので、通信の版を
+//! 操作の失敗の種類を運ぶ通信の形（通信の版 13）。形が変わったらここが落ちるので、通信の版を
 //! 上げ、このバイト列を書き直す
 use super::*;
 use remote_merge_core::op_failure::{Disconnection, OpFailure, Tool};
@@ -8,8 +8,8 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn the_protocol_version_is_twelve() {
-    assert_eq!(PROTOCOL_VERSION, 12);
+fn the_protocol_version_is_thirteen() {
+    assert_eq!(PROTOCOL_VERSION, 13);
 }
 
 #[test]
@@ -20,6 +20,7 @@ fn every_kind_the_agent_can_answer_comes_back_as_the_same_kind() {
         OpFailure::PermissionDenied,
         OpFailure::TooLarge { size: 9, limit: 8 },
         OpFailure::Io("Is a directory".into()),
+        OpFailure::RootGone,
     ];
     for kind in kinds {
         let wire = WireFailure::from(&kind);

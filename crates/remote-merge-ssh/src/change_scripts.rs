@@ -7,7 +7,7 @@
 
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
-use crate::change_steps::{creating, new_file, parent_step, EXISTS, GONE_CHECK, PARENT};
+use crate::change_steps::{creating, new_file, parent_step, EXISTS, GONE_CHECK, PARENT, ROOT_GONE};
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
@@ -17,9 +17,17 @@ const NO_TOOL: &str = "@RMNOTOOL";
 /// 送るもの）かを見分けるための印。試験の偽の SSH サーバは、この印で標準入力を待つ書き込みのコマンドを
 /// 見分ける（中身に "cat >" を含むかでは、読み込みのスクリプトと取り違える）
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
-/// 標準入力の中身を `full` にその場で書くコマンド。`binary` なら標準入力は base64 で、openssl で
-/// 復号する（openssl がなければ書き込み先を開かずに失敗する）
+/// root_dir に限らずに `full` へ書くコマンド（[`write_under`] の root_dir を "/" にしたもの）。
+/// root_dir の外に置くエージェントの配置で使う
 pub fn write(full: &str, binary: bool) -> String {
+    write_under("/", full, binary)
+}
+
+/// 標準入力の中身を、root_dir `root` の下の `full` にその場で書くコマンド。`binary` なら標準入力は
+/// base64 で、openssl で復号する（openssl がなければ書き込み先を開かずに失敗する）。作る親は root_dir
+/// より下に限り、root_dir がなければ何も作らずに失敗する（D47）
+pub fn write_under(root: &str, full: &str, binary: bool) -> String {
+    let root = root_dir(root);
     let drain = "cat >/dev/null; ";
     let mut script = String::from(WRITE_PREFIX);
     // cat がなければ標準入力を dd で読み切る（どちらもなければ読み切らずに終える）
@@ -38,7 +46,7 @@ pub fn write(full: &str, binary: bool) -> String {
         shell_escape(full)
     ));
     script.push_str(GONE_CHECK);
-    script.push_str(&parent_step(full, drain));
+    script.push_str(&parent_step(full, root, drain));
     // 既存の書き込み先で、dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由を
     // ローカルの経路の O_NOFOLLOW と同じ文言で出す（新しいファイルの手順は、現れた symlink を自分で断る）
     script.push_str(&format!(
@@ -76,13 +84,27 @@ pub fn write_input(content: &[u8], binary: bool) -> Vec<u8> {
     encoded
 }
 
-/// `full` に `target` を指す symlink を作るコマンド。作成先に何かがあれば置き換えずに失敗する
+/// root_dir に限らずに `full` へ symlink を作るコマンド（[`symlink_under`] の root_dir を "/" にしたもの）
 pub fn symlink(target: &str, full: &str) -> String {
+    symlink_under("/", target, full)
+}
+
+/// root_dir `root` の下の `full` に `target` を指す symlink を作るコマンド。作成先に何かがあれば
+/// 置き換えずに失敗する。作る親は [`write_under`] と同じく root_dir より下に限る
+pub fn symlink_under(root: &str, target: &str, full: &str) -> String {
     format!(
         "LC_ALL=C; export LC_ALL\n{}{}",
-        parent_step(full, ""),
+        parent_step(full, root_dir(root), ""),
         creating(&build_create_symlink_command(target, full))
     )
+}
+
+/// 親を辿るときに比べる root_dir。終わりの "/" を除く（書き込み先のパスの祖先と同じ形にする）
+fn root_dir(root: &str) -> &str {
+    match root.trim_end_matches('/') {
+        "" => "/",
+        trimmed => trimmed,
+    }
 }
 
 /// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする。目印は行の始まりに
@@ -139,6 +161,9 @@ fn kind_of(stderr: &[u8]) -> OpFailure {
         // （シェルの noclobber の文言は bash と dash・BusyBox で違う）
         if line == EXISTS.as_bytes() {
             return OpFailure::Io("File exists".into());
+        }
+        if line == ROOT_GONE.as_bytes() {
+            return OpFailure::RootGone;
         }
     }
     let parent = [PARENT.as_bytes(), b"\0"].concat();

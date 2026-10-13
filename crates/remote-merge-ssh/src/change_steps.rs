@@ -10,6 +10,8 @@ use crate::tree_parser::shell_escape;
 pub(crate) const PARENT: &str = "@RMPARENT";
 /// 新しいファイルを作ろうとしたときに、書き込み先に何かが現れていたことを示す目印
 pub(crate) const EXISTS: &str = "@RMEXISTS";
+/// root_dir がない（ディレクトリでない）ことを示す目印
+pub(crate) const ROOT_GONE: &str = "@RMROOTGONE";
 
 /// 自分の mkdir が作った親（位置引数の番号を `c` に下から順に入れたもの）を消す文。消せずに残った
 /// ものは、名前と rmdir の文言を NUL で区切り、目印を付けて標準エラーに出す（名前に改行が入りうる
@@ -25,18 +27,26 @@ const UNDO_PARENTS: &str = "for i in $c; do eval \"x=\\${$i}\"; e=$(rmdir -- \"$
 /// 含む）ディレクトリでなければ、mkdir の文言によらず "Not a directory" と答える（ローカルの経路と
 /// 同じ。CentOS 5 の mkdir は "exists but is not a directory"、リンク切れの親は coreutils で
 /// "File exists"、BusyBox で "No such file or directory" と出す）
-pub(crate) fn parent_step(full: &str, drain: &str) -> String {
+///
+/// 作る親は root_dir `root` より下に限る。root_dir がない（ディレクトリでない）ときは何も作らずに
+/// 目印を出して終える（ローカルの経路と同じ。D47）。`root` が "/" なら限らない
+pub(crate) fn parent_step(full: &str, root: &str, drain: &str) -> String {
+    let root_check = format!(
+        "r={}; if [ ! -d \"$r\" ]; then {drain}printf '\\n{ROOT_GONE}\\n' >&2; exit 1; fi\n",
+        shell_escape(root)
+    );
     let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
-        return "set --; c=\n".into();
+        return format!("{root_check}set --; c=\n");
     };
     if parent.is_empty() || parent == "/" {
-        return "set --; c=\n".into();
+        return format!("{root_check}set --; c=\n");
     }
-    format!(
+    root_check
+        + &format!(
         concat!(
             "d={parent}\n",
             "set --; a=$d\n",
-            "while ! {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }}; do set -- \"$@\" \"$a\"\n",
+            "while [ \"$a\" != \"$r\" ] && ! {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }}; do set -- \"$@\" \"$a\"\n",
             " case $a in */*) a=${{a%/*}}; [ -n \"$a\" ] || break;; *) break;; esac\n",
             "done\n",
             "c=; f=0; m=; i=$#\n",

@@ -21,6 +21,7 @@ mod remote_ops;
 mod remote_target;
 mod restore_before;
 mod restore_saved;
+mod root_gone;
 mod route_retry;
 pub(crate) mod route_state;
 pub(crate) mod scan_entry;

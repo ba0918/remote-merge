@@ -45,6 +45,28 @@ fn an_opened_file_is_truncated_and_later_parts_follow_in_the_same_file() {
     );
 }
 
+// root_dir がなければ、root_dir もその親も作らずに、root_dir がない失敗にする（D47）
+// @kotowari[REQ-merge-042]
+#[test]
+fn nothing_is_made_when_the_root_dir_is_gone() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("top/root");
+
+    for path in ["a.txt", "sub/a.txt"] {
+        assert_eq!(
+            write(&root, &entry(path), b"x"),
+            Err(OpFailure::RootGone),
+            "{path}"
+        );
+        assert_eq!(
+            create_symlink(&root, &entry(path), "t"),
+            Err(OpFailure::RootGone),
+            "{path}"
+        );
+    }
+    assert!(!temp.path().join("top").exists());
+}
+
 // @kotowari[REQ-merge-042]
 #[test]
 fn the_parents_created_for_an_open_are_named_from_the_top() {
@@ -83,7 +105,7 @@ fn a_parent_made_by_someone_else_before_the_mkdir_is_not_counted_as_created() {
     let temp = tempfile::tempdir().unwrap();
     let target = temp.path().join("a/b/c.txt");
 
-    let made = super::parents::create_parents_with(&target, |dir| {
+    let made = super::parents::create_parents_with(temp.path(), &target, |dir| {
         if dir.ends_with("a") {
             fs::create_dir(dir)?;
         }

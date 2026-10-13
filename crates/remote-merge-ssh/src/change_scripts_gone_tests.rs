@@ -89,3 +89,33 @@ fn a_destination_gone_after_the_check_is_made_as_a_new_file_like_this_machine() 
         assert_eq!(fs::read(&target).unwrap(), b"new", "nofollow={nofollow}");
     }
 }
+
+// root_dir がなければ、root_dir もその親も作らずに、root_dir がない失敗にする（ローカルの経路と同じ。
+// D47）。初めからないときと、確かめた後に消えたときのどちらも
+// @kotowari[REQ-merge-042]
+#[test]
+fn nothing_is_made_when_the_root_dir_is_gone_like_this_machine() {
+    for (nofollow, during) in [(true, false), (true, true), (false, true)] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("top/root");
+        let target = root.join("sub/a.txt");
+        let bin = bin_with(&["cat", "mkdir", "rmdir"]);
+        let gone = if during {
+            fs::create_dir_all(root.join("sub")).unwrap();
+            fs::write(&target, "old").unwrap();
+            temp.path().join("top")
+        } else {
+            temp.path().join("unused")
+        };
+        put_dd_removing_first(bin.path(), &gone, nofollow);
+        let (root, target) = (root.to_str().unwrap(), target.to_str().unwrap());
+
+        let written = run_with_only(bin.path(), &write_under(root, target, false), b"new");
+        let linked = run_with_only(bin.path(), &symlink_under(root, "t", target), b"");
+
+        let case = format!("nofollow={nofollow} during={during}");
+        assert_eq!(written, Err(OpFailure::RootGone), "{case}");
+        assert_eq!(linked, Err(OpFailure::RootGone), "{case}");
+        assert!(!temp.path().join("top").exists(), "{case}");
+    }
+}
