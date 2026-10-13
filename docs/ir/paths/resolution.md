@@ -14,13 +14,13 @@ root_dir の下のパスを確認するときにパスを辿る規則、辿れ�
 
 ### REQ-paths-002: 確認の結果は四つの種類のどれかになる
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-06-path-resolution.md#A7, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A9, docs/decision/records/2026-10-06-path-resolution.md#A12, docs/decision/records/2026-10-06-path-resolution.md#A24, docs/decision/records/2026-10-06-path-resolution.md#A27, docs/decision/records/2026-10-06-path-resolution.md#A28, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A37, docs/decision/records/2026-10-06-path-resolution.md#A44
+- source: docs/decision/records/2026-10-06-path-resolution.md#A7, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A9, docs/decision/records/2026-10-06-path-resolution.md#A12, docs/decision/records/2026-10-06-path-resolution.md#A24, docs/decision/records/2026-10-06-path-resolution.md#A27, docs/decision/records/2026-10-06-path-resolution.md#A28, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A37, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-12-foundation.md#A2, docs/decision/records/2026-10-12-foundation-3.md#D50
 - verification: unit
 
 パスの確認の結果は次の四つのどれかか、"cannot resolve path: " に "path too long"・"too many levels of symbolic links"・"not a directory"・"permission denied"・"readlink not available"・"dangling symbolic link"・"parent reference in missing part"・"non-UTF-8 path"・"cannot read" のどれかを続けたエラーである。実パスかリンク文字列に UTF-8 でない部分があれば "cannot resolve path: non-UTF-8 path" で止める。
 存在しないは、存在する最も近い祖先の実パスに存在しない途中の要素をつないだ親の実パス（末尾の要素を含めない）と、親が存在するかの印を持つ。
-存在するは、symlink でないもの（ディレクトリを含む）の実パスを持つ。
-末尾の symlink は、リンク文字列そのものと、リンク先を同じ規則で辿った実パスを持ち、リンク先が存在しなければ、リンク先の側の辿れた親の実パスにリンク先の最後の名前をつないだものを実パスとする。
+存在するは、symlink でないもの（ディレクトリを含む）の実パスと、その種類（ファイル・ディレクトリ・その他）を持つ。
+末尾の symlink は、リンク文字列そのものと、リンク先を同じ規則で辿った実パスと、辿った先が存在すればその種類（ファイル・ディレクトリ・その他）を持ち、リンク先が存在しなければ、種類を持たず、リンク先の側の辿れた親の実パスにリンク先の最後の名前をつないだものを実パスとする。
 途中の祖先がディレクトリでないは、確認するパスの要素のうちディレクトリでなかったものの実パスと、それが symlink なら辿った先を含めて通常ファイルかそれ以外かを持ち、root_dir 自身かそれより上の要素がディレクトリでないときはこの結果にせず "cannot resolve path: not a directory" で止める。
 
 ### REQ-paths-003: 長すぎるパスは辿らずに止める
