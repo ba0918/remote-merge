@@ -11,8 +11,6 @@ use remote_merge_core::scan::outcome::ScanRequest;
 
 use super::core::CoreRuntime;
 use super::local_ops::op_error;
-use super::root_gone::stop_if_root_gone;
-use super::route_retry::StopKey;
 use super::target_io::{included_children, TargetIo};
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::scan::children::ChildListing;
@@ -21,8 +19,6 @@ pub(crate) struct LocalTargetIo {
     root: PathBuf,
     exclude: Vec<String>,
     include: Vec<String>,
-    /// root_dir がなくなったときに処理を止める単位（ローカルの側か、ローカルに置き換えたサーバ）
-    stop_key: StopKey,
 }
 
 impl LocalTargetIo {
@@ -31,20 +27,7 @@ impl LocalTargetIo {
             root,
             exclude,
             include,
-            stop_key: StopKey::Local,
         }
-    }
-
-    /// root_dir がなくなったときに止める単位を `key` にする（ローカルに置き換えたサーバ）
-    pub(crate) fn stopped_as(mut self, key: StopKey) -> Self {
-        self.stop_key = key;
-        self
-    }
-
-    /// 変更の失敗が root_dir がないものなら、root_dir を添え、この側への処理を止める
-    fn changed(&self, runtime: &mut CoreRuntime, error: anyhow::Error) -> anyhow::Error {
-        let shown = self.root.display().to_string();
-        stop_if_root_gone(runtime, self.stop_key.clone(), error, &shown)
     }
 
     pub(crate) fn from_runtime(runtime: &CoreRuntime) -> Self {
@@ -76,12 +59,11 @@ impl TargetIo for LocalTargetIo {
 
     fn write_file_bytes(
         &mut self,
-        runtime: &mut CoreRuntime,
+        _: &mut CoreRuntime,
         path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
         super::local_ops::write(&self.root, path, content)
-            .map_err(|error| self.changed(runtime, error))
     }
 
     fn chmod_file(
@@ -100,13 +82,12 @@ impl TargetIo for LocalTargetIo {
 
     fn create_symlink(
         &mut self,
-        runtime: &mut CoreRuntime,
+        _: &mut CoreRuntime,
         path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
         machine_ops::create_symlink(&self.root, path, target)
             .map_err(|failure| op_error(Operation::CreateSymlink, path, failure))
-            .map_err(|error| self.changed(runtime, error))
     }
 
     fn fetch_tree(&mut self, _: &mut CoreRuntime) -> anyhow::Result<FileTree> {

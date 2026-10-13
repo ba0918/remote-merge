@@ -1,3 +1,4 @@
+use super::route_retry::StopKey;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -151,25 +152,35 @@ pub(crate) trait TargetIo {
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>>;
 }
 
+/// `side` の比較先。処理を止めた側（ローカルの側とローカルに置き換えたサーバを含む）は、どの操作も
+/// 行わない比較先にする。それ以外は、変更の手順の失敗で root_dir を確かめ直す比較先で包む（D48・D49）
 pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> {
-    match side {
-        Side::Local => Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
+    let key = StopKey::of(side);
+    if runtime.stopped.contains_key(&key) {
+        return Box::new(super::stopped_target::StoppedTargetIo::new(key));
+    }
+    let (inner, shown_root): (Box<dyn TargetIo>, String) = match side {
+        Side::Local => (
+            Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
+            runtime.config.local.root_dir.display().to_string(),
+        ),
         Side::Remote(name) => match runtime.targets.local_override(name) {
-            Some(root) => Box::new(
-                super::local_target::LocalTargetIo::new(
+            Some(root) => (
+                Box::new(super::local_target::LocalTargetIo::new(
                     root.to_path_buf(),
                     runtime.config.filter.exclude.clone(),
                     runtime.config.filter.include.clone(),
-                )
-                .stopped_as(super::route_retry::StopKey::Server(name.clone())),
+                )),
+                root.display().to_string(),
             ),
-            None if runtime
-                .stopped
-                .contains_key(&super::route_retry::StopKey::Server(name.clone())) =>
-            {
-                Box::new(super::stopped_target::StoppedTargetIo::new(name.clone()))
-            }
-            None => Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
+            None => (
+                Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
+                match runtime.get_server_config(name) {
+                    Ok(server) => super::side_io::remote_shown_root(name, &server.root_dir),
+                    Err(_) => name.clone(),
+                },
+            ),
         },
-    }
+    };
+    Box::new(super::root_watch::RootWatch::new(key, shown_root, inner))
 }

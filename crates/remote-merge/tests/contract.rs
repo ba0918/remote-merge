@@ -220,6 +220,9 @@ mod rollback_paths;
 #[path = "contract/rollback_saved_record.rs"]
 mod rollback_saved_record;
 #[cfg(feature = "test-utils")]
+#[path = "contract/root_gone_support.rs"]
+mod root_gone_support;
+#[cfg(feature = "test-utils")]
 #[path = "contract/scan_entry_count.rs"]
 mod scan_entry_count;
 #[cfg(feature = "test-utils")]
@@ -382,6 +385,9 @@ mod status_unreadable;
 mod sync_cli;
 #[path = "contract/sync_results.rs"]
 mod sync_results;
+#[cfg(feature = "test-utils")]
+#[path = "contract/sync_root_gone.rs"]
+mod sync_root_gone;
 #[path = "contract/sync_support.rs"]
 mod sync_support;
 #[path = "contract/sync_targets.rs"]

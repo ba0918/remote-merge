@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
+use super::route_retry::StopKey;
 use super::target_io::TargetIo;
 use remote_merge_core::op_failure::{PathResult, SizeLimit};
 
@@ -15,18 +16,18 @@ use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::scan::children::ChildListing;
 
 pub(crate) struct StoppedTargetIo {
-    name: String,
+    key: StopKey,
 }
 
 impl StoppedTargetIo {
-    pub(crate) fn new(name: String) -> Self {
-        Self { name }
+    pub(crate) fn new(key: StopKey) -> Self {
+        Self { key }
     }
 
     fn refuse<T>(&self, rt: &CoreRuntime) -> anyhow::Result<T> {
         Err(rt
-            .stopped_error(&self.name)
-            .unwrap_or_else(|| anyhow::anyhow!("processing for {} was stopped", self.name)))
+            .stopped_error_of(&self.key)
+            .unwrap_or_else(|| anyhow::anyhow!("processing was stopped")))
     }
 }
 
@@ -99,10 +100,15 @@ impl TargetIo for StoppedTargetIo {
         self.refuse(rt)
     }
     fn disconnect(&mut self, rt: &mut CoreRuntime) {
-        rt.disconnect(&self.name);
+        if let StopKey::Server(name) = &self.key {
+            rt.disconnect(name);
+        }
     }
     fn is_available(&self, rt: &CoreRuntime) -> bool {
-        rt.has_client(&self.name)
+        match &self.key {
+            StopKey::Server(name) => rt.has_client(name),
+            StopKey::Local => true,
+        }
     }
     fn hash_entries(
         &mut self,

@@ -75,6 +75,8 @@ pub enum SshCommand {
     Chmod,
     /// ファイルのハッシュ（sha256sum か shasum）
     Hash,
+    /// 項目の削除
+    Remove,
 }
 
 impl SshCommand {
@@ -93,6 +95,7 @@ impl SshCommand {
             }
             Self::Chmod => script.starts_with("chmod "),
             Self::Hash => script.starts_with(remote_merge_ssh::contents_script::HASH_PREFIX),
+            Self::Remove => script.starts_with("rm -- "),
         }
     }
 }

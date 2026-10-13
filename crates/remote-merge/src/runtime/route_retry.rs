@@ -104,12 +104,7 @@ impl CoreRuntime {
         self.stopped_error_of(&StopKey::of(side))
     }
 
-    /// 処理を止めたサーバなら、行わなかったことを示すエラー
-    pub(crate) fn stopped_error(&self, server_name: &str) -> Option<anyhow::Error> {
-        self.stopped_error_of(&StopKey::Server(server_name.to_string()))
-    }
-
-    fn stopped_error_of(&self, key: &StopKey) -> Option<anyhow::Error> {
+    pub(crate) fn stopped_error_of(&self, key: &StopKey) -> Option<anyhow::Error> {
         self.stopped.get(key).map(|stop| {
             ProcessingStopped {
                 server: key.shown().to_string(),
