@@ -24,10 +24,11 @@ diff・status・merge・sync・rollback は、パスを比べるとき、まず�
 
 ### REQ-compare-003: パスがないことは集めた状態だけから決める
 - kind: prohibition
-- source: docs/decision/records/2026-10-12-foundation-4.md#E3, docs/decision/records/2026-10-12-foundation.md#A2
+- source: docs/decision/records/2026-10-12-foundation-4.md#E3, docs/decision/records/2026-10-12-foundation.md#A2, docs/decision/records/2026-10-12-foundation-4.md#E33
 - verification: unit
 
 比べる流れは、パスがないことを集めた状態だけから決め、読み込みの失敗から決めない。
+名前で指定したパスとディレクトリ（走査の起点）の途中の要素がディレクトリでない側では、その起点のパスはないとし、ほかの起点の状態を集め続ける。
 状態ではあったパスの中身かハッシュの読み込みが、ないの失敗（paths/operations.md の REQ-paths-020）になったときは、状態を集めた後にそのパスが変わったものとして reading.md の REQ-compare-013 の判定できないとし、片側だけとも両側にないとも扱わない。
 参照先の同じパスがないこと（cli/unreadable.md の REQ-cli-090）と、rollback の戻す先にファイルがないこと（backup/rollback-path.md の REQ-backup-027）も、その側の状態から決める。
 

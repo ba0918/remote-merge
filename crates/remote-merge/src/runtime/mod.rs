@@ -13,6 +13,7 @@ pub mod change_check;
 mod compare_checks;
 pub mod compare_flow;
 mod compare_reads;
+mod compare_starts;
 pub(crate) mod confirm;
 pub mod connection;
 pub mod core;

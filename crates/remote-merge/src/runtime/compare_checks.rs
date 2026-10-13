@@ -17,6 +17,19 @@ use super::connection::classify;
 use super::core::CoreRuntime;
 use crate::side::Side;
 
+/// その側の root_dir の実パス
+pub(super) fn root_real_path(
+    io: &mut dyn super::target_io::TargetIo,
+    runtime: &mut CoreRuntime,
+) -> anyhow::Result<String> {
+    match io.inspect_path(runtime, &RelPath::root())? {
+        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+            Ok(real_path)
+        }
+        other => anyhow::bail!("cannot resolve root_dir: {other:?}"),
+    }
+}
+
 impl CoreRuntime {
     /// 一覧の symlink のうち、辿ると root_dir の外へ解決されるもののパス
     pub(super) fn links_outside_root(
@@ -29,12 +42,7 @@ impl CoreRuntime {
             return Ok(Vec::new());
         }
         let mut io = super::target_io::for_side(side, self);
-        let root = match io.inspect_path(self, &RelPath::root())? {
-            ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
-                real_path
-            }
-            other => anyhow::bail!("cannot resolve root_dir: {other:?}"),
-        };
+        let root = root_real_path(io.as_mut(), self)?;
         let mut outside: Vec<String> = Vec::new();
         for link in links {
             // 外へ解決されるリンクの下は集めないので、確かめない

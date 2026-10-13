@@ -44,6 +44,9 @@ mod compare_reading_kinds;
 #[path = "contract/compare_recheck.rs"]
 mod compare_recheck;
 #[cfg(feature = "test-utils")]
+#[path = "contract/compare_scopes.rs"]
+mod compare_scopes;
+#[cfg(feature = "test-utils")]
 #[path = "contract/compare_support.rs"]
 mod compare_support;
 #[path = "contract/config_filters.rs"]

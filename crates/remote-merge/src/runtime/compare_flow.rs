@@ -12,7 +12,7 @@ use remote_merge_core::compare::{
     state_table, Follow, Incomplete, Method, PathComparison, PathStates, Role, Uses,
 };
 use remote_merge_core::op_failure::SizeLimit;
-use remote_merge_core::scan::outcome::{Listing, ScanRequest, ScanScope, Start};
+use remote_merge_core::scan::outcome::{Listing, ScanScope, Start};
 use remote_merge_core::scan::starts::scope_for;
 
 use super::core::CoreRuntime;
@@ -108,12 +108,16 @@ impl CoreRuntime {
         let mut listings = BTreeMap::new();
         let mut outside = BTreeMap::new();
         let mut incomplete = Vec::new();
+        let named: &[String] = match &request.scope {
+            CompareScope::Whole => &[],
+            CompareScope::Below(paths) | CompareScope::Entries(paths) => paths,
+        };
         for (role, side) in sides.each() {
-            let scan = ScanRequest {
-                scope: self.compare_scope(side, &request.scope)?,
-                max_entries: request.max_entries,
-            };
-            let listing = self.scan_listing(side, &scan)?;
+            let scope = self.compare_scope(side, &request.scope)?;
+            let mut listing = self.scan_named(side, scope, request.max_entries, named)?;
+            if let CompareScope::Below(dirs) = &request.scope {
+                listing = self.with_starts_themselves(side, dirs, listing, request.max_entries)?;
+            }
             if listing.truncated {
                 incomplete.push(Incomplete::Truncated {
                     role,
@@ -127,7 +131,9 @@ impl CoreRuntime {
                 });
             }
             if request.external_links == ExternalLinks::Stop {
-                outside.insert(role, self.links_outside_root(side, &listing)?);
+                let mut links = self.starts_outside_root(side, named)?;
+                links.extend(self.links_outside_root(side, &listing)?);
+                outside.insert(role, links);
             }
             listings.insert(role, listing);
         }
