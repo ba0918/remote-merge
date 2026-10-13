@@ -46,9 +46,18 @@ impl MachineCollector {
         }
     }
 
-    /// root_dir はリンクを辿って読む（REQ-scan-007）
+    /// root_dir はリンクを辿って読む（REQ-scan-007）。ディレクトリなら入れるかも確かめ、入れなければ
+    /// 読めない（検索の権限がなければ権限がない）と答える。SSH の経路の走査が root_dir に cd するのと
+    /// 同じ確かめで、どの範囲の走査でも root_dir の誤りを同じにする（docs/decision/records/
+    /// 2026-10-12-foundation-4.md の E42）
     fn answer_root(&self, depth: Depth, exclude: &Exclude) -> Answer {
         let entry = std::fs::metadata(&self.root)
+            .and_then(|meta| {
+                if meta.is_dir() {
+                    std::fs::metadata(self.root.join("."))?;
+                }
+                Ok(meta)
+            })
             .map(|meta| raw_entry(Vec::new(), &meta, None))
             .map_err(|e| unreached(&e));
         let is_dir = matches!(&entry, Ok(entry) if entry.kind == RawKind::Directory);

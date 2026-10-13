@@ -5,8 +5,10 @@
 
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{blocked_starts, outside_on_the_way, paths_to_check};
-use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
+use remote_merge_core::compare::{
+    blocked_starts, links_outside, outside_on_the_way, paths_to_check,
+};
+use remote_merge_core::op_failure::{OpError, OpFailure, Operation, Prefixed};
 use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest, ScanScope, Start};
@@ -37,24 +39,14 @@ pub(super) struct PathFacts {
     pub facts: BTreeMap<String, ResolvedPath>,
 }
 
-/// まとめて尋ねるパスの確認が、その側の走査の前か後か。root_dir がないときの扱いが違う
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FactsCheck {
-    /// 走査の前: root_dir がないのは初めからないもので、走査の root_dir の誤りにする（E38）
-    BeforeScan,
-    /// 走査の後: root_dir がないのは比べている途中で消えたもので、root_dir がないにしてその側を
-    /// 止める（E40）
-    AfterScan,
-}
-
 impl CoreRuntime {
-    /// root_dir と `paths` を、経路にまとめて一度に尋ねる。尋ねる操作の失敗（権限がない・接続断など）
-    /// はそのまま返す
+    /// root_dir と `paths` を、経路にまとめて一度に尋ねる。走査の後に尋ねるので、root_dir がないか
+    /// ディレクトリでなければ、比べている途中で消えたものとして root_dir がないにしてその側を止める
+    /// （E41・E42）。尋ねる操作の失敗（権限がない・接続断など）はそのまま返す
     pub(super) fn path_facts(
         &mut self,
         side: &Side,
         paths: &[String],
-        check: FactsCheck,
     ) -> anyhow::Result<PathFacts> {
         let mut rels = vec![RelPath::root()];
         for path in paths {
@@ -73,12 +65,7 @@ impl CoreRuntime {
                 ..
             } => real_path,
             // root_dir がないかディレクトリでない
-            _ => {
-                return Err(match check {
-                    FactsCheck::BeforeScan => self.root_scan_error(side),
-                    FactsCheck::AfterScan => self.root_gone_after_scan(side),
-                })
-            }
+            _ => return Err(self.root_gone_after_scan(side)),
         };
         let mut facts = BTreeMap::new();
         for (path, answer) in paths.iter().zip(answers) {
@@ -95,54 +82,59 @@ impl CoreRuntime {
         request: &CompareRequest,
         named: &[String],
     ) -> anyhow::Result<(Listing, Option<Vec<String>>)> {
-        let stop = request.external_links == ExternalLinks::Stop;
-        // 外へのリンクを辿らないときは、どの起点の途中も先にまとめて一度に確かめ、途中が
-        // ディレクトリでない起点は走査の前に外す
-        let checked = match stop && !named.is_empty() {
-            true => Some(self.path_facts(side, &paths_to_check(named), FactsCheck::BeforeScan)?),
-            false => None,
-        };
-        let blocked = checked
-            .as_ref()
-            .map(|checked| blocked_starts(named, &checked.facts))
-            .unwrap_or_default();
+        // root_dir の状態は、範囲と外へのリンクの扱いによらず、どの走査でも初めの問いで一度だけ
+        // 確かめる（E42）。ない・ディレクトリでない・権限がないは、ここで走査の root_dir の誤りになる
         let scope = self.compare_scope(side, &request.scope)?;
         let (mut listing, blocked) =
-            self.scan_named(side, scope, request.max_entries, named, blocked)?;
+            self.scan_named(side, scope, request.max_entries, named, Vec::new())?;
         if let CompareScope::Below(dirs) = &request.scope {
-            listing =
-                self.with_starts_themselves(side, dirs, blocked, listing, request.max_entries)?;
+            listing = self.with_starts_themselves(
+                side,
+                dirs,
+                blocked.clone(),
+                listing,
+                request.max_entries,
+            )?;
         }
-        if !stop {
+        if request.external_links != ExternalLinks::Stop {
             return Ok((listing, None));
         }
-        let mut links = checked
-            .map(|checked| outside_on_the_way(named, &checked.facts, &checked.root))
-            .unwrap_or_default();
-        links.extend(self.links_outside_root(side, &listing)?);
-        Ok((listing, Some(links)))
-    }
-
-    /// root_dir だけを確かめる走査の誤り（root_dir がない・読めない。どの範囲の指定でも走査と同じ
-    /// root_dir の誤りにする。REQ-scan-015）。確かめた後で root_dir が現れて走査が通ったときは、
-    /// 走査の途中で変わったものとする
-    fn root_scan_error(&mut self, side: &Side) -> anyhow::Error {
-        let request = ScanRequest {
-            scope: ScanScope::Starts(Vec::new()),
-            max_entries: 1,
-        };
-        match self.scan_listing(side, &request) {
-            Err(error) => error,
-            Ok(_) => ScanFailure::RootChanged.into(),
+        // 外へのリンクを辿らないときは、走査の後に、起点の途中と一覧の symlink をまとめて一度に
+        // 確かめる
+        let starts: Vec<String> = named
+            .iter()
+            .filter(|path| !blocked.contains(&normalized(path).to_string()))
+            .cloned()
+            .collect();
+        let links: Vec<String> = super::compare_flow::listed_links(&listing)
+            .map(String::from)
+            .collect();
+        let mut paths = paths_to_check(&starts);
+        paths.extend(
+            links
+                .iter()
+                .filter(|link| !paths.contains(link))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        if paths.is_empty() {
+            return Ok((listing, Some(Vec::new())));
         }
+        let checked = self.path_facts(side, &paths)?;
+        let mut outside = outside_on_the_way(&starts, &checked.facts, &checked.root);
+        outside.extend(links_outside(&links, &checked.facts, &checked.root));
+        Ok((listing, Some(outside)))
     }
 
-    /// 走査の後で root_dir がなくなっていた誤り。root_dir を添えて、その側への処理を止める（E40。
-    /// 変更の途中で root_dir がなくなったときと同じ。REQ-merge-044）
+    /// 走査の後で root_dir がなくなっていた誤り（文は "root_dir is gone: root_dir"）。その側への処理を
+    /// 止める（E41。変更の途中で root_dir がなくなったときと同じ。REQ-merge-044）
     fn root_gone_after_scan(&mut self, side: &Side) -> anyhow::Error {
-        let gone = OpError::new(Operation::Read, "", OpFailure::RootGone).into();
         let shown = super::target_io::shown_root(side, self);
-        let error = super::root_gone::with_shown_root(gone, &shown);
+        let error: anyhow::Error = Prefixed {
+            message: format!("{}: {shown}", OpFailure::RootGone),
+            error: OpError::new(Operation::Read, "", OpFailure::RootGone),
+        }
+        .into();
         self.stop_for_root_gone(super::route_retry::StopKey::of(side), &error);
         error
     }
@@ -187,7 +179,7 @@ impl CoreRuntime {
                 .filter(|name| !is_blocked(name, &blocked))
                 .cloned()
                 .collect();
-            let checked = self.path_facts(side, &remaining, FactsCheck::AfterScan)?;
+            let checked = self.path_facts(side, &remaining)?;
             blocked.push(reported);
             for path in blocked_starts(&remaining, &checked.facts) {
                 if !blocked.contains(&path) {

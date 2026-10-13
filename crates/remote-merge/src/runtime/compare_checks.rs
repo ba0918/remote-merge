@@ -2,9 +2,7 @@
 //! symlink（docs/ir/compare/flow.md の REQ-compare-004）と、書き込み先の今の状態
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
-use remote_merge_core::compare::{
-    check_before_change, links_outside, ChangeCheck, Observed, Role, SideFailure,
-};
+use remote_merge_core::compare::{check_before_change, ChangeCheck, Observed, Role, SideFailure};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::failure_kind::failure_of_scan_error;
@@ -12,28 +10,11 @@ use remote_merge_core::scan::outcome::{
     ListedKind, Listing, ScanFailure, ScanRequest, ScanScope, Start,
 };
 
-use super::compare_flow::listed_links;
 use super::connection::classify;
 use super::core::CoreRuntime;
 use crate::side::Side;
 
 impl CoreRuntime {
-    /// 一覧の symlink のうち、辿ると root_dir の外へ解決されるもののパス。どの symlink も経路に
-    /// まとめて一度に尋ねる
-    pub(super) fn links_outside_root(
-        &mut self,
-        side: &Side,
-        listing: &Listing,
-    ) -> anyhow::Result<Vec<String>> {
-        let links: Vec<String> = listed_links(listing).map(String::from).collect();
-        if links.is_empty() {
-            return Ok(Vec::new());
-        }
-        let checked =
-            self.path_facts(side, &links, super::compare_starts::FactsCheck::AfterScan)?;
-        Ok(links_outside(&links, &checked.facts, &checked.root))
-    }
-
     /// 変更の直前に、書き込み先 `side`（比べたときの側は `role`）の `path` の状態をもう一度集め、
     /// 比べたときの状態 `compared` と比べて変えてよいかを決める。`接続断` は誤りとして返す
     pub fn recheck_before_change(

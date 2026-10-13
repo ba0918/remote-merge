@@ -75,6 +75,10 @@ fn answer(mut child: Child) {
             let text = format!("kind={kind:?} stopped={}", child.runtime.has_stopped());
             return child.answer(&text);
         }
+        state if state.starts_with("root ") => {
+            let state = state[5..].to_string();
+            return answer_root_state(child, &state);
+        }
         "missing root" => {
             let text = [ExternalLinks::Stop, ExternalLinks::Follow]
                 .into_iter()
@@ -371,57 +375,102 @@ fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_
     }
 }
 
-// @kotowari[REQ-scan-015, REQ-compare-002]
-#[test]
-fn a_root_dir_missing_from_the_start_is_the_same_scan_error_in_every_scope_on_all_three_routes() {
-    let name =
-        "a_root_dir_missing_from_the_start_is_the_same_scan_error_in_every_scope_on_all_three_routes";
-    if let Some(child) = child() {
-        return answer(child);
+/// 子のプロセスで、右の root_dir を `state`（"missing"・"file"・"locked"）にして、三つの範囲と外への
+/// リンクの扱いの六つの組み合わせで比べた誤りの文・走査の失敗の種類・止めた記録を答える
+fn answer_root_state(mut child: Child, state: &str) {
+    let sides = child.sides(false);
+    let root = child.roots.right.clone();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    match state {
+        "missing" => fs::remove_dir_all(&root).unwrap(),
+        "file" => {
+            fs::remove_dir_all(&root).unwrap();
+            fs::write(&root, "not a directory\n").unwrap();
+        }
+        "locked" => {
+            locks.lock(&root, 0o000);
+            if fs::read_dir(&root).is_ok() {
+                drop(locks);
+                return child.answer("permissions do not apply");
+            }
+        }
+        other => panic!("{other}"),
     }
-    let routes = FlowRoutes::new(|left, right| {
-        fs::create_dir(left.join("d")).unwrap();
-        fs::write(left.join("d/a.txt"), "left\n").unwrap();
-        fs::remove_dir(right).unwrap();
-    });
-
-    for route in ROUTES {
-        let text = routes.run(route, &test_name(name), "missing root");
-        let results: Vec<&str> = text.split("--\n").collect();
-        assert_eq!(results.len(), 6, "{route:?}: {text}");
-        assert!(
-            results.iter().all(|result| *result == results[0]),
-            "{route:?}: {text}"
-        );
-        assert!(
-            results[0].ends_with("kind=Some(Some(RootMissing)) stopped=false"),
-            "{route:?}: {text}"
-        );
-    }
+    let text = [ExternalLinks::Stop, ExternalLinks::Follow]
+        .into_iter()
+        .flat_map(|external| {
+            [
+                CompareScope::Whole,
+                CompareScope::Below(vec!["d".into()]),
+                CompareScope::Entries(vec!["d/a.txt".into()]),
+            ]
+            .map(|scope| (scope, external))
+        })
+        .map(|(scope, external)| {
+            let mut request = request(scope, Method::Metadata, Follow::No);
+            request.external_links = external;
+            let compared = child.runtime.compare(&sides, &request, &NothingUsed);
+            let kind = compared.as_ref().err().and_then(|error| {
+                error.chain().find_map(|cause| {
+                    cause.downcast_ref::<ScanFailure>().cloned().or_else(|| {
+                        cause
+                            .downcast_ref::<ScanStopped>()
+                            .map(|stopped| stopped.failure.clone())
+                    })
+                })
+            });
+            format!(
+                "{}kind={kind:?} stopped={}",
+                comparison_text(compared),
+                child.runtime.has_stopped()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("--\n");
+    drop(locks);
+    child.answer(&text);
 }
 
-// @kotowari[REQ-scan-015, REQ-paths-020]
+// @kotowari[REQ-scan-015, REQ-compare-002, REQ-paths-020]
 #[test]
-fn a_root_dir_without_search_permission_is_permission_denied_on_all_three_routes() {
-    let name = "a_root_dir_without_search_permission_is_permission_denied_on_all_three_routes";
+fn a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_all_three_routes()
+{
+    let name = "a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);
     }
-    let routes = FlowRoutes::new(|left, right| {
-        for root in [left, right] {
-            fs::write(root.join("a.txt"), "same\n").unwrap();
+    let expected = [
+        ("missing", "RootMissing"),
+        ("file", "RootNotDirectory"),
+        ("locked", "RootUnreadable { cause: PermissionDenied }"),
+    ];
+    for (state, kind) in expected {
+        let routes = FlowRoutes::new(|left, right| {
+            for root in [left, right] {
+                fs::create_dir(root.join("d")).unwrap();
+                fs::write(root.join("d/a.txt"), "same\n").unwrap();
+            }
+        });
+        for route in ROUTES {
+            let text = routes.run(route, &test_name(name), &format!("root {state}"));
+            if text == "permissions do not apply" {
+                eprintln!("note: running as root; permissions do not apply");
+                continue;
+            }
+            let results: Vec<&str> = text.split("--\n").collect();
+            assert_eq!(results.len(), 6, "{state} {route:?}: {text}");
+            assert!(
+                results.iter().all(|result| *result == results[0]),
+                "{state} {route:?}: {text}"
+            );
+            assert!(
+                results[0].starts_with("error: "),
+                "{state} {route:?}: {text}"
+            );
+            assert!(
+                results[0].ends_with(&format!("kind=Some({kind}) stopped=false")),
+                "{state} {route:?}: {text}"
+            );
         }
-    });
-
-    for route in ROUTES {
-        let text = routes.run(route, &test_name(name), "unsearchable root");
-        if text == "permissions do not apply" {
-            eprintln!("note: running as root; permissions do not apply");
-            return;
-        }
-        assert_eq!(
-            text, "kind=Some(PermissionDenied) stopped=false",
-            "{route:?}"
-        );
     }
 }
