@@ -237,6 +237,11 @@ pub fn execute_status(
         output.agent = determine_agent_status(&pair.right, &core);
     }
 
+    // root_dir がなくなって止めた側があれば、その最初の理由で止める（走査の root_dir の誤りと同じ。D48）
+    if let Some(stopped) = core.root_gone_stop() {
+        core.disconnect_all();
+        return Err(stopped);
+    }
     let code = status_exit_code(&output.summary);
 
     // Filter out Equal files unless --all is specified

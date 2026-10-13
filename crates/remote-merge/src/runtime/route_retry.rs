@@ -99,6 +99,15 @@ impl CoreRuntime {
         !self.stopped.is_empty()
     }
 
+    /// root_dir がなくなって処理を止めた側があれば、その「行わなかった」のエラー（止めたときの最初の
+    /// root_dir がない誤りを持つ。D48）。読むだけのコマンドが、それを出して止めるのに使う
+    pub fn root_gone_stop(&self) -> Option<anyhow::Error> {
+        self.stopped
+            .iter()
+            .find(|(_, stop)| stop.cause == StopCause::RootGone)
+            .and_then(|(key, _)| self.stopped_error_of(key))
+    }
+
     /// `side` への処理を止めていたら、行わなかったことを示すエラー
     pub fn stopped_error_for(&self, side: &Side) -> Option<anyhow::Error> {
         self.stopped_error_of(&StopKey::of(side))
