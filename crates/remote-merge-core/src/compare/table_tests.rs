@@ -101,3 +101,35 @@ fn entries_below_a_link_resolving_outside_the_root_dir_are_not_collected_on_that
     assert!(table["sharedness.txt"].not_collected.is_empty());
     assert_eq!(table["sharedness.txt"].states[&Role::Ref], file_state());
 }
+
+// @kotowari[REQ-scan-004, REQ-compare-003]
+#[test]
+fn a_path_missing_from_a_truncated_listing_is_not_collected_on_that_side() {
+    let truncated = Listing {
+        entries: vec![entry("a.txt", ListedKind::File)],
+        truncated: true,
+        ..Listing::default()
+    };
+    let listings = BTreeMap::from([
+        (
+            Role::Left,
+            listing(
+                vec![
+                    entry("a.txt", ListedKind::File),
+                    entry("b.txt", ListedKind::File),
+                ],
+                &[],
+            ),
+        ),
+        (Role::Right, truncated),
+    ]);
+
+    let table = state_table(&listings, &BTreeMap::new());
+
+    assert_eq!(
+        table["b.txt"].states,
+        BTreeMap::from([(Role::Left, file_state())])
+    );
+    assert_eq!(table["b.txt"].not_collected, BTreeSet::from([Role::Right]));
+    assert_eq!(table["a.txt"].states[&Role::Right], file_state());
+}
