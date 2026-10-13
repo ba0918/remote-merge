@@ -304,3 +304,24 @@ fn ex_merge_056_a_source_mode_of_0_read_under_sudo_is_copied_to_the_destination(
     fs::set_permissions(&local, fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(fs::read_to_string(&local).unwrap(), "source\n");
 }
+
+// @kotowari[REQ-merge-042, EX-merge-064]
+#[test]
+fn ex_merge_064_a_new_file_and_its_new_directory_belong_to_the_login_user_under_sudo() {
+    let container = std::env::var("REMOTE_MERGE_E2E_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    fs::create_dir_all(home.path().join("local/owned-new")).unwrap();
+    fs::write(home.path().join("local/owned-new/a.txt"), "new\n").unwrap();
+    let setup = docker(
+        &container,
+        "mkdir -p /data /tmp/agent/remote-merge-testuser && chown root:root /data && rm -rf /data/owned-new",
+    );
+    assert!(setup.status.success(), "{setup:?}");
+
+    let output = run_with(&home, &port, true, "/tmp/agent", &["merge", "owned-new/a.txt"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let owners = docker(&container, "stat -c '%U' /data/owned-new /data/owned-new/a.txt");
+    assert_eq!(String::from_utf8(owners.stdout).unwrap(), "testuser\ntestuser\n");
+}

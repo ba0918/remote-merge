@@ -165,6 +165,9 @@ mod merge_missing_paths;
 mod merge_missing_root_dir;
 #[path = "contract/merge_new_link_paths.rs"]
 mod merge_new_link_paths;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_new_owner.rs"]
+mod merge_new_owner;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[cfg(feature = "test-utils")]

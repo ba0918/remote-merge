@@ -44,6 +44,14 @@
 読み込み元の権限に 0o777 を超えるビット（setuid・setgid・sticky）があるときも、権限を写さず、中身は書いたことと特別なビットのために写さなかったことが分かる error で同じく failed に出し、終了コード 2 を返す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
+### REQ-merge-042: 新しく作るものはログインした利用者の持ち物になる
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-12-foundation-3.md#D36
+- verification: unit
+
+merge・sync・rollback が新しく作るファイル・symlink・ディレクトリは、どの経路でも、sudo=true を指定したかどうかによらず、ログインした利用者（ローカルの経路では手元の利用者）の持ち物になる。
+所有者を付けられないときは、作ったものを消して何も変えずにそのファイルを失敗にし、消せないときは残ったものを示す error で失敗にする。
+
 ## Examples
 
 ```gherkin
@@ -112,4 +120,16 @@ Scenario: 読み込み元の権限が 0 のファイルを権限ごと写す
 Given 読み込み元の "a.txt" の権限が 0 で、書き込み先の "a.txt" の権限が 0o644 で中身が違う
 When --with-permissions を付けて "a.txt" を merge する
 Then 書き込み先の "a.txt" の権限は 0 になる
+
+@id=EX-merge-063 @about=REQ-merge-042 @source=docs/decision/records/2026-10-12-foundation-3.md#D36
+Scenario: 三つの経路で新しいディレクトリの下に新しいファイルを作る
+Given ローカル・SSH・エージェントの書き込み先に "new" ディレクトリがない
+When それぞれの経路で "new/a.txt" を merge する
+Then どの経路でも "new" と "new/a.txt" の所有者は書いた利用者である
+
+@id=EX-merge-064 @about=REQ-merge-042 @source=docs/decision/records/2026-10-12-foundation-3.md#D36
+Scenario: sudo=true のサーバで新しいディレクトリの下に新しいファイルを作る
+Given sudo=true のサーバの root の持ち物の root_dir に "new" ディレクトリがない
+When "new/a.txt" を merge する
+Then "new" と "new/a.txt" の所有者はログインした利用者である
 ```

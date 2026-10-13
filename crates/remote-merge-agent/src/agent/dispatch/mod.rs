@@ -2,6 +2,7 @@
 //! 同じ `machine_ops`）を行い、失敗を種類（`WireFailure`）で返す
 
 mod changes;
+mod ownership;
 mod reads;
 mod writes;
 
