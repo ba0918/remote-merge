@@ -23,10 +23,12 @@ merge と sync は、比べたときから書き込み先の中身が変わっ�
 
 ### REQ-merge-044: 書いている間に root_dir ごと消えたら、その書き込み先への処理を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-12-foundation-3.md#D47
+- source: docs/decision/records/2026-10-12-foundation-3.md#D47, docs/decision/records/2026-10-12-foundation-3.md#D48, docs/decision/records/2026-10-12-foundation-3.md#D49
 - verification: unit
 
 merge・sync・rollback が書き込み先に変更を行っている間に、その書き込み先の root_dir がなくなった（ディレクトリでなくなったものを含む）と分かったときは、どの経路でも、そのファイルを root_dir がないことと書き込み先の root_dir（リモートは "サーバ名:パス"）が分かる error で failed に出し、その書き込み先でまだ処理していない残りのファイルを変更せずに、手を付けていないことが分かる error で failed に出し、終了コード 2 を返す。
+root_dir がなくなったと分かるのは、変更の手順（書く前の読み込み・書き込み・symlink の作成・削除・権限の変更・書き戻す前の確認）のどれかが、ない・ディレクトリでない・親がないと答えた後に root_dir を確かめ直したときと、親を作る前に root_dir を確かめたときである。
+root_dir の上を辿れない（権限がない）ときは root_dir がないとせず、そのファイルを権限がない失敗にして処理を続ける。
 root_dir がない文言は最初のファイルの error に一度だけ出す。
 それまでに済んだファイルはそのまま結果に出し、root_dir もその親も作り直さない。
 sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
