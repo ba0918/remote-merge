@@ -291,10 +291,12 @@ fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_
     }
     let routes = FlowRoutes::new(|left, right| {
         for root in [left, right] {
-            for dir in ["a", "m"] {
+            for dir in ["a", "n"] {
                 fs::create_dir(root.join(dir)).unwrap();
                 fs::write(root.join(dir).join("f.txt"), "same\n").unwrap();
             }
+            // 循環のリンクの後に辿るディレクトリへの symlink。右では循環で止めて辿らない
+            symlink("n", root.join("m")).unwrap();
         }
         // 左の "a/loop" の下は、右では循環で止めて集めていない
         fs::create_dir(left.join("a/loop")).unwrap();
@@ -307,6 +309,11 @@ fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_
         assert!(text.contains("incomplete Cycle"), "{route:?}: {text}");
         assert!(
             text.contains("a/loop/x.txt not-collected:right\n"),
+            "{route:?}: {text}"
+        );
+        // 右にも実在するのに、循環で止めたために一覧に載らなかったもの
+        assert!(
+            text.contains("m/f.txt not-collected:right\n"),
             "{route:?}: {text}"
         );
     }
