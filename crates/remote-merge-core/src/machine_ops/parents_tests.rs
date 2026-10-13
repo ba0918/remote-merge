@@ -94,6 +94,29 @@ fn a_parent_made_by_someone_else_before_the_mkdir_is_not_counted_as_created() {
     assert_eq!(made, [temp.path().join("a/b")]);
 }
 
+// 作ったディレクトリが消えていれば消せたもの、別のもの（ディレクトリでないもの）に替わっていれば
+// 残ったものにする
+#[test]
+fn a_created_directory_gone_is_removed_and_one_replaced_by_something_else_is_left() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("empty")).unwrap();
+    fs::write(root.join("file"), "x").unwrap();
+    std::os::unix::fs::symlink("nowhere", root.join("dangling")).unwrap();
+    fs::create_dir(root.join("real")).unwrap();
+    std::os::unix::fs::symlink("real", root.join("to_dir")).unwrap();
+
+    let removed = |name: &str| super::parents::remove_dir(&root.join(name)).is_ok();
+
+    assert!(removed("gone"));
+    assert!(removed("empty"));
+    assert!(!root.join("empty").exists());
+    assert!(!removed("file"));
+    assert!(!removed("dangling"));
+    assert!(!removed("to_dir"));
+    assert!(root.join("file").exists());
+}
+
 #[test]
 fn parents_that_cannot_be_removed_are_named_in_the_failure() {
     let dirs = vec![

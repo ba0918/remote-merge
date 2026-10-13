@@ -87,22 +87,31 @@ impl OwnerOps for Owner<'_> {
             None => std::os::unix::fs::lchown(self.entry, uid, gid),
         }
     }
-    /// 作ったファイルを消す。パスにあるものが開いたファイルと別のもの（作った後に差し替えられた）なら
-    /// 消さない
+    /// 作ったファイルかリンクを消す。消えていれば消せたものとする。パスにあるものが開いたファイルと
+    /// 別のもの（作った後に差し替えられた）なら消さない
     fn remove_entry(&mut self) -> std::io::Result<()> {
+        let now = match std::fs::symlink_metadata(self.entry) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            now => now?,
+        };
         if let Some(file) = self.file {
             use std::os::unix::fs::MetadataExt;
-            let (opened, now) = (file.metadata()?, std::fs::symlink_metadata(self.entry)?);
+            let opened = file.metadata()?;
             if (opened.dev(), opened.ino()) != (now.dev(), now.ino()) {
                 return Err(std::io::Error::other(
                     "the path no longer holds the created file",
                 ));
             }
         }
-        std::fs::remove_file(self.entry)
+        match std::fs::remove_file(self.entry) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
     }
+    /// 作ったディレクトリを消す。ローカルの経路と同じ判断にする（消えていれば消せたもの、別のものに
+    /// 替わっていれば残ったもの）
     fn remove_dir(&mut self, dir: &Path) -> std::io::Result<()> {
-        std::fs::remove_dir(dir)
+        remote_merge_core::machine_ops::remove_created_dir(dir)
     }
 }
 

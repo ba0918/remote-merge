@@ -3,6 +3,7 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use super::open::open_for_write;
 use super::parents::{create_parents, remove_dir, undo_parents};
 use super::{failed, full_path, PermissionMode};
 use crate::op_failure::OpFailure;
@@ -14,66 +15,6 @@ use crate::relative_path::EntryPath;
 pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFailure> {
     let mut opened = open_for_write(root, entry)?;
     opened.file.write_all(content).map_err(failed)
-}
-
-/// 開いた書き込み先と、開くために作った親ディレクトリ（上から順）
-pub struct Opened {
-    pub file: std::fs::File,
-    pub new_dirs: Vec<PathBuf>,
-    /// このとき新しく作った（O_EXCL で作れた）ファイルか
-    pub created: bool,
-}
-
-/// 書き込み先を開いて古い中身を切り詰める。分けて書くときは、返したファイルに後の分を書き足す
-/// （パスで開き直さない）。最後の要素が symlink なら辿らずに失敗する。
-///
-/// 書き込み先がなければ、ない親を作ってから新しいファイルとして作る（O_EXCL）。確かめてから作るまでに
-/// 同じパスに何かが現れたら（別のファイルへのハードリンクを含む）、それを開かずに "File exists" の
-/// I/O の失敗にする（docs/ir/merge/concurrency.md の REQ-merge-043）。親を作った後で開けなければ、
-/// 作った親を消して失敗にする
-pub fn open_for_write(root: &Path, entry: &EntryPath) -> Result<Opened, OpFailure> {
-    open_for_write_with(root, entry, |_| {})
-}
-
-/// [`open_for_write`] の、書き込み先がないかを確かめた後・開く前に `between` を呼ぶもの
-pub(super) fn open_for_write_with(
-    root: &Path,
-    entry: &EntryPath,
-    between: impl FnOnce(&Path),
-) -> Result<Opened, OpFailure> {
-    let path = full_path(root, entry);
-    let created = std::fs::symlink_metadata(&path).is_err();
-    between(&path);
-    let mut options = std::fs::OpenOptions::new();
-    let new_dirs = if created {
-        options.write(true).create_new(true);
-        create_parents(&path)?
-    } else {
-        // 既存のファイルはその場で書き換える（REQ-merge-039）
-        options.write(true).create(true).truncate(true);
-        Vec::new()
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    #[cfg(not(unix))]
-    if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(undo_parents(
-            &new_dirs,
-            OpFailure::Io("the destination is a symbolic link".to_string()),
-            remove_dir,
-        ));
-    }
-    match options.open(&path) {
-        Ok(file) => Ok(Opened {
-            file,
-            new_dirs,
-            created,
-        }),
-        Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),
-    }
 }
 
 /// 項目を消す。末尾の symlink はリンクだけを消し、ディレクトリとないパスは消さずに失敗する

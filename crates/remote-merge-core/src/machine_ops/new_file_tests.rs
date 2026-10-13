@@ -3,7 +3,7 @@
 use std::fs;
 use std::io::Write;
 
-use super::change::open_for_write_with;
+use super::open::open_for_write_with;
 use super::*;
 use crate::op_failure::OpFailure;
 use crate::relative_path::EntryPath;
@@ -43,6 +43,24 @@ fn a_file_appearing_under_new_parents_after_the_check_is_kept_and_the_parents_st
         fs::read_to_string(root.join("new/a.txt")).unwrap(),
         "theirs"
     );
+}
+
+// 確かめたときにあった書き込み先が開く前に消えたら、新しいファイルの手順で作り、作ったものとして
+// 返す（sudo のエージェントが所有者を付けられるように）
+#[test]
+fn a_destination_gone_after_the_check_is_made_as_a_new_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(root.join("a.txt"), "old").unwrap();
+
+    let mut opened = open_for_write_with(root, &entry("a.txt"), |path| {
+        fs::remove_file(path).unwrap();
+    })
+    .unwrap();
+    opened.file.write_all(b"new").unwrap();
+
+    assert!(opened.created);
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "new");
 }
 
 #[test]

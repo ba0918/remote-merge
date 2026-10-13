@@ -97,17 +97,12 @@ pub fn undo_parents(
     ))
 }
 
-/// 作った親を消すいつもの手段。作れずにないものは消せたものとする
-pub(super) fn remove_dir(dir: &Path) -> std::io::Result<()> {
+/// 作ったディレクトリを消す。どの経路も同じ判断にする（D43）：消えていたものは消せたものとし、
+/// ディレクトリでないもの（作った後に通常ファイルや symlink に替わったもの）は消さずに、消せずに
+/// 残ったものとして誤りを返す
+pub fn remove_dir(dir: &Path) -> std::io::Result<()> {
     match std::fs::remove_dir(dir) {
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ) =>
-        {
-            Ok(())
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         other => other,
     }
 }

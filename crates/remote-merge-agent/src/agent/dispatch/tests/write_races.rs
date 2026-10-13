@@ -29,6 +29,30 @@ fn later_parts_go_to_the_file_opened_for_the_first_part_even_if_the_path_is_swap
     assert_eq!(fs::read_to_string(root.join("victim")).unwrap(), "secret");
 }
 
+// 消そうとしたものが消えていれば消せたもの、作ったディレクトリが別のものに替わっていれば残ったもの
+// （ローカルとSSH の経路と同じ判断）
+#[test]
+fn a_created_entry_or_directory_gone_is_removed_and_a_replaced_directory_is_left() {
+    use super::super::ownership::OwnerOps as _;
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("a.txt");
+    let file = fs::File::create(&path).unwrap();
+    fs::remove_file(&path).unwrap();
+    fs::write(tmp.path().join("was_dir"), "x").unwrap();
+    let config = MetadataConfig::default();
+
+    let mut owner = super::super::writes::Owner {
+        config: &config,
+        entry: &path,
+        file: Some(&file),
+    };
+
+    assert!(owner.remove_entry().is_ok());
+    assert!(owner.remove_dir(&tmp.path().join("gone")).is_ok());
+    assert!(owner.remove_dir(&tmp.path().join("was_dir")).is_err());
+    assert!(tmp.path().join("was_dir").exists());
+}
+
 #[test]
 fn a_created_file_whose_path_was_swapped_is_not_removed_in_its_place() {
     use super::super::ownership::OwnerOps as _;

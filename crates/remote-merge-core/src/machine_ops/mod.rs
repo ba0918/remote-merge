@@ -3,6 +3,7 @@
 
 mod change;
 mod mode;
+mod open;
 mod parents;
 
 use std::io::Read as _;
@@ -12,9 +13,10 @@ use sha2::{Digest as _, Sha256};
 
 #[cfg(unix)]
 pub use change::create_symlink_creating;
-pub use change::{chmod, create_symlink, open_for_write, remove, write, Opened};
+pub use change::{chmod, create_symlink, remove, write};
 pub use mode::{ModeTooWide, PermissionMode};
-pub use parents::undo_parents;
+pub use open::{open_for_write, Opened};
+pub use parents::{remove_dir as remove_created_dir, undo_parents};
 
 use crate::op_failure::{check_size, from_io_error, OpFailure, SizeLimit};
 use crate::relative_path::EntryPath;
