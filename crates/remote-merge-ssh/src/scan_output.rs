@@ -57,6 +57,7 @@ fn answer(
     let link = match token {
         b"@LD" => Some(LinkTarget::Directory),
         b"@LF" => Some(LinkTarget::NotDirectory),
+        b"@LO" => Some(LinkTarget::Other),
         b"@LX" => Some(link_target_from(tokens.next()?)),
         _ => None,
     };

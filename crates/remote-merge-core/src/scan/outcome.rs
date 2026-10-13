@@ -99,8 +99,10 @@ pub enum ListedKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkPoint {
     Directory,
-    /// ディレクトリでないもの（通常ファイル・その他の種類）
+    /// 通常ファイル
     NotDirectory,
+    /// その他の種類（FIFO・ソケット・デバイス。docs/ir/compare/judgement.md の REQ-compare-009）
+    Other,
     /// リンク先がない（リンク切れ）
     Missing,
 }

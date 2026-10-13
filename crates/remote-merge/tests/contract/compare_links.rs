@@ -151,3 +151,29 @@ fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_thr
         );
     }
 }
+
+// @kotowari[REQ-compare-009, REQ-compare-008]
+#[test]
+fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes(
+) {
+    let name = "req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            super::scan_other_kinds::make_fifo(&root.join("pipe"));
+            symlink("pipe", root.join("to-pipe")).unwrap();
+        }
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, &test_name(name), "diff and status");
+        let diff = text.split("--\n").next().unwrap();
+        assert!(
+            diff.contains("to-pipe left-right=undecidable(not a regular file)(followed undecidable(not a regular file))"),
+            "{route:?}: {text}"
+        );
+        assert!(!text.contains("hash=[\"to-pipe\"]"), "{route:?}: {text}");
+    }
+}

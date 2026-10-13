@@ -28,10 +28,11 @@ diff は、それに加えて二つの symlink を辿った先の組を、もう
 
 ### REQ-compare-009: その他の種類は読まずに判定できないとする
 - kind: state_driven
-- source: docs/decision/records/2026-10-12-foundation-4.md#E8
+- source: docs/decision/records/2026-10-12-foundation-4.md#E8, docs/decision/records/2026-10-12-foundation-4.md#E34
 - verification: unit
 
 二つの側のどちらかのパスがその他の種類（通常ファイル・ディレクトリ・symlink のどれでもない FIFO・ソケット・デバイス）のとき、比べる流れはそのパスの中身もハッシュも読まず、理由を "not a regular file" とした判定できないとし、reading.md の REQ-compare-013 のとおり扱う。
+REQ-compare-008 で二つの symlink を辿った先の組を判定するときも同じで、辿った先のどちらかがその他の種類なら、辿った先の中身もハッシュも読まずに、理由を "not a regular file" とした判定できないとする。
 merge と sync は、その他の種類を書き込み先に作らず、書き換えず、--delete でも消さない。
 
 ## Decision tables

@@ -22,6 +22,10 @@ impl Walk<'_> {
                 self.take_subtree(&link.path, tree, &link.ancestors, link.counter)
             }
             Some(LinkTarget::NotDirectory) => Ok(()),
+            Some(LinkTarget::Other) => {
+                self.point(&link, LinkPoint::Other);
+                Ok(())
+            }
             Some(LinkTarget::Missing) => {
                 self.point(&link, LinkPoint::Missing);
                 Ok(())
@@ -39,6 +43,7 @@ impl Walk<'_> {
         match answer.link {
             Some(LinkTarget::Directory) => self.point(&link, LinkPoint::Directory),
             Some(LinkTarget::Missing) => self.point(&link, LinkPoint::Missing),
+            Some(LinkTarget::Other) => self.point(&link, LinkPoint::Other),
             Some(LinkTarget::NotDirectory) => {}
             Some(LinkTarget::Unresolvable) => {
                 return Err(ScanFailure::UnresolvableLink {

@@ -54,13 +54,14 @@ impl SideState {
     }
 }
 
-/// symlink を辿った先の状態（docs/ir/compare/judgement.md の REQ-compare-008）。ディレクトリでない
-/// ものは、大きさと更新時刻の分からない通常ファイルとし、中身のハッシュで決める（その他の種類なら
-/// ハッシュが "not a regular file" の失敗になる）
+/// symlink を辿った先の状態（docs/ir/compare/judgement.md の REQ-compare-008）。通常ファイルは、
+/// 大きさと更新時刻の分からない通常ファイルとし、中身のハッシュで決める
 pub fn followed_state(points_to: LinkPoint) -> SideState {
     match points_to {
         LinkPoint::Directory => SideState::Directory,
         LinkPoint::Missing => SideState::Absent,
+        // 辿った先がその他の種類なら、読まずに判定できないとする（REQ-compare-009）
+        LinkPoint::Other => SideState::Other,
         LinkPoint::NotDirectory => SideState::File {
             size: None,
             mtime: None,

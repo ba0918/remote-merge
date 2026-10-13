@@ -53,7 +53,10 @@ pub struct RawEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkTarget {
     Directory,
+    /// 通常ファイル
     NotDirectory,
+    /// 通常ファイル・ディレクトリのどれでもないもの（FIFO・ソケット・デバイス）
+    Other,
     /// リンク先がない（リンク切れ）
     Missing,
     /// ループしているか途中にディレクトリでないものを含むか、読めないために辿れない（REQ-scan-018）

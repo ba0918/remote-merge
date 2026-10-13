@@ -84,7 +84,8 @@ pub fn entry_at(path: &Path, rel: Vec<u8>) -> Result<RawEntry, Unreached> {
 pub fn link_target(path: &Path) -> LinkTarget {
     match std::fs::metadata(path) {
         Ok(meta) if meta.is_dir() => LinkTarget::Directory,
-        Ok(_) => LinkTarget::NotDirectory,
+        Ok(meta) if meta.is_file() => LinkTarget::NotDirectory,
+        Ok(_) => LinkTarget::Other,
         Err(e) if e.kind() == io::ErrorKind::NotFound => LinkTarget::Missing,
         Err(_) => LinkTarget::Unresolvable,
     }
