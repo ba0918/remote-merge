@@ -42,7 +42,7 @@ SSH の経路は、リモートのシェルと道具（find・stat・dd など�
 
 root でない利用者で、C ロケール（`LC_ALL=C`）で確かめた。対象は CentOS 5（coreutils 5.97）・CentOS 6（8.4）・CentOS 7（8.22）のコンテナ、手元の Ubuntu（coreutils 9.4、sh は dash）、Alpine の BusyBox 1.37.0。
 
-- シェルのテストが偽で理由が分からないときの `ls -d` の標準エラーは、どれも OS の文言で終わる。ないパスは "No such file or directory"、途中が通常ファイルのパス（通常ファイルへの symlink を途中に含むものも）は "Not a directory"、検索の権限がないディレクトリの下のパス（その下の何段目でも）は "Permission denied" である。前に付く文言（"ls: パス: "・"ls: cannot access パス: "・"ls: cannot access 'パス': "）は版で違うので、終わりだけを読む。終了コードは coreutils が 2、BusyBox が 1 である。
+- シェルのテストが偽で理由が分からないときの `ls -d` の標準エラーは、どれも OS の文言で終わる。ないパスは "No such file or directory"、途中が通常ファイルのパス（通常ファイルへの symlink を途中に含むものも）は "Not a directory"、検索の権限がないディレクトリの下のパス（その下の何段目でも）は "Permission denied" である。前に付く文言（"ls: パス: "・"ls: cannot access パス: "・"ls: cannot access 'パス': "）は版で違うので、終わりだけを読む。終了コードは coreutils が 2、BusyBox が 1 である。CentOS 5〜7 と BusyBox 1.37.0 のコンテナで uid 1000 の利用者として確かめた（CentOS 5 と BusyBox は "ls: パス: "、CentOS 6・7 は "ls: cannot access パス: " を前に付ける）。検索の権限がないディレクトリの下のパスは `[ -d ]` も偽になる。
 - 自分を指す symlink の下のパスは、coreutils が "Too many levels of symbolic links"、BusyBox が "Symbolic link loop" で終わる。
 - 検索の権限がないディレクトリそのものは、`[ -e ]`・`[ -d ]` が真で、`[ -r ]`・`[ -x ]` が偽になり、`ls -d` は成功する。その下のパスは `[ -e ]`・`[ -L ]` がどれも偽になる。
 - リンク切れの symlink は `[ -L ]` が真で `[ -e ]` が偽になる。coreutils の `ls -d` はリンクそのものを示して成功し、BusyBox の `ls -d` はリンク先を辿って "No such file or directory" で失敗する。
