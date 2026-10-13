@@ -29,7 +29,8 @@ impl CoreRuntime {
         if links.is_empty() {
             return Ok(Vec::new());
         }
-        let checked = self.path_facts(side, &links)?;
+        let checked =
+            self.path_facts(side, &links, super::compare_starts::FactsCheck::AfterScan)?;
         Ok(links_outside(&links, &checked.facts, &checked.root))
     }
 
