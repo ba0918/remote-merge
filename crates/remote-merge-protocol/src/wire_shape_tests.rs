@@ -203,3 +203,28 @@ fn every_kind_of_entry_and_scope_keeps_its_wire_shape() {
     );
     assert_eq!(requests.join(","), "81a84c697374547265659292a557686f6c650190,81a84c69737454726565929281a65374617274739394a161c3c30094a162c2c30194a163c2c2020190,81a84c69737454726565929281a84368696c6472656ea1640190", "bump PROTOCOL_VERSION");
 }
+
+#[test]
+fn the_batched_path_check_keeps_its_wire_shape() {
+    let request = AgentRequest::InspectPaths {
+        paths: vec!["a".into(), "../b".into()],
+    };
+    let response = AgentResponse::PathInspections {
+        results: vec![
+            AgentPathCheck::Inspected(AgentPathInspection::Exists {
+                real_path: "/r/a".into(),
+            }),
+            AgentPathCheck::Refused(RelPathError::Traversal("../b".into())),
+        ],
+    };
+    assert_eq!(
+        hex(&serialize_request(&request).unwrap()),
+        "81ac496e737065637450617468739192a161a42e2e2f62",
+        "bump PROTOCOL_VERSION"
+    );
+    assert_eq!(
+        hex(&serialize_response(&response).unwrap()),
+        "81af50617468496e7370656374696f6e73919281a9496e7370656374656481a645786973747391a42f722f6181a75265667573656481a954726176657273616ca42e2e2f62",
+        "bump PROTOCOL_VERSION"
+    );
+}
