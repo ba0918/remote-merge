@@ -46,11 +46,12 @@
 
 ### REQ-merge-042: 新しく作るものはログインした利用者の持ち物になる
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-12-foundation-3.md#D36
+- source: docs/decision/records/2026-10-12-foundation-3.md#D36, docs/decision/records/2026-10-12-foundation-3.md#D39
 - verification: unit
 
 merge・sync・rollback が新しく作るファイル・symlink・ディレクトリは、どの経路でも、sudo=true を指定したかどうかによらず、ログインした利用者（ローカルの経路では手元の利用者）の持ち物になる。
 所有者を付けられないときと、親ディレクトリを作った後に書き込み先のファイルか symlink を作れなかったときは、どの経路でも、作ったものを消して何も変えずにそのファイルを失敗にし、消せないときは残ったものを示す error で失敗にする。
+作ったものとして所有者を付けて消すのは、その書き込みか symlink の作成が作ったと確かめられるもの（新しく作れたファイルとリンク、そのとき自分で作れたディレクトリ）だけで、同じ間に別の誰かが作ったものと、作った後に差し替えられたファイルは、所有者を変えず消さない。
 
 ## Examples
 
