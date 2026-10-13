@@ -4,7 +4,7 @@
 //! 答えは読み込みと同じく、パスごとに "@P" の後に中身、手元が決めた区切り、cat の終わりの状態と
 //! 知らせを出す。受けた順に区切りを探しながらハッシュに通し、中身をまとめてメモリに持たない。
 
-use remote_merge_core::op_failure::{from_tool_message, OpFailure};
+use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 use sha2::{Digest, Sha256};
 
 use crate::contents_script::{argument, content_end};
@@ -13,7 +13,9 @@ use crate::contents_script::{argument, content_end};
 pub const RAW_PREFIX: &str = "LC_ALL=C; export LC_ALL; printf '@RMRAW\\000'\n";
 const RAW_MARKER: &[u8] = b"@RMRAW\0";
 
-const RAW_BODY: &str = r#"for p do
+const RAW_BODY: &str = r#"ct=0; command -v cat >/dev/null 2>&1 && ct=1
+for p do
+if [ $ct = 0 ]; then printf '@P\000\000%s\000K\000\000' "$B"; continue; fi
 printf '@P\000'; { e=$(cat "$p" 2>&1 >&3 3>&-); c=$?; } 3>&1
 printf '\000%s\000%s\000%s\000' "$B" "$c" "$e"
 done
@@ -136,6 +138,7 @@ impl RawDigests {
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect()),
+            b"K" => Err(OpFailure::ToolMissing(Tool::Cat)),
             _ => Err(from_tool_message(message)),
         };
         let used = status.len() + message.len() + 2;

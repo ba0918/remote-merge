@@ -87,7 +87,10 @@ impl SshCommand {
                 script.starts_with(remote_merge_ssh::contents_script::READ_PREFIX)
                     || script.starts_with(remote_merge_ssh::contents_stream::RAW_PREFIX)
             }
-            Self::Write => script.contains("openssl base64 -d") || script.contains("cat >"),
+            Self::Write => {
+                script.starts_with(remote_merge_ssh::change_scripts::WRITE_PREFIX)
+                    || script.contains("openssl base64 -d -A -out")
+            }
             Self::Chmod => script.starts_with("chmod "),
             Self::Hash => script.starts_with(remote_merge_ssh::contents_script::HASH_PREFIX),
         }

@@ -210,9 +210,10 @@ impl server::Handler for TestHandler {
     }
 }
 
-/// 標準入力の中身を書き込むコマンド（`cat >` か `openssl base64 -d` を含む）か
+/// 標準入力の中身を書き込むコマンド（製品の書き込みのコマンドか、sudo の配置のアップロード）か
 fn is_write_command(command: &str) -> bool {
-    command.contains("cat >") || command.contains("openssl base64 -d")
+    command.starts_with(remote_merge_ssh::change_scripts::WRITE_PREFIX)
+        || command.contains("openssl base64 -d -A -out")
 }
 
 /// テスト用 SSH サーバーを起動し、TestServerHandle を返す

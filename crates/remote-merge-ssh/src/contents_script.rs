@@ -21,6 +21,7 @@ pub const HASH_PREFIX: &str = "LC_ALL=C; export LC_ALL; printf '@RMHASH\\000'\n"
 const READ_BODY: &str = r#"if stat -L -c %s / >/dev/null 2>&1; then z=s
 elif ls -ldnL / >/dev/null 2>&1 && command -v awk >/dev/null 2>&1; then z=l
 else z=n; fi
+ct=0; command -v cat >/dev/null 2>&1 && ct=1
 for p do
 printf '@P\000'
 if [ -d "$p" ]; then printf 'E\000Is a directory\000'; continue; fi
@@ -29,6 +30,7 @@ if [ $z = s ]; then n=$(stat -L -c %s "$p" 2>&1) || { printf 'E\000%s\000' "$n";
 else n=$(ls -ldnL "$p" 2>&1) || { printf 'E\000%s\000' "$n"; continue; }
 n=$(printf '%s\n' "$n" | awk 'NR==1{print $5}'); fi
 if [ "$L" -ge 0 ] && [ "$n" -gt "$L" ]; then printf 'B\000%s\000' "$n"; continue; fi
+[ $ct = 0 ] && { printf 'K\000'; continue; }
 printf 'C\000'; { e=$(cat "$p" 2>&1 >&3 3>&-); c=$?; } 3>&1
 printf '\000%s\000%s\000%s\000' "$B" "$c" "$e"
 done
@@ -39,6 +41,7 @@ const HASH_BODY: &str = r#"if command -v sha256sum >/dev/null 2>&1; then h=sha25
 elif command -v shasum >/dev/null 2>&1; then h='shasum -a 256'
 else h=; fi
 rl=0; command -v readlink >/dev/null 2>&1 && rl=1
+ct=0; command -v cat >/dev/null 2>&1 && ct=1
 for p do
 printf '@P\000'
 if [ -L "$p" ]; then
@@ -47,7 +50,9 @@ elif t=$(readlink "$p" 2>/dev/null && echo .); then t=${t%.}; t=${t%?}; printf '
 else e=$(readlink "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; fi
 continue; fi
 if [ -d "$p" ]; then printf 'E\000Is a directory\000'; continue; fi
-if [ ! -r "$p" ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; continue; fi
+if [ ! -r "$p" ]; then
+if [ $ct = 1 ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; else printf 'K\000'; fi
+continue; fi
 [ -z "$h" ] && { printf 'N\000'; continue; }
 o=$($h < "$p" 2>&1); c=$?
 if [ $c = 0 ]; then printf 'H\000%s\000' "$o"

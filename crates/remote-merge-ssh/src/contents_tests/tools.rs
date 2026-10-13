@@ -90,3 +90,37 @@ fn a_link_hash_without_readlink_is_a_missing_tool_and_a_failing_readlink_names_i
     let hashes = hash_all(&asked, 65536, run_with_only(failing.path())).unwrap();
     assert_eq!(hashes[0].1, Err(OpFailure::PermissionDenied));
 }
+
+// @kotowari[REQ-ssh-026]
+#[test]
+fn reads_and_hashes_from_the_content_without_cat_are_a_missing_tool() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    fs::write(root.join("a"), b"abc").unwrap();
+    let asked = paths(&root, &["a"]);
+    let without_cat = bin_with(&["stat", "ls", "awk"]);
+
+    let read = read_all(
+        &asked,
+        Some(10),
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        run_with_only(without_cat.path()),
+    )
+    .unwrap();
+    assert_eq!(read[0].1, Err(OpFailure::ToolMissing(Tool::Cat)));
+
+    let mut run = run_with_only(without_cat.path());
+    let fulls = vec![asked[0].1.clone()];
+    let digests = digest_all(
+        &fulls,
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        |script: &str, digests: &mut crate::contents_stream::RawDigests| {
+            digests.feed(&run(script)?);
+            Ok::<_, String>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(digests[0], Err(OpFailure::ToolMissing(Tool::Cat)));
+}

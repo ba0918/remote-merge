@@ -90,6 +90,7 @@ pub fn parse_read(
         let answer = match cursor.field()? {
             b"E" => Err(from_tool_message(cursor.field()?)),
             b"T" => Err(OpFailure::ToolMissing(Tool::Stat)),
+            b"K" => Err(OpFailure::ToolMissing(Tool::Cat)),
             b"B" => {
                 let size = cursor.number()?;
                 let limit = limit.ok_or("a size limit was answered without one")?;
@@ -133,6 +134,7 @@ pub fn parse_hash(
             b"R" => Err(OpFailure::ToolMissing(Tool::Readlink)),
             b"H" => Ok(Some(digest(cursor.field()?)?)),
             b"N" => Ok(None),
+            b"K" => Err(OpFailure::ToolMissing(Tool::Cat)),
             other => {
                 return Err(format!(
                     "unknown answer {:?}",

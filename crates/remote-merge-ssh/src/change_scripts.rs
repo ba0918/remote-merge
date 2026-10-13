@@ -14,6 +14,8 @@ use crate::tree_parser::{
 };
 
 const NO_TOOL: &str = "@RMNOTOOL";
+/// 書き込みのコマンドの書き出し。製品の書き込みのコマンドかを見分けるのに使える
+pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
 const PARENT: &str = "@RMPARENT";
 
 /// 親ディレクトリを作る文。mkdir が失敗したとき、親か親の祖先がすでにあって（リンク切れの symlink
@@ -51,7 +53,7 @@ fn parent_step(full: &str, drain: &str) -> String {
 /// 復号する（openssl がなければ書き込み先を開かずに失敗する）
 pub fn write(full: &str, binary: bool) -> String {
     let drain = "cat >/dev/null; ";
-    let mut script = String::from("LC_ALL=C; export LC_ALL\n");
+    let mut script = String::from(WRITE_PREFIX);
     // cat がなければ標準入力を dd で読み切る（どちらもなければ読み切らずに終える）
     script.push_str(&format!(
         "command -v cat >/dev/null 2>&1 || {{ dd of=/dev/null 2>/dev/null; printf '\\n{NO_TOOL} cat\\n' >&2; exit 1; }}\n"

@@ -50,7 +50,7 @@ pub enum Tool {
     Stat,
     /// バイナリの中身を書くための openssl の base64 の復号
     OpensslBase64,
-    /// 中身をそのまま渡す cat（中身の読み込みと書き込み）
+    /// 中身をそのまま渡す cat（中身の読み込み・中身からのハッシュ・書き込み）
     Cat,
     /// symlink のリンク文字列を読む readlink（パスの確認の "readlink not available" と同じ道具）
     Readlink,

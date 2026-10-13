@@ -590,7 +590,9 @@ impl server::Handler for LocalHandler {
             } else {
                 received
             };
-            if command.contains("openssl base64 -d") || command.contains("cat >") {
+            if command.starts_with(remote_merge_ssh::change_scripts::WRITE_PREFIX)
+                || command.contains("openssl base64 -d -A -out")
+            {
                 self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
             }
