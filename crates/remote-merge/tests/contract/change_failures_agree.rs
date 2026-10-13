@@ -18,10 +18,11 @@ use remote_merge_ssh::entry_links::read_links;
 use super::operation_failures_agree::{anyhow_kind, kind};
 use super::path_operations_agree::Routes;
 
-/// "f" は通常ファイル、"l" は "t" を指す symlink、検索の権限のない "locked" の下に "a.txt" がある
+/// "f" は通常ファイル、"l" は "t" を指す symlink、"dl" はリンク切れの symlink、検索の権限のない "locked" の下に "a.txt" がある
 fn state(root: &Path, _: &Path) {
     fs::write(root.join("f"), "f\n").unwrap();
     symlink("t", root.join("l")).unwrap();
+    symlink("nowhere", root.join("dl")).unwrap();
     fs::create_dir(root.join("locked")).unwrap();
     fs::write(root.join("locked/a.txt"), "a\n").unwrap();
     fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o644)).unwrap();
@@ -91,6 +92,17 @@ async fn writes_links_and_link_reads_give_the_same_result_on_all_three_routes() 
         ),
         ("symlink", "s/new", "ok".to_string()),
         ("symlink", "f/a", format!("{:?}", OpFailure::NotADirectory)),
+        (
+            "write",
+            "dl/a.txt",
+            format!("{:?}", OpFailure::NotADirectory),
+        ),
+        (
+            "write",
+            "dl/sub/a.txt",
+            format!("{:?}", OpFailure::NotADirectory),
+        ),
+        ("symlink", "dl/x", format!("{:?}", OpFailure::NotADirectory)),
         ("link", "l", "link t".to_string()),
         ("link", "f", "not a link".to_string()),
         ("link", "missing", format!("{:?}", OpFailure::NotFound)),

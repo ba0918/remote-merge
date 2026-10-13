@@ -104,6 +104,7 @@ impl fmt::Display for Tool {
             Self::LsDirectory => f.write_str("ls is not available on the remote"),
             Self::Stat => f.write_str("neither stat -c nor ls -ldn works on the remote"),
             Self::Readlink => f.write_str("readlink not available on the remote"),
+            Self::Cat => f.write_str("cat not available on the remote"),
             Self::OpensslBase64 => {
                 f.write_str("openssl is not available on the remote to decode the content")
             }

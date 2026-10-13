@@ -112,6 +112,9 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
 - D34 rollback が書き戻す前の内容を退避した後、その記録を読み戻せないときは、どの経路でも、そのファイルを書き戻さずに、読めなかった記録のパスと理由を示す error で failed に出し、rollback 全体は止めずにほかのファイルを続ける（[REQ-backup-046](../../ir/backup/rollback-path.md#REQ-backup-046)）。読み戻しは書き戻す前に行うので、書き戻す前に判定できる。書く前の状態を分からないものとして書き戻すことはしない。
   - why: 今までは読み戻しの失敗を捨てて「書く前を持っていない」として書き戻しており、書き込みの最中の `接続断` の後に「書いていない」と「書きかけ」を見分けられないまま進めていた。[REQ-backup-044](../../ir/backup/rollback-cli.md#REQ-backup-044) は戻すセッションの記録を読めないときの要件で、この場合を決めていなかった。
   - decided_by: Claude（利用者の品質の基準「エラーの握りつぶしは必ず直す」と [REQ-cli-096](../../ir/cli/directory-paths.md#REQ-cli-096) の「ほかを続ける」に揃えた）
+- D35 書き込みと symlink の作成で、作る親の祖先のどれかがリンク切れの symlink（か通常ファイル）なら、どの経路でも途中の要素がディレクトリでない失敗にする。SSH の経路は mkdir が失敗したときに祖先をシェルのテストで調べて決める（リンク切れの親は coreutils の mkdir が "File exists"、BusyBox が "No such file or directory" と出し、ローカルとエージェントの create_dir_all はすでにあるものとして失敗する）。SSH の書き込みは、cat がなければ書き込み先を開かずに道具がない（cat）の失敗にし、[TBL-ssh-002](../../ir/ssh/compatibility.md#TBL-ssh-002) にその行を足す。dd が oflag=nofollow を受け付けず書き込み先が symlink のときは、書かずに、ローカルの O_NOFOLLOW と同じ "Too many levels of symbolic links" の理由で失敗にする。目印は標準エラーの行の始まりでだけ読み、mkdir には "--" を付ける（"-" で始まる相対の root_dir をオプションに読ませない）。
+  - why: 同じ状態で経路によって失敗の種類が分かれていた（[REQ-paths-013](../../ir/paths/operations.md#REQ-paths-013)・[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。書き込みのコマンドが理由を出さずに 1 で終えると、手元は理由のない I/O しか返せない。cat はほかの道具と同じく、ないときに推し量らず道具がないにする（[REQ-ssh-026](../../ir/ssh/compatibility.md#REQ-ssh-026)）。
+  - decided_by: Claude（REQ-paths-013・REQ-paths-020・REQ-ssh-026 から導いた。自走の指示により決めた）
 
 ## Rejected
 

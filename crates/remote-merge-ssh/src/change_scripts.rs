@@ -16,8 +16,10 @@ use crate::tree_parser::{
 const NO_TOOL: &str = "@RMNOTOOL";
 const PARENT: &str = "@RMPARENT";
 
-/// 親ディレクトリを作る文。親がすでにあってディレクトリでなければ、mkdir の文言によらず
-/// "Not a directory" と答える（CentOS 5 の mkdir は "exists but is not a directory" と出す）
+/// 親ディレクトリを作る文。mkdir が失敗したとき、親か親の祖先がすでにあって（リンク切れの symlink
+/// を含む）ディレクトリでなければ、mkdir の文言によらず "Not a directory" と答える（ローカルの
+/// 経路と同じ。CentOS 5 の mkdir は "exists but is not a directory"、リンク切れの親は coreutils で
+/// "File exists"、BusyBox で "No such file or directory" と出す）
 fn parent_step(full: &str, drain: &str) -> String {
     let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
         return String::new();
@@ -29,8 +31,14 @@ fn parent_step(full: &str, drain: &str) -> String {
         concat!(
             "d={parent}\n",
             "if [ ! -d \"$d\" ]; then\n",
-            " if [ -e \"$d\" ]; then {drain}printf '{marker}\\000Not a directory\\000' >&2; exit 1; fi\n",
-            " m=$(mkdir -p -- \"$d\" 2>&1) || {{ {drain}printf '{marker}\\000%s\\000' \"$m\" >&2; exit 1; }}\n",
+            " m=$(mkdir -p -- \"$d\" 2>&1) || {{\n",
+            "  a=$d\n",
+            "  while :; do\n",
+            "   if {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }} && [ ! -d \"$a\" ]; then m='Not a directory'; break; fi\n",
+            "   case $a in */*) a=${{a%/*}};; *) break;; esac\n",
+            "   [ -z \"$a\" ] && break\n",
+            "  done\n",
+            "  {drain}printf '{marker}\\000%s\\000' \"$m\" >&2; exit 1; }}\n",
             "fi\n",
         ),
         parent = shell_escape(parent),
@@ -44,12 +52,28 @@ fn parent_step(full: &str, drain: &str) -> String {
 pub fn write(full: &str, binary: bool) -> String {
     let drain = "cat >/dev/null; ";
     let mut script = String::from("LC_ALL=C; export LC_ALL\n");
+    // cat がなければ標準入力を dd で読み切る（どちらもなければ読み切らずに終える）
+    script.push_str(&format!(
+        "command -v cat >/dev/null 2>&1 || {{ dd of=/dev/null 2>/dev/null; printf '\\n{NO_TOOL} cat\\n' >&2; exit 1; }}\n"
+    ));
     if binary {
         script.push_str(&format!(
-            "command -v openssl >/dev/null 2>&1 || {{ {drain}echo '{NO_TOOL}' >&2; exit 1; }}\n"
+            "command -v openssl >/dev/null 2>&1 || {{ {drain}printf '\\n{NO_TOOL} openssl\\n' >&2; exit 1; }}\n"
         ));
     }
     script.push_str(&parent_step(full, drain));
+    // dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由をローカルの経路の
+    // O_NOFOLLOW と同じ文言で出す
+    script.push_str(&format!(
+        concat!(
+            "w={full}\n",
+            "if [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
+            " {drain}printf 'Too many levels of symbolic links\\n' >&2; exit 1\n",
+            "fi\n",
+        ),
+        full = shell_escape(full),
+        drain = drain,
+    ));
     script.push_str(&if binary {
         build_write_bytes_command(full)
     } else {
@@ -82,17 +106,21 @@ pub fn symlink(target: &str, full: &str) -> String {
     )
 }
 
-/// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする
+/// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする。目印は行の始まりに
+/// あるときだけ読む（道具の文言に含まれるパスの中の同じ文字列と取り違えない）
 pub fn failure(stderr: &[u8]) -> OpFailure {
-    let has = |marker: &[u8]| stderr.windows(marker.len()).any(|window| window == marker);
-    if has(NO_TOOL.as_bytes()) {
-        return OpFailure::ToolMissing(Tool::OpensslBase64);
+    for line in stderr.split(|byte| *byte == b'\n') {
+        match line.strip_prefix(NO_TOOL.as_bytes()) {
+            Some(b" cat") => return OpFailure::ToolMissing(Tool::Cat),
+            Some(b" openssl") => return OpFailure::ToolMissing(Tool::OpensslBase64),
+            _ => {}
+        }
     }
     let parent = [PARENT.as_bytes(), b"\0"].concat();
-    if let Some(at) = stderr
-        .windows(parent.len())
-        .position(|window| window == parent.as_slice())
-    {
+    let at_line_start = |at: usize| at == 0 || stderr[at - 1] == b'\n';
+    let found =
+        (0..stderr.len()).find(|&at| at_line_start(at) && stderr[at..].starts_with(&parent));
+    if let Some(at) = found {
         let message = stderr[at + parent.len()..]
             .split(|byte| *byte == 0)
             .next()

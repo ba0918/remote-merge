@@ -43,9 +43,10 @@ fn has_openssl() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// "f" は通常ファイル、"ro" は書き込めないディレクトリ
+/// "f" は通常ファイル、"dl" はリンク切れの symlink、"ro" は書き込めないディレクトリ
 fn state(root: &Path) {
     fs::write(root.join("f"), "f").unwrap();
+    std::os::unix::fs::symlink("nowhere", root.join("dl")).unwrap();
     fs::create_dir(root.join("ro")).unwrap();
     fs::set_permissions(root.join("ro"), fs::Permissions::from_mode(0o555)).unwrap();
 }
@@ -57,7 +58,13 @@ fn writes_and_links_agree_with_this_machine_in_success_and_in_the_kind_of_failur
     let local = tempfile::tempdir().unwrap();
     state(ssh.path());
     state(local.path());
-    let mut rels = vec!["new/a.txt", "f/a.txt", "f/a/b.txt"];
+    let mut rels = vec![
+        "new/a.txt",
+        "f/a.txt",
+        "f/a/b.txt",
+        "dl/a.txt",
+        "dl/a/b.txt",
+    ];
     if !is_root() {
         rels.extend(["ro/x.txt", "ro/sub/x.txt"]);
     }
@@ -124,4 +131,87 @@ fn a_binary_write_decodes_base64() {
         fs::read(root.path().join("d/a.bin")).unwrap(),
         [0, 1, 2, 255]
     );
+}
+
+// @kotowari[REQ-paths-013]
+#[test]
+fn a_relative_root_dir_starting_with_a_dash_is_not_read_as_an_option() {
+    let temp = tempfile::tempdir().unwrap();
+    let cd = format!("cd '{}' || exit 1\n", temp.path().display());
+
+    let linked = outcome(
+        shell_command(&format!("{cd}{}", symlink("t", "-root/new/link"))),
+        b"",
+    );
+    let written = outcome(
+        shell_command(&format!("{cd}{}", write("-root/other/a.txt", false))),
+        b"x",
+    );
+
+    assert_eq!(linked, Ok(()));
+    assert_eq!(written, Ok(()));
+    let root = temp.path().join("-root");
+    assert_eq!(
+        fs::read_link(root.join("new/link")).unwrap(),
+        Path::new("t")
+    );
+    assert_eq!(fs::read(root.join("other/a.txt")).unwrap(), b"x");
+}
+
+#[test]
+fn a_mark_in_the_middle_of_a_tool_message_is_not_read_as_a_mark() {
+    assert_eq!(
+        failure(b"dd: failed to open '/r/@RMNOTOOL': Permission denied\n"),
+        OpFailure::PermissionDenied
+    );
+    assert_eq!(
+        failure(b"dd: failed to open '/r/@RMPARENT\0x': No such file or directory\n"),
+        OpFailure::NotFound
+    );
+    assert_eq!(
+        failure(b"banner\n@RMNOTOOL openssl\n"),
+        OpFailure::ToolMissing(Tool::OpensslBase64)
+    );
+}
+
+fn put_tool(bin: &Path, name: &str, body: &str) {
+    let path = bin.join(name);
+    fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn run_with_only(bin: &Path, script: &str, input: &[u8]) -> Result<(), OpFailure> {
+    outcome(
+        shell_command_with_path(&format!("PATH='{}'\n{script}", bin.display()), None),
+        input,
+    )
+}
+
+// @kotowari[REQ-ssh-026, REQ-merge-038]
+#[test]
+fn without_cat_or_with_a_dd_lacking_nofollow_the_write_says_why_like_this_machine() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("target.txt"), "kept").unwrap();
+    std::os::unix::fs::symlink("target.txt", root.path().join("link.txt")).unwrap();
+    let full = format!("{}/new.txt", root.path().display());
+    let link = format!("{}/link.txt", root.path().display());
+
+    let without_cat = bin_with(&["dd", "mkdir"]);
+    assert_eq!(
+        run_with_only(without_cat.path(), &write(&full, false), b"x"),
+        Err(OpFailure::ToolMissing(Tool::Cat))
+    );
+
+    let old_dd = bin_with(&["cat", "mkdir"]);
+    put_tool(
+        old_dd.path(),
+        "dd",
+        "for a do case $a in oflag=*) echo \"dd: invalid oflag\" >&2; exit 1;; esac; done\nfor d in /usr/bin /bin; do [ -x \"$d/dd\" ] && exec \"$d/dd\" \"$@\"; done\nexit 127\n",
+    );
+    let local = machine_ops::write(root.path(), &EntryPath::parse("link.txt").unwrap(), b"x");
+    assert_eq!(
+        run_with_only(old_dd.path(), &write(&link, false), b"x"),
+        local
+    );
+    assert_eq!(fs::read(root.path().join("target.txt")).unwrap(), b"kept");
 }

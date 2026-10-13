@@ -16,7 +16,7 @@ pub fn build_mkdir_command(remote_path: &str) -> Option<String> {
     if parent_str.is_empty() {
         return None;
     }
-    Some(format!("mkdir -p {}", shell_escape(&parent_str)))
+    Some(format!("mkdir -p -- {}", shell_escape(&parent_str)))
 }
 
 /// ファイルか symlink を消し、ないパスでは 0 以外で終わるコマンドを構築する。

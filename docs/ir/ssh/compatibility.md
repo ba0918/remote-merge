@@ -36,7 +36,7 @@ find が -printf か "-exec … {} +" を受け付けないときの誤りの文
 ## Decision tables
 
 ### TBL-ssh-002: エージェントを使わないときのリモートの道具
-- source: docs/decision/records/2026-10-12-foundation-3.md#D2, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D7, docs/decision/records/2026-10-12-foundation-3.md#D8, docs/decision/records/2026-10-12-foundation-3.md#D33, docs/decision/records/2026-10-12-foundation-2.md#C14
+- source: docs/decision/records/2026-10-12-foundation-3.md#D2, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D7, docs/decision/records/2026-10-12-foundation-3.md#D8, docs/decision/records/2026-10-12-foundation-3.md#D33, docs/decision/records/2026-10-12-foundation-3.md#D35, docs/decision/records/2026-10-12-foundation-2.md#C14
 
 | 道具 | 使う操作 | ないときの扱い |
 |---|---|---|
@@ -46,6 +46,7 @@ find が -printf か "-exec … {} +" を受け付けないときの誤りの文
 | ls の "-d" | パスの確認と操作で、ないか入れない理由を見分けるとき | 道具がないの失敗 |
 | sha256sum、なければ "shasum -a 256" | ハッシュ | 中身を読む（reconnect.md の REQ-ssh-022） |
 | "stat -L -c %s"、stat が "-c" を受け付けなければ "ls -ldn" | 大きさ | 道具がないの失敗 |
+| cat | 通常ファイルの中身の書き込み | 書き込み先を開かずに道具がないの失敗 |
 | openssl の base64 の復号 | バイナリの中身の書き込み | merge/concurrency.md の REQ-merge-039 のとおり書き込み先を開かずに失敗 |
 | dd の "oflag=nofollow" | 通常ファイルの中身の書き込み | 書く直前に symlink でないことを確かめてから書く（merge/FLAGS.md の FLAG-merge-021） |
 
