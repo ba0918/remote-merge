@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 
 pub use self::core::CoreRuntime;
+pub use self::root_gone::command_error_message;
 
 #[derive(Clone)]
 pub struct RuntimeTargets {

@@ -4,6 +4,21 @@
 
 use remote_merge_core::op_failure::{op_error_of, OpFailure, Prefixed};
 
+use super::connection::{ProcessingStopped, StopCause};
+
+/// コマンドを終えた誤り `error` の、利用者に見せる文言。root_dir がなくなって処理を止めた後の
+/// 「行わなかった」で終わったときは、止めたときの最初の root_dir がない誤りを出す（root_dir がない
+/// 文言を一度だけ出す。D48）
+pub fn command_error_message(error: &anyhow::Error) -> String {
+    let stopped = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ProcessingStopped>());
+    match stopped {
+        Some(stopped) if stopped.cause == StopCause::RootGone => stopped.reason.clone(),
+        _ => format!("{error:#}"),
+    }
+}
+
 /// `error` が root_dir がない失敗なら、文言の終わりに `shown_root`（リモートは "サーバ名:パス"、
 /// ローカルはパス）を添える。種類はそのまま持つ。ほかの誤りは変えない
 pub(crate) fn with_shown_root(error: anyhow::Error, shown_root: &str) -> anyhow::Error {
@@ -100,6 +115,30 @@ mod tests {
             "{refused}"
         );
         assert!(!root.join("b.txt").exists());
+    }
+
+    // コマンドが root_dir がなくなって止めた後の「行わなかった」で終わったときは、最初の root_dir が
+    // ない誤りを出す（root_dir がない文言を一度だけ出す）
+    // @kotowari[REQ-merge-044]
+    #[test]
+    fn a_command_ended_by_a_root_gone_stop_shows_the_first_root_gone_error() {
+        use crate::runtime::connection::{ProcessingStopped, StopCause};
+        let first = "cannot read b.txt: root_dir is gone: web:/srv/app";
+        let stopped: anyhow::Error = ProcessingStopped {
+            server: "web".into(),
+            reason: first.into(),
+            cause: StopCause::RootGone,
+        }
+        .into();
+        let lost: anyhow::Error = ProcessingStopped {
+            server: "web".into(),
+            reason: "lost".into(),
+            cause: StopCause::ConnectionLost,
+        }
+        .into();
+
+        assert_eq!(command_error_message(&stopped), first);
+        assert_eq!(command_error_message(&lost), format!("{lost:#}"));
     }
 
     #[test]

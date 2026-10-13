@@ -323,6 +323,9 @@ mod agent_support;
 #[path = "contract/agent_unreadable_answer.rs"]
 mod agent_unreadable_answer;
 #[cfg(feature = "test-utils")]
+#[path = "contract/source_root_gone.rs"]
+mod source_root_gone;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_agent_operations.rs"]
 mod ssh_agent_operations;
 #[cfg(feature = "test-utils")]

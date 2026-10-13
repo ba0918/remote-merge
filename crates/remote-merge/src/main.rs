@@ -237,7 +237,10 @@ enum Commands {
 
 fn main() {
     if let Err(e) = try_main() {
-        eprintln!("Error: {e:#}");
+        eprintln!(
+            "Error: {}",
+            remote_merge::runtime::command_error_message(&e)
+        );
         std::process::exit(remote_merge::service::types::exit_code::ERROR);
     }
 }
@@ -250,13 +253,16 @@ fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
         Err(e) => {
             if format == "json" {
                 let err = remote_merge::service::output::JsonError {
-                    error: format!("{e:#}"),
+                    error: remote_merge::runtime::command_error_message(&e),
                 };
                 let json = serde_json::to_string_pretty(&err)
                     .unwrap_or_else(|_| r#"{"error": "internal serialization error"}"#.to_string());
                 println!("{}", json);
             } else {
-                eprintln!("Error: {e:#}");
+                eprintln!(
+                    "Error: {}",
+                    remote_merge::runtime::command_error_message(&e)
+                );
             }
             remote_merge::service::types::exit_code::ERROR
         }
