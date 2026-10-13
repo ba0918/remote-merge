@@ -102,7 +102,7 @@ systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-feature
 - Prerequisites: なし
 - May change: crates/remote-merge-core/src/
 - Done when: TBL-compare-001・002・003 の行ごとの単体テストと、ディレクトリとディレクトリへの symlink の組・秒の精度しかない側・両側にない組・その他の種類の組を確かめる単体テストが通り、全テストが通る
-- Shown by: test — 単体テスト（先に書いて落ちることを確かめてから実装する。印 `// @kotowari[TBL-compare-001]` など）
+- Shown by: test — 単体テスト（先に書いて落ちることを確かめてから実装する。印 `// @kotowari[REQ-compare-006]` など）
 - Left to the implementer: 状態と判定の値の型の形と、モジュールの名前
 - Stop and hand back if: 表のどの行にも当たらない状態の組が見つかったとき
 
