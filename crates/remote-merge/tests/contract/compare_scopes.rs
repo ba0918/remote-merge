@@ -67,23 +67,6 @@ fn answer(mut child: Child) {
             (vec![CompareScope::Entries(paths)], external)
         }
         "cycle" => (vec![CompareScope::Whole], ExternalLinks::Follow),
-        "unsearchable root" => {
-            let locks = remote_merge_core::test_tree::PermissionLocks::new();
-            locks.lock(&child.roots.right, 0o000);
-            if std::fs::read_dir(&child.roots.right).is_ok() {
-                drop(locks);
-                return child.answer("permissions do not apply");
-            }
-            let request = request(CompareScope::Whole, Method::Metadata, Follow::No);
-            let compared = child.runtime.compare(&sides, &request, &NothingUsed);
-            drop(locks);
-            let kind = compared
-                .as_ref()
-                .err()
-                .and_then(remote_merge_core::scan::failure_kind::failure_of_scan_error);
-            let text = format!("kind={kind:?} stopped={}", child.runtime.has_stopped());
-            return child.answer(&text);
-        }
         state if state.starts_with("root ") => {
             let state = state[5..].to_string();
             return answer_root_state(child, &state);
