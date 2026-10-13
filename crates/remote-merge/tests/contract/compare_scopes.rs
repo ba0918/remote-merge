@@ -56,6 +56,7 @@ fn answer(mut child: Child) {
             let paths = (0..count).map(|i| format!("f/x{i}.txt")).collect();
             (vec![CompareScope::Entries(paths)], ExternalLinks::Follow)
         }
+        "cycle" => (vec![CompareScope::Whole], ExternalLinks::Follow),
         "blocked" => (
             vec![
                 CompareScope::Entries(vec!["d/a.txt".into(), "b.txt".into()]),
@@ -277,5 +278,36 @@ fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_ch
         // 走査は、ふさがれた走査と root_dir だけを確かめる走査の二つ、パスの確認は一度
         assert_eq!(one, (1, 2), "{route:?}");
         assert_eq!(many, (1, 2), "{route:?}");
+    }
+}
+
+// @kotowari[REQ-scan-005, REQ-scan-002, REQ-compare-003]
+#[test]
+fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_routes() {
+    let name =
+        "a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            for dir in ["a", "m"] {
+                fs::create_dir(root.join(dir)).unwrap();
+                fs::write(root.join(dir).join("f.txt"), "same\n").unwrap();
+            }
+        }
+        // 左の "a/loop" の下は、右では循環で止めて集めていない
+        fs::create_dir(left.join("a/loop")).unwrap();
+        fs::write(left.join("a/loop/x.txt"), "left\n").unwrap();
+        symlink("..", right.join("a/loop")).unwrap();
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, &test_name(name), "cycle");
+        assert!(text.contains("incomplete Cycle"), "{route:?}: {text}");
+        assert!(
+            text.contains("a/loop/x.txt not-collected:right\n"),
+            "{route:?}: {text}"
+        );
     }
 }

@@ -133,3 +133,34 @@ fn a_path_missing_from_a_truncated_listing_is_not_collected_on_that_side() {
     assert_eq!(table["b.txt"].not_collected, BTreeSet::from([Role::Right]));
     assert_eq!(table["a.txt"].states[&Role::Right], file_state());
 }
+
+// @kotowari[REQ-scan-005, REQ-compare-003]
+#[test]
+fn a_path_missing_from_a_listing_stopped_at_a_cycle_is_not_collected_on_that_side() {
+    let stopped = Listing {
+        entries: vec![entry("a.txt", ListedKind::File)],
+        cycle: Some("loop".into()),
+        ..Listing::default()
+    };
+    let listings = BTreeMap::from([
+        (
+            Role::Left,
+            listing(
+                vec![
+                    entry("a.txt", ListedKind::File),
+                    entry("b.txt", ListedKind::File),
+                ],
+                &[],
+            ),
+        ),
+        (Role::Right, stopped),
+    ]);
+
+    let table = state_table(&listings, &BTreeMap::new());
+
+    assert_eq!(
+        table["b.txt"].states,
+        BTreeMap::from([(Role::Left, file_state())])
+    );
+    assert_eq!(table["b.txt"].not_collected, BTreeSet::from([Role::Right]));
+}

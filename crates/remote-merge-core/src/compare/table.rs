@@ -49,14 +49,15 @@ pub fn state_table(
             states.states.insert(*role, state);
         }
     }
-    // 一覧に載らなかった側は、集めなかった側でなければ、ない。件数の上限で打ち切った一覧に載らな
-    // かったパスは、ないとは分からないので集めなかった側にする（docs/ir/scan/limits.md の REQ-scan-004）
+    // 一覧に載らなかった側は、集めなかった側でなければ、ない。件数の上限で打ち切った一覧と、循環で
+    // 止めた一覧に載らなかったパスは、ないとは分からないので集めなかった側にする
+    // （docs/ir/scan/limits.md の REQ-scan-004・005）
     for states in table.values_mut() {
         for (role, listing) in listings {
             if states.not_collected.contains(role) || states.states.contains_key(role) {
                 continue;
             }
-            if listing.truncated {
+            if listing.truncated || listing.cycle.is_some() {
                 states.not_collected.insert(*role);
             } else {
                 states.states.insert(*role, SideState::Absent);
