@@ -33,6 +33,10 @@ fn answer(mut child: Child) {
     if child.request == "compare, lock, check" {
         return answer_locked(child);
     }
+    if let Some(change) = child.request.strip_prefix("compare, root ") {
+        let change = change.to_string();
+        return answer_root_gone(child, &change);
+    }
     assert_eq!(child.request, "compare, change, check");
     let sides = child.sides(false);
     let asked = request(CompareScope::Whole, Method::Metadata, Follow::No);
@@ -136,5 +140,58 @@ fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_de
             "Ok(Undecidable(ReadFailed([SideFailure { role: Right, failure: PermissionDenied }])))",
             "{route:?}"
         );
+    }
+}
+
+const ROOT_GONE_TEST: &str = "compare_recheck::a_destination_root_dir_gone_before_the_change_stops_the_side_on_all_three_routes";
+
+/// 子のプロセスで、比べた後に書き込み先の root_dir を `change`（"removed" か "file"）にして、"a.txt" の
+/// 変更の直前の判定の失敗の種類と、その側を止めた記録があるかを答える
+fn answer_root_gone(mut child: Child, change: &str) {
+    let sides = child.sides(false);
+    let asked = request(CompareScope::Whole, Method::Metadata, Follow::No);
+    let compared = child
+        .runtime
+        .compare(&sides, &asked, &DestinationHashed)
+        .unwrap();
+    let observed = compared.paths["a.txt"].observed(Role::Right).unwrap();
+    let root = child.roots.right.clone();
+    fs::remove_dir_all(&root).unwrap();
+    if change == "file" {
+        fs::write(&root, "not a directory\n").unwrap();
+    }
+    let checked = child.runtime.recheck_before_change(
+        &sides.right,
+        Role::Right,
+        &EntryPath::parse("a.txt").unwrap(),
+        &observed,
+    );
+    let failure = checked
+        .as_ref()
+        .err()
+        .and_then(remote_merge_core::op_failure::failure_of)
+        .cloned();
+    let stopped = child.runtime.root_gone_stop().is_some();
+    child.answer(&format!("{failure:?} stopped={stopped}"));
+}
+
+// @kotowari[REQ-compare-015, REQ-merge-044]
+#[test]
+fn a_destination_root_dir_gone_before_the_change_stops_the_side_on_all_three_routes() {
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    for change in ["removed", "file"] {
+        // 一度の確かめで root_dir を消すので、確かめごとに root_dir を作る
+        let routes = FlowRoutes::new(|left, right| {
+            for root in [left, right] {
+                fs::write(root.join("a.txt"), "same\n").unwrap();
+            }
+        });
+        for route in ROUTES {
+            let request = format!("compare, root {change}");
+            let text = routes.run(route, ROOT_GONE_TEST, &request);
+            assert_eq!(text, "Some(RootGone) stopped=true", "{route:?} {change}");
+        }
     }
 }

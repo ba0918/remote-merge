@@ -9,6 +9,7 @@ use std::os::unix::fs::symlink;
 
 use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
+use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 
 use super::compare_support::{comparison_text, request, NothingUsed};
 use super::flow_support::{child, Child, FlowRoutes, Route, ROUTES};
@@ -57,6 +58,40 @@ fn answer(mut child: Child) {
             (vec![CompareScope::Entries(paths)], ExternalLinks::Follow)
         }
         "cycle" => (vec![CompareScope::Whole], ExternalLinks::Follow),
+        "missing root" => {
+            let text = [ExternalLinks::Stop, ExternalLinks::Follow]
+                .into_iter()
+                .flat_map(|external| {
+                    [
+                        CompareScope::Whole,
+                        CompareScope::Below(vec!["d".into()]),
+                        CompareScope::Entries(vec!["d/a.txt".into()]),
+                    ]
+                    .map(|scope| (scope, external))
+                })
+                .map(|(scope, external)| {
+                    let mut request = request(scope, Method::Metadata, Follow::No);
+                    request.external_links = external;
+                    let compared = child.runtime.compare(&sides, &request, &NothingUsed);
+                    let kind = compared.as_ref().err().map(|error| {
+                        error.chain().find_map(|cause| {
+                            cause.downcast_ref::<ScanFailure>().cloned().or_else(|| {
+                                cause
+                                    .downcast_ref::<ScanStopped>()
+                                    .map(|stopped| stopped.failure.clone())
+                            })
+                        })
+                    });
+                    format!(
+                        "{}kind={kind:?} stopped={}",
+                        comparison_text(compared),
+                        child.runtime.has_stopped()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("--\n");
+            return child.answer(&text);
+        }
         "blocked" => (
             vec![
                 CompareScope::Entries(vec!["d/a.txt".into(), "b.txt".into()]),
@@ -314,6 +349,35 @@ fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_
         // 右にも実在するのに、循環で止めたために一覧に載らなかったもの
         assert!(
             text.contains("m/f.txt not-collected:right\n"),
+            "{route:?}: {text}"
+        );
+    }
+}
+
+// @kotowari[REQ-scan-015, REQ-compare-002]
+#[test]
+fn a_root_dir_missing_from_the_start_is_the_same_scan_error_in_every_scope_on_all_three_routes() {
+    let name =
+        "a_root_dir_missing_from_the_start_is_the_same_scan_error_in_every_scope_on_all_three_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        fs::create_dir(left.join("d")).unwrap();
+        fs::write(left.join("d/a.txt"), "left\n").unwrap();
+        fs::remove_dir(right).unwrap();
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, &test_name(name), "missing root");
+        let results: Vec<&str> = text.split("--\n").collect();
+        assert_eq!(results.len(), 6, "{route:?}: {text}");
+        assert!(
+            results.iter().all(|result| *result == results[0]),
+            "{route:?}: {text}"
+        );
+        assert!(
+            results[0].ends_with("kind=Some(Some(RootMissing)) stopped=false"),
             "{route:?}: {text}"
         );
     }

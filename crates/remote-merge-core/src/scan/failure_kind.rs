@@ -13,9 +13,13 @@ pub fn failure_kind(failure: &ScanFailure) -> OpFailure {
     match failure {
         // root_dir がないかなくなった: 変更の途中で root_dir がなくなったものと同じ種類にする
         // （docs/decision/records/2026-10-12-foundation-3.md の D47）
-        ScanFailure::RootMissing | ScanFailure::RootChanged => OpFailure::RootGone,
+        // root_dir がファイルに替わったか途中がディレクトリでないものも同じ
+        ScanFailure::RootMissing | ScanFailure::RootChanged | ScanFailure::RootNotDirectory => {
+            OpFailure::RootGone
+        }
         ScanFailure::StartBlocked { .. } => OpFailure::NotADirectory,
-        ScanFailure::StartUnreadable { cause, .. }
+        ScanFailure::RootUnreadable { cause }
+        | ScanFailure::StartUnreadable { cause, .. }
         | ScanFailure::UnreadableDirectory { cause, .. } => match cause {
             ReadCause::PermissionDenied => OpFailure::PermissionDenied,
             ReadCause::Other => io(),
@@ -24,8 +28,7 @@ pub fn failure_kind(failure: &ScanFailure) -> OpFailure {
         ScanFailure::InconsistentAnswer { .. } => {
             OpFailure::Disconnected(Disconnection::NoAnswer(failure.to_string()))
         }
-        ScanFailure::RootUnreadable
-        | ScanFailure::UnresolvableLink { .. }
+        ScanFailure::UnresolvableLink { .. }
         | ScanFailure::UnreadableLinkTarget { .. }
         | ScanFailure::UnreadableTime { .. }
         | ScanFailure::ChangedDuringScan { .. }
@@ -41,7 +44,13 @@ pub fn failure_of_scan_error(error: &anyhow::Error) -> Option<OpFailure> {
     }
     error
         .chain()
-        .find_map(|cause| cause.downcast_ref::<ScanFailure>())
+        .find_map(|cause| {
+            cause.downcast_ref::<ScanFailure>().or_else(|| {
+                cause
+                    .downcast_ref::<super::outcome::ScanStopped>()
+                    .map(|stopped| &stopped.failure)
+            })
+        })
         .map(failure_kind)
 }
 

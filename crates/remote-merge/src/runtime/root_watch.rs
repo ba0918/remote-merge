@@ -31,7 +31,18 @@ impl RootWatch {
     /// ない（root_dir が symlink ならその辿った先）ときだけ真で、確かめられないとき（権限がない・
     /// 接続断など）は偽。root_dir の祖先がディレクトリでないときは真
     fn root_is_gone(&mut self, runtime: &mut CoreRuntime) -> bool {
-        root_answer_is_gone(&self.inner.inspect_path(runtime, &RelPath::root()))
+        let answer = self.inner.inspect_path(runtime, &RelPath::root());
+        match &answer {
+            Ok(ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. }) => true,
+            Ok(ResolvedPath::Exists { kind, .. }) => *kind != ExistingKind::Directory,
+            Ok(ResolvedPath::Symlink { target_kind, .. }) => {
+                *target_kind != Some(ExistingKind::Directory)
+            }
+            // root_dir の祖先がディレクトリでない（REQ-paths-002 の "not a directory" の誤り）
+            Err(error) => error.chain().any(|cause| {
+                cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory)
+            }),
+        }
     }
 
     /// 操作の失敗 `error` を決める。root_dir がない失敗か、「ない」「ディレクトリでない」の失敗で
@@ -96,19 +107,3 @@ mod io;
 #[cfg(test)]
 #[path = "root_watch_tests.rs"]
 mod tests;
-
-/// root_dir そのものの確認の答え `answer` が、root_dir がなくなった（ディレクトリでなくなった）ことを
-/// 示すか
-pub(super) fn root_answer_is_gone(answer: &anyhow::Result<ResolvedPath>) -> bool {
-    match answer {
-        Ok(ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. }) => true,
-        Ok(ResolvedPath::Exists { kind, .. }) => *kind != ExistingKind::Directory,
-        Ok(ResolvedPath::Symlink { target_kind, .. }) => {
-            *target_kind != Some(ExistingKind::Directory)
-        }
-        // root_dir の祖先がディレクトリでない（REQ-paths-002 の "not a directory" の誤り）
-        Err(error) => error.chain().any(|cause| {
-            cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory)
-        }),
-    }
-}

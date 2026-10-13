@@ -44,23 +44,30 @@ fn a_missing_or_unreadable_root_dir_stops_the_scan() {
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootMissing
     );
-    let mut fake = Fake::default().with(b"", unreached(Unreached::Unreadable(ReadCause::Other)));
-    assert_eq!(
-        failure(run(&mut fake, &exclude(&[]), &whole(9))),
-        ScanFailure::RootUnreadable
-    );
+    for cause in [ReadCause::Other, ReadCause::PermissionDenied] {
+        let mut fake = Fake::default().with(b"", unreached(Unreached::Unreadable(cause)));
+        assert_eq!(
+            failure(run(&mut fake, &exclude(&[]), &whole(9))),
+            ScanFailure::RootUnreadable { cause }
+        );
+        let mut tree = subtree(1, vec![]);
+        tree.unreadable.push(UnreadableDir::new(Vec::new(), cause));
+        let mut fake = Fake::default().with(b"", root_with(tree));
+        assert_eq!(
+            failure(run(&mut fake, &exclude(&[]), &whole(9))),
+            ScanFailure::RootUnreadable { cause }
+        );
+    }
+    // root_dir がファイルに替わったか、途中がディレクトリでない
     let mut fake = Fake::default().with(b"", plain(file(b""), None));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
-        ScanFailure::RootUnreadable
+        ScanFailure::RootNotDirectory
     );
-    let mut tree = subtree(1, vec![]);
-    tree.unreadable
-        .push(UnreadableDir::new(Vec::new(), ReadCause::Other));
-    let mut fake = Fake::default().with(b"", root_with(tree));
+    let mut fake = Fake::default().with(b"", unreached(Unreached::NotDirectory));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
-        ScanFailure::RootUnreadable
+        ScanFailure::RootNotDirectory
     );
 }
 

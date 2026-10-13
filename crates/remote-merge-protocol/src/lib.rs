@@ -33,7 +33,9 @@ macro_rules! define_protocol_version {
         ///           （points_to。辿った先がその他の種類かも）を持たせ、リンク文字列を UTF-8 でなくても
         ///           そのままのバイト列で運ぶ。symlink も辿った先の中身のハッシュを取る HashContents を
         ///           足した。起点を読めない走査の誤り（StartUnreadable）に、権限がないかどうか（cause）を
-        ///           持たせた。いくつものパスをまとめて確かめる InspectPaths を足した。変更の途中で
+        ///           持たせた。root_dir を読めない走査の誤り（RootUnreadable）にも cause を持たせ、
+        ///           root_dir がディレクトリでない（RootNotDirectory）を分けた。いくつものパスを
+        ///           まとめて確かめる InspectPaths を足した。変更の途中で
         ///           root_dir がなくなっていたことを WireFailure::RootGone で運ぶ。パスの確認の Exists に
         ///           種類を、Symlink に辿った先の種類を足した
         pub const PROTOCOL_VERSION: u32 = $version;

@@ -194,28 +194,34 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
     if runtime.stopped.contains_key(&key) {
         return Box::new(super::stopped_target::StoppedTargetIo::new(key));
     }
-    let (inner, shown_root): (Box<dyn TargetIo>, String) = match side {
-        Side::Local => (
-            Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
-            runtime.config.local.root_dir.display().to_string(),
-        ),
+    let inner: Box<dyn TargetIo> = match side {
+        Side::Local => Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
         Side::Remote(name) => match runtime.targets.local_override(name) {
-            Some(root) => (
-                Box::new(super::local_target::LocalTargetIo::new(
-                    root.to_path_buf(),
-                    runtime.config.filter.exclude.clone(),
-                    runtime.config.filter.include.clone(),
-                )),
-                root.display().to_string(),
-            ),
-            None => (
-                Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
-                match runtime.get_server_config(name) {
-                    Ok(server) => super::side_io::remote_shown_root(name, &server.root_dir),
-                    Err(_) => name.clone(),
-                },
-            ),
+            Some(root) => Box::new(super::local_target::LocalTargetIo::new(
+                root.to_path_buf(),
+                runtime.config.filter.exclude.clone(),
+                runtime.config.filter.include.clone(),
+            )),
+            None => Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
         },
     };
-    Box::new(super::root_watch::RootWatch::new(key, shown_root, inner))
+    Box::new(super::root_watch::RootWatch::new(
+        key,
+        shown_root(side, runtime),
+        inner,
+    ))
+}
+
+/// 利用者に見せる `side` の root_dir（リモートは "サーバ名:パス"）
+pub(crate) fn shown_root(side: &Side, runtime: &CoreRuntime) -> String {
+    match side {
+        Side::Local => runtime.config.local.root_dir.display().to_string(),
+        Side::Remote(name) => match runtime.targets.local_override(name) {
+            Some(root) => root.display().to_string(),
+            None => match runtime.get_server_config(name) {
+                Ok(server) => super::side_io::remote_shown_root(name, &server.root_dir),
+                Err(_) => name.clone(),
+            },
+        },
+    }
 }

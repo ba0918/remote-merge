@@ -153,8 +153,12 @@ impl std::fmt::Display for ReadCause {
 pub enum ScanFailure {
     #[error("root_dir not found")]
     RootMissing,
+    /// root_dir を読めない（権限がないかどうかを `cause` に持つ）
     #[error("Cannot read root_dir")]
-    RootUnreadable,
+    RootUnreadable { cause: ReadCause },
+    /// root_dir がディレクトリでない（ファイルに替わった・途中がディレクトリでない）
+    #[error("Cannot read root_dir")]
+    RootNotDirectory,
     /// root_dir そのものが走査の途中でなくなったかディレクトリでなくなった
     #[error("root_dir changed during the scan")]
     RootChanged,
@@ -179,6 +183,28 @@ pub enum ScanFailure {
     #[error("Cannot collect the entries to scan: {message}")]
     CollectFailed { message: String },
 }
+
+/// 走査を止めた失敗 `failure` を、経路ごとの文言の誤り `shown`（root_dir がない誤りなど）として示す
+/// もの。文言は `shown` のままで、失敗の種類は誤りの連なりに型で残る
+#[derive(Debug)]
+pub struct ScanStopped {
+    pub failure: ScanFailure,
+    shown: anyhow::Error,
+}
+
+impl ScanStopped {
+    pub fn new(failure: ScanFailure, shown: anyhow::Error) -> Self {
+        Self { failure, shown }
+    }
+}
+
+impl std::fmt::Display for ScanStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.shown)
+    }
+}
+
+impl std::error::Error for ScanStopped {}
 
 /// 走査の誤り。集め方そのものの失敗は、元の誤り（接続断・時間切れ）のまま運ぶ
 #[derive(Debug, thiserror::Error)]

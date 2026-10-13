@@ -9,7 +9,7 @@ use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{ScanFailure, ScanRequest, ScanStopped};
 
 use super::RootWatch;
 use crate::runtime::core::CoreRuntime;
@@ -17,8 +17,9 @@ use crate::runtime::route_retry::StopKey;
 use crate::runtime::target_io::TargetIo;
 use crate::tree::{FileNode, FileTree};
 
-/// パスの確認だけに答え、尋ねられたパスを覚える比較先。どのパスも「親もない」と答える
-struct Asked(Rc<RefCell<Vec<String>>>);
+/// パスの確認だけに答え、尋ねられたパスを覚える比較先。どのパスも「親もない」と答える。走査には
+/// `scan` の失敗で答える
+struct Asked(Rc<RefCell<Vec<String>>>, Option<ScanFailure>);
 
 impl TargetIo for Asked {
     fn inspect_path(
@@ -119,7 +120,9 @@ impl TargetIo for Asked {
         _: &mut CoreRuntime,
         _: &ScanRequest,
     ) -> anyhow::Result<remote_merge_core::scan::outcome::Listing> {
-        unreachable!()
+        let failure = self.1.clone().expect("a scan failure to answer with");
+        let shown = anyhow::anyhow!("{failure}");
+        Err(ScanStopped::new(failure, shown).into())
     }
     fn hash_contents(
         &mut self,
@@ -138,7 +141,7 @@ fn a_missing_parent_of_a_new_deep_path_does_not_ask_about_the_root_dir() {
     let mut watch = RootWatch::new(
         StopKey::Local,
         "/srv/app".into(),
-        Box::new(Asked(Rc::clone(&asked))),
+        Box::new(Asked(Rc::clone(&asked), None)),
     );
     let mut runtime = CoreRuntime::new_for_test();
 
@@ -160,7 +163,7 @@ fn a_batch_of_deep_missing_paths_does_not_ask_about_the_root_dir() {
     let mut watch = RootWatch::new(
         StopKey::Local,
         "/srv/app".into(),
-        Box::new(Asked(Rc::clone(&asked))),
+        Box::new(Asked(Rc::clone(&asked), None)),
     );
     let mut runtime = CoreRuntime::new_for_test();
     let paths = [
@@ -184,7 +187,7 @@ fn a_batch_answering_that_root_dir_is_missing_stops_the_side() {
     let mut watch = RootWatch::new(
         StopKey::Local,
         "/srv/app".into(),
-        Box::new(Asked(Rc::clone(&asked))),
+        Box::new(Asked(Rc::clone(&asked), None)),
     );
     let mut runtime = CoreRuntime::new_for_test();
     let paths = [RelPath::parse("a/b").unwrap(), RelPath::parse("x").unwrap()];
@@ -200,22 +203,49 @@ fn a_batch_answering_that_root_dir_is_missing_stops_the_side() {
     assert!(runtime.has_stopped());
 }
 
-// 同じ問いで root_dir そのものも尋ねていれば、その答えで決めて root_dir を尋ね直さない
-// @kotowari[REQ-merge-044]
+// 同じ問いで root_dir そのものも尋ねていれば、root_dir がないことは尋ねた側が決める（初めからない
+// root_dir は走査の root_dir の誤りにする）ので、止めずに答えを渡し、root_dir も尋ね直さない
+// @kotowari[REQ-merge-044, REQ-scan-015]
 #[test]
-fn a_batch_that_asked_about_the_root_dir_decides_with_that_answer() {
+fn a_batch_that_asked_about_the_root_dir_is_left_to_the_caller() {
     let asked = Rc::new(RefCell::new(Vec::new()));
     let mut watch = RootWatch::new(
         StopKey::Local,
         "/srv/app".into(),
-        Box::new(Asked(Rc::clone(&asked))),
+        Box::new(Asked(Rc::clone(&asked), None)),
     );
     let mut runtime = CoreRuntime::new_for_test();
     let paths = [RelPath::root(), RelPath::parse("x").unwrap()];
 
     let resolved = watch.inspect_paths(&mut runtime, &paths);
 
-    assert!(resolved.is_err());
+    assert_eq!(resolved.unwrap().len(), 2);
     assert_eq!(*asked.borrow(), ["", "x"]);
-    assert!(runtime.has_stopped());
+    assert!(!runtime.has_stopped());
+}
+
+/// 走査が `failure` で止まったときに、その側を止めた記録が残るか
+fn stops_after_a_scan_failing_with(failure: ScanFailure) -> bool {
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let mut watch = RootWatch::new(
+        StopKey::Local,
+        "/srv/app".into(),
+        Box::new(Asked(Rc::clone(&asked), Some(failure))),
+    );
+    let mut runtime = CoreRuntime::new_for_test();
+    let request = ScanRequest {
+        scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+        max_entries: 9,
+    };
+    assert!(watch.scan_listing(&mut runtime, &request).is_err());
+    runtime.has_stopped()
+}
+
+// 走査の途中で root_dir がなくなったか変わったら、その側を止めた記録を残す。初めからない root_dir は
+// 走査の root_dir の誤りで、止めた記録にしない
+// @kotowari[REQ-merge-044, REQ-scan-015]
+#[test]
+fn a_root_dir_changed_during_a_scan_stops_the_side_but_one_missing_from_the_start_does_not() {
+    assert!(stops_after_a_scan_failing_with(ScanFailure::RootChanged));
+    assert!(!stops_after_a_scan_failing_with(ScanFailure::RootMissing));
 }

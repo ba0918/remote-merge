@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure, ScanStopped};
 use remote_merge_core::scan::tree_build::to_tree;
 
 use crate::local_io::check_truncation;
@@ -35,7 +35,8 @@ pub fn into_tree(
 }
 
 /// 走査の結果を一覧にする。走査を止めた誤りは [`into_tree`] と同じ誤りにし、件数の上限での打ち切りと
-/// 循環は一覧の印のまま返す（扱いは比べる流れを使うコマンドが決める）
+/// 循環は一覧の印のまま返す（扱いは比べる流れを使うコマンドが決める）。root_dir がない・途中で
+/// 変わった誤りは経路ごとの文言にし、走査を止めた失敗の種類は誤りの連なりに型で残す
 pub fn into_listing(
     shown_root: &str,
     scanned: Result<Listing, ScanError>,
@@ -43,11 +44,15 @@ pub fn into_listing(
 ) -> anyhow::Result<Listing> {
     match scanned {
         Ok(listing) => Ok(listing),
-        Err(ScanError::Failure(ScanFailure::RootMissing)) => Err(root_missing()),
-        Err(ScanError::Failure(ScanFailure::RootChanged)) => Err(RootChanged {
-            root: shown_root.to_string(),
+        Err(ScanError::Failure(ScanFailure::RootMissing)) => {
+            Err(ScanStopped::new(ScanFailure::RootMissing, root_missing()).into())
         }
-        .into()),
+        Err(ScanError::Failure(ScanFailure::RootChanged)) => {
+            let shown = RootChanged {
+                root: shown_root.to_string(),
+            };
+            Err(ScanStopped::new(ScanFailure::RootChanged, shown.into()).into())
+        }
         Err(ScanError::Failure(failure)) => Err(failure.into()),
         Err(ScanError::Collect(error)) => Err(error),
     }

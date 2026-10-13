@@ -16,6 +16,13 @@ fn each_scan_failure_carries_the_kind_of_operation_failure_it_is() {
     let cases = [
         (ScanFailure::RootMissing, OpFailure::RootGone),
         (ScanFailure::RootChanged, OpFailure::RootGone),
+        (ScanFailure::RootNotDirectory, OpFailure::RootGone),
+        (
+            ScanFailure::RootUnreadable {
+                cause: ReadCause::PermissionDenied,
+            },
+            OpFailure::PermissionDenied,
+        ),
         (
             ScanFailure::StartBlocked { path: path() },
             OpFailure::NotADirectory,
@@ -46,7 +53,9 @@ fn each_scan_failure_carries_the_kind_of_operation_failure_it_is() {
             },
             OpFailure::Io("Cannot collect the entries to scan: m".into()),
         ),
-        io(ScanFailure::RootUnreadable),
+        io(ScanFailure::RootUnreadable {
+            cause: ReadCause::Other,
+        }),
         io(ScanFailure::StartUnreadable {
             path: path(),
             cause: ReadCause::Other,
@@ -81,4 +90,27 @@ fn an_operation_failure_inside_a_scan_error_keeps_its_kind() {
     let scan = anyhow::Error::from(ScanFailure::RootMissing);
     assert_eq!(failure_of_scan_error(&scan), Some(OpFailure::RootGone));
     assert_eq!(failure_of_scan_error(&anyhow::anyhow!("other")), None);
+}
+
+// 経路ごとの文言の誤りにしても、走査を止めた失敗の種類は型で読める
+// @kotowari[REQ-compare-015, REQ-merge-044]
+#[test]
+fn a_scan_failure_shown_with_the_route_message_keeps_its_kind() {
+    use crate::scan::outcome::ScanStopped;
+    let shown = anyhow::Error::from(ScanStopped::new(
+        ScanFailure::RootChanged,
+        anyhow::anyhow!("root_dir changed during the scan: server:/srv"),
+    ))
+    .context("comparing");
+    assert_eq!(failure_of_scan_error(&shown), Some(OpFailure::RootGone));
+    assert_eq!(
+        format!(
+            "{:#}",
+            anyhow::Error::from(ScanStopped::new(
+                ScanFailure::RootMissing,
+                anyhow::anyhow!("Remote root_dir not found: server:/srv"),
+            ))
+        ),
+        "Remote root_dir not found: server:/srv"
+    );
 }

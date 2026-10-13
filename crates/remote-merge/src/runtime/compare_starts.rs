@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{blocked_starts, outside_on_the_way, paths_to_check};
-use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest, ScanScope, Start};
 
@@ -49,11 +49,19 @@ impl CoreRuntime {
         }
         let mut io = super::target_io::for_side(side, self);
         let mut answers = io.inspect_paths(self, &rels)?.into_iter();
-        let root = match answers.next().expect("root_dir was asked")? {
-            ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
-                real_path
-            }
-            other => anyhow::bail!("cannot resolve root_dir: {other:?}"),
+        let root = match answers.next().expect("root_dir was asked") {
+            Ok(ResolvedPath::Exists {
+                real_path,
+                kind: ExistingKind::Directory,
+            })
+            | Ok(ResolvedPath::Symlink {
+                real_path,
+                target_kind: Some(ExistingKind::Directory),
+                ..
+            }) => real_path,
+            // root_dir がないかディレクトリでない: どの範囲の指定でも、走査と同じ root_dir の誤りに
+            // する（REQ-scan-015）
+            _ => return Err(self.root_scan_error(side)),
         };
         let mut facts = BTreeMap::new();
         for (path, answer) in paths.iter().zip(answers) {
@@ -96,6 +104,18 @@ impl CoreRuntime {
             .unwrap_or_default();
         links.extend(self.links_outside_root(side, &listing)?);
         Ok((listing, Some(links)))
+    }
+
+    /// root_dir だけを確かめる走査の誤り（root_dir がない・読めない）
+    fn root_scan_error(&mut self, side: &Side) -> anyhow::Error {
+        let request = ScanRequest {
+            scope: ScanScope::Starts(Vec::new()),
+            max_entries: 1,
+        };
+        match self.scan_listing(side, &request) {
+            Err(error) => error,
+            Ok(_) => anyhow::anyhow!("root_dir could not be resolved, but the scan found it"),
+        }
     }
 
     /// `scope` で走査する。名前で指定した起点 `named` のうち途中がディレクトリでないもの（分かって

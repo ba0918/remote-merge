@@ -92,3 +92,23 @@ fn a_listing_stopped_at_a_cycle_is_an_error_that_keeps_what_was_read() {
         assert!(partial.tree.find_node("a.txt").is_some());
     }
 }
+
+// 経路ごとの文言にしても、root_dir がない・途中で変わった失敗の種類は型で読める
+// @kotowari[REQ-scan-015, REQ-merge-044]
+#[test]
+fn the_kind_of_a_missing_or_changed_root_dir_is_kept_behind_the_route_message() {
+    use remote_merge_core::op_failure::OpFailure;
+    use remote_merge_core::scan::failure_kind::failure_of_scan_error;
+    for failure in [ScanFailure::RootMissing, ScanFailure::RootChanged] {
+        let error = into_listing("srv:/app", Err(ScanError::Failure(failure.clone())), || {
+            anyhow::anyhow!("Remote root_dir not found: srv:/app")
+        })
+        .unwrap_err();
+        let kept = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<ScanStopped>())
+            .map(|stopped| stopped.failure.clone());
+        assert_eq!(kept, Some(failure.clone()), "{error:#}");
+        assert_eq!(failure_of_scan_error(&error), Some(OpFailure::RootGone));
+    }
+}

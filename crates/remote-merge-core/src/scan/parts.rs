@@ -19,7 +19,7 @@ pub(super) fn shown(path: &[u8]) -> String {
 
 pub(super) fn unreadable_directory(path: &[u8], cause: super::raw::ReadCause) -> ScanFailure {
     if path.is_empty() {
-        ScanFailure::RootUnreadable
+        ScanFailure::RootUnreadable { cause }
     } else {
         ScanFailure::UnreadableDirectory {
             path: shown(path),

@@ -64,7 +64,8 @@ impl CoreRuntime {
         };
         match check_before_change(compared, now) {
             ChangeCheck::Stopped(lost) => {
-                Err(OpError::new(Operation::Hash, path.as_typed(), lost.failure).into())
+                let error = OpError::new(Operation::Hash, path.as_typed(), lost.failure).into();
+                Err(self.stop_if_root_gone(side, error))
             }
             checked => Ok(checked),
         }
@@ -106,5 +107,17 @@ impl CoreRuntime {
                 }
             }
         }))
+    }
+
+    /// 集め直しで root_dir がなくなっていた（変更の直前の判定の root_dir がない）なら、root_dir を添えて
+    /// その側への処理を止める（docs/ir/merge/concurrency.md の REQ-merge-044）。ほかの誤りは変えない
+    fn stop_if_root_gone(&mut self, side: &Side, error: anyhow::Error) -> anyhow::Error {
+        if remote_merge_core::op_failure::failure_of(&error) != Some(&OpFailure::RootGone) {
+            return error;
+        }
+        let shown = super::target_io::shown_root(side, self);
+        let error = super::root_gone::with_shown_root(error, &shown);
+        self.stop_for_root_gone(super::route_retry::StopKey::of(side), &error);
+        error
     }
 }

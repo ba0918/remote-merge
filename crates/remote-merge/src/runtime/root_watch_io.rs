@@ -6,12 +6,23 @@ use remote_merge_core::op_failure::{OpError, OpFailure, Operation, PathResult, S
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::children::ChildListing;
-use remote_merge_core::scan::outcome::ScanRequest;
+use remote_merge_core::scan::outcome::{ScanFailure, ScanRequest, ScanStopped};
 
 use super::RootWatch;
 use crate::runtime::core::CoreRuntime;
 use crate::runtime::target_io::TargetIo;
 use crate::tree::{FileNode, FileTree};
+
+/// 走査を止めた失敗の種類（経路ごとの文言にしたものも含む）
+fn scan_failure_of(error: &anyhow::Error) -> Option<&ScanFailure> {
+    error.chain().find_map(|cause| {
+        cause.downcast_ref::<ScanFailure>().or_else(|| {
+            cause
+                .downcast_ref::<ScanStopped>()
+                .map(|stopped| &stopped.failure)
+        })
+    })
+}
 
 /// root_dir がなくなったかもしれない、ふつうでない答えか。root_dir 直下のパスの親（root_dir そのもの）
 /// がないと答えたときと、途中がディレクトリでないと答えたとき。深いパスの親がない（新しい木を作る）と
@@ -49,7 +60,9 @@ impl TargetIo for RootWatch {
         Err(self.settle(rt, gone))
     }
     /// [`inspect_path`](Self::inspect_path) と同じく、どれかのパスがふつうでない答えのときだけ
-    /// root_dir を一度確かめ直す
+    /// root_dir を一度確かめ直す。同じ問いで root_dir そのものを尋ねていれば、root_dir がないことは
+    /// 尋ねた側が決める（初めからない root_dir は走査の root_dir の誤りにする。REQ-scan-015）ので、
+    /// 止めずに答えを渡す
     fn inspect_paths(
         &mut self,
         rt: &mut CoreRuntime,
@@ -62,24 +75,26 @@ impl TargetIo for RootWatch {
         let Some(path) = first_unusual else {
             return Ok(answered);
         };
-        // 同じ問いで root_dir そのものも尋ねていれば、その答えで決める（尋ね直さない）
-        let asked_root = paths.iter().position(RelPath::is_root);
-        let gone = match asked_root {
-            Some(index) => super::root_answer_is_gone(&answered[index]),
-            None => self.root_is_gone(rt),
-        };
-        if !gone {
+        if paths.iter().any(RelPath::is_root) || !self.root_is_gone(rt) {
             return Ok(answered);
         }
         let gone = OpError::new(Operation::Read, path.as_str(), OpFailure::RootGone).into();
         Err(self.settle(rt, gone))
     }
+    /// 走査の途中で root_dir がなくなったか変わった（RootChanged）ときは、その側を止めた記録を残す。
+    /// 初めからない root_dir（RootMissing）は走査の root_dir の誤りで、止めた記録にしない
     fn scan_listing(
         &mut self,
         rt: &mut CoreRuntime,
         request: &ScanRequest,
     ) -> anyhow::Result<remote_merge_core::scan::outcome::Listing> {
-        self.inner.scan_listing(rt, request)
+        let scanned = self.inner.scan_listing(rt, request);
+        if let Err(error) = &scanned {
+            if scan_failure_of(error) == Some(&ScanFailure::RootChanged) {
+                rt.stop_for_root_gone(self.key.clone(), error);
+            }
+        }
+        scanned
     }
     fn hash_contents(
         &mut self,

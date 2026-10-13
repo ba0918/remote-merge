@@ -190,7 +190,10 @@ fn failures_about_the_listed_directory_make_it_unlistable_and_others_stop() {
     );
     let stopping = [
         ScanFailure::RootMissing,
-        ScanFailure::RootUnreadable,
+        ScanFailure::RootUnreadable {
+            cause: super::super::outcome::ReadCause::Other,
+        },
+        ScanFailure::RootNotDirectory,
         ScanFailure::RootChanged,
         ScanFailure::UnreadableLinkTarget { path: "l".into() },
         ScanFailure::UnreadableTime { path: "l".into() },

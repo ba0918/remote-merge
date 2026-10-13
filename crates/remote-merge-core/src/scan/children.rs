@@ -131,7 +131,8 @@ pub fn listing_failure(failure: &ScanFailure) -> ListingFailure {
         | ScanFailure::UnresolvableLink { .. }
         | ScanFailure::ChangedDuringScan { .. } => ListingFailure::Unlistable,
         ScanFailure::RootMissing
-        | ScanFailure::RootUnreadable
+        | ScanFailure::RootUnreadable { .. }
+        | ScanFailure::RootNotDirectory
         | ScanFailure::RootChanged
         | ScanFailure::UnreadableLinkTarget { .. }
         | ScanFailure::UnreadableTime { .. }

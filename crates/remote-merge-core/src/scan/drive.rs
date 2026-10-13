@@ -96,9 +96,10 @@ pub(super) fn missing_subtree() -> ScanError {
 pub(super) fn root_identity(answer: &Answer) -> Result<DirId, ScanFailure> {
     match &answer.entry {
         Err(Unreached::Missing) => Err(ScanFailure::RootMissing),
-        Err(_) => Err(ScanFailure::RootUnreadable),
+        Err(Unreached::NotDirectory) => Err(ScanFailure::RootNotDirectory),
+        Err(Unreached::Unreadable(cause)) => Err(ScanFailure::RootUnreadable { cause: *cause }),
         Ok(entry) if entry.kind == RawKind::Directory => Ok(entry.id),
-        Ok(_) => Err(ScanFailure::RootUnreadable),
+        Ok(_) => Err(ScanFailure::RootNotDirectory),
     }
 }
 
