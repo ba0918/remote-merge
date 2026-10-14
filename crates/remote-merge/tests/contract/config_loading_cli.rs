@@ -237,6 +237,21 @@ fn config_option_still_merges_servers_from_the_global_config() {
     assert_eq!(listed_paths(&json), ["from-option.txt"]);
 }
 
+// @kotowari[REQ-config-045]
+#[cfg(target_os = "linux")]
+#[test]
+fn the_global_config_is_read_from_the_os_config_directory() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("global-local", "from-global.txt");
+    let global_path = workspace.global_config_path();
+    workspace.write_config(&global_path, &local);
+
+    let json = workspace.status_json(&cwd, None);
+
+    assert_eq!(listed_paths(&json), ["from-global.txt"]);
+}
+
 // @kotowari[REQ-config-007]
 #[test]
 fn config_option_naming_a_missing_file_stops_with_its_absolute_path() {
@@ -352,6 +367,22 @@ fn an_empty_local_root_stops_with_the_reason() {
     let output = workspace.status(&cwd, None, &[]);
 
     assert_stops_with(&output, "root_dir must not be empty");
+}
+
+// @kotowari[REQ-config-013]
+#[test]
+fn a_config_without_a_local_root_dir_stops() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let content = format!(
+        "[servers.develop]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"fixture-user\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = \"/srv/app\"\n",
+        workspace.dirs.server_port()
+    );
+    fs::write(cwd.join(".remote-merge.toml"), content).unwrap();
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_stops_with(&output, "[local] section is required");
 }
 
 // @kotowari[REQ-config-040]
