@@ -1,3 +1,7 @@
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "テストの照合は対象の種類を一つ書き、ほかは絞り込みで示す"
+)]
 //! 子の一覧を、走査の集め方を深さ一つにしたものと同じ規則で作ることの単体テスト
 //! （docs/ir/paths/operations.md の REQ-paths-013・017）
 use super::super::outcome::{ListedKind, ScanFailure, ScanScope};

@@ -103,7 +103,9 @@ struct ChangeInfo {
 fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
     let lines = match diff {
         DiffResult::Modified { lines, .. } => lines,
-        _ => return BTreeMap::new(),
+        DiffResult::Equal | DiffResult::Binary { .. } | DiffResult::SymlinkDiff { .. } => {
+            return BTreeMap::new();
+        }
     };
 
     let mut changes: BTreeMap<usize, ChangeInfo> = BTreeMap::new();

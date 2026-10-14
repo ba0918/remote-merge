@@ -37,7 +37,7 @@ impl Walk<'_> {
             RawKind::Symlink {
                 target: Some(target),
             } => Some(target),
-            _ => None,
+            RawKind::File | RawKind::Directory | RawKind::Other => None,
         };
         let text = std::str::from_utf8(path).ok();
         let kind = match (target, &entry.kind) {

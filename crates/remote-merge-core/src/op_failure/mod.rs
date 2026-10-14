@@ -49,6 +49,10 @@ pub enum Disconnection {
 }
 
 /// OS の誤りを種類に訳す。ローカルとエージェントが同じものを使う
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "std::io::ErrorKind は外部の enum で、他の種類は I/O の失敗として運ぶ"
+)]
 pub fn from_io_error(error: &std::io::Error) -> OpFailure {
     match error.kind() {
         std::io::ErrorKind::NotFound => OpFailure::NotFound,

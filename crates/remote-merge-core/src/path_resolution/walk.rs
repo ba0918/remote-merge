@@ -229,6 +229,10 @@ pub fn resolve_path(
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "テストの照合は対象の種類を一つ書き、ほかは絞り込みで示す"
+    )]
     use std::collections::HashMap;
 
     use super::*;

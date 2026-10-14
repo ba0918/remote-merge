@@ -79,7 +79,7 @@ pub(super) fn take_below(
             }
             true
         }
-        _ => false,
+        RawKind::File | RawKind::Other => false,
     };
     if !is_dir {
         return Ok(());

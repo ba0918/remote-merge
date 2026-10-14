@@ -149,6 +149,10 @@ fn strip_leading_dot_slash(raw: &str) -> &str {
 }
 
 /// "." の要素を除き、続いた "/" と末尾の "/" をまとめた値を返す。確かめた後の相対パスに使う
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "std::path::Component は外部の enum で、通常の要素だけを拾う"
+)]
 fn join_normal_elements(value: &str) -> String {
     Path::new(value)
         .components()

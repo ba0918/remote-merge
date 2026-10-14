@@ -72,6 +72,10 @@ pub(super) fn create_parents_with(
 
 /// root_dir `root` を使えないときの失敗。ない・ディレクトリでない（途中を含む）ときは root_dir がない、
 /// 上を辿れないときは権限がない（D48）
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "std::io::ErrorKind は外部の enum で、他の種類は I/O の失敗として運ぶ"
+)]
 fn root_failure(root: &Path) -> Option<OpFailure> {
     match std::fs::metadata(root) {
         Ok(meta) if meta.is_dir() => None,

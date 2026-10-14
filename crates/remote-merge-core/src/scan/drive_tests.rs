@@ -1,3 +1,7 @@
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "テストの照合は対象の種類を一つ書き、ほかは絞り込みで示す"
+)]
 //! 全体の走査の規則の単体テスト。生の項目は手で作る
 use super::super::outcome::{ListedKind, ScanFailure};
 use super::super::raw::LinkTarget;

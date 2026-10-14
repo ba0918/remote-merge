@@ -1,3 +1,7 @@
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "テストの照合は対象の種類を一つ書き、ほかは絞り込みで示す"
+)]
 //! その他の種類（FIFO・ソケット・デバイス）を載せる規則の単体テスト
 use super::super::outcome::{ListedKind, Listing, ScanScope};
 use super::super::raw::{RawEntry, RawKind};

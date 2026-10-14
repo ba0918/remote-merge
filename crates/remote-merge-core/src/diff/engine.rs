@@ -233,6 +233,10 @@ fn join_lines<S: AsRef<str>>(lines: &[S], trailing_newline: bool) -> String {
 ///
 /// - `RightToLeft`: left テキストに対して、ハンク内の Delete 行を Insert 行で置換する
 /// - `LeftToRight`: right テキストに対して、ハンク内の Insert 行を Delete 行で置換する
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "DiffTag は3種で、残りは keep_tag/replace_tag の枝が受け、この枝へは到達しない"
+)]
 pub fn apply_hunk_to_text(
     original: &str,
     hunk_lines: &[DiffLine],
@@ -311,6 +315,10 @@ pub fn apply_hunk_to_text(
 ///
 /// - LeftToRight: ソース=left、ターゲット=right。keep_tag=Delete（left の行を採用）、replace_tag=Insert（right の行をスキップ）
 /// - RightToLeft: ソース=right、ターゲット=left。keep_tag=Insert（right の行を採用）、replace_tag=Delete（left の行をスキップ）
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "DiffTag は3種で、残りは keep_tag/replace_tag の枝が受け、この枝へは到達しない"
+)]
 pub fn apply_selected_hunks_single_pass(
     all_lines: &[DiffLine],
     merge_hunks: &[DiffHunk],
@@ -458,6 +466,10 @@ fn make_hunk(start_in_all: usize, end_in_all: usize, all_lines: &[DiffLine]) -> 
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "テストの照合は「Modified を期待」の形で書き、他の結果は panic で示す"
+    )]
     use super::*;
 
     #[test]
