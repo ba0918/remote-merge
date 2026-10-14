@@ -18,15 +18,17 @@ pub struct ConflictRegion {
     pub left_lines: Vec<String>,
     /// right 側の変更内容（ref_range を置き換えた行群）
     pub right_lines: Vec<String>,
-    /// left の DiffLine 上での行範囲
+    /// left の DiffLine 上での行範囲。JSON には出さない（REQ-cli-065）
+    #[serde(skip)]
     pub left_diff_range: Option<Range<usize>>,
-    /// right の DiffLine 上での行範囲
+    /// right の DiffLine 上での行範囲。JSON には出さない（REQ-cli-065）
+    #[serde(skip)]
     pub right_diff_range: Option<Range<usize>>,
-    /// left ファイルの実際の行番号（0-based）。left→right diff の old_index と照合する。
-    #[serde(default)]
+    /// left ファイルの実際の行番号（0-based）。JSON には出さない（REQ-cli-065）
+    #[serde(skip)]
     pub left_file_lines: BTreeSet<usize>,
-    /// right ファイルの実際の行番号（0-based）。left→right diff の new_index と照合する。
-    #[serde(default)]
+    /// right ファイルの実際の行番号（0-based）。JSON には出さない（REQ-cli-065）
+    #[serde(skip)]
     pub right_file_lines: BTreeSet<usize>,
 }
 
@@ -462,8 +464,16 @@ mod tests {
         assert_eq!(region["ref_range"]["end"], 3);
         assert_eq!(region["left_lines"], serde_json::json!(["A", "B"]));
         assert_eq!(region["right_lines"], serde_json::json!(["C"]));
-        assert_eq!(region["left_diff_range"]["start"], 0);
-        assert_eq!(region["left_diff_range"]["end"], 2);
+        // 行の競合の要素は ref_range・left_lines・right_lines だけ（REQ-cli-065）
+        assert!(region.get("left_diff_range").is_none());
+        assert!(region.get("right_diff_range").is_none());
+        assert!(region.get("left_file_lines").is_none());
+        assert!(region.get("right_file_lines").is_none());
+        assert_eq!(
+            region.as_object().unwrap().len(),
+            3,
+            "行の競合の要素の欄は三つだけ: {json}"
+        );
     }
 
     #[test]

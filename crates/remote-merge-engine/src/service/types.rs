@@ -942,6 +942,15 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"conflict_count\":1"));
         assert!(json.contains("\"conflict_regions\""));
+        // 行の競合の要素は ref_range・left_lines・right_lines だけ（TUI 用の 4 欄は出さない）
+        assert!(
+            json.contains("\"ref_range\":{\"start\":0,\"end\":1}"),
+            "{json}"
+        );
+        assert!(json.contains("\"left_lines\":[\"B\"]"), "{json}");
+        assert!(json.contains("\"right_lines\":[\"C\"]"), "{json}");
+        assert!(!json.contains("diff_range"), "{json}");
+        assert!(!json.contains("file_lines"), "{json}");
     }
 
     // ── rollback types ──
