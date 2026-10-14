@@ -5,7 +5,7 @@
 ## 対象にするリモート
 
 - ログインシェル: Bourne 系（sh・bash・dash・BusyBox ash）と fish。コマンドは `sh -c` に一つの引数で渡す（[REQ-ssh-020](ir/ssh/remote-shell.md#REQ-ssh-020)）。
-- エージェントの配布: Linux の x86_64（musl）と macOS。本番の CentOS 5（2.6.18-419.el5、x86_64）で、リリース済みの版のエージェントが配置・起動・走査できることを利用者が確かめた（2026-10-13）。今の版の musl のエージェントが 2.6.18-419.el5 のカーネルで手元と同じ答えを返すことを qemu で確かめた（2026-10-13）。ARM の Linux は配布に入っていない（[REQ-ssh-005](ir/ssh/fallback.md#REQ-ssh-005)）。
+- エージェントの配布: Linux の x86_64（musl）と macOS。本番の CentOS 5（2.6.18-419.el5、x86_64）で、リリース済みの版のエージェントが配置・起動・走査できることを利用者が確かめた（2026-10-13）。musl のエージェントが 2.6.18-419.el5 のカーネルで手元と同じ答えを返すことを qemu で確かめた（2026-10-13）。このときの通信の版は 15 より前で、版 15 で足したリンク先を辿れない symlink と名前を読めない symlink（[REQ-scan-018](ir/scan/directory-links.md#REQ-scan-018)）を返すことはまだ確かめていない（確かめる中身は `scripts/kernel-2.6.18/fixtures.sh` の mk2 に足した）。ARM の Linux は配布に入っていない（[REQ-ssh-005](ir/ssh/fallback.md#REQ-ssh-005)）。
 
 ## シェル
 

@@ -15,9 +15,13 @@ mk2() {
   echo x > $R/realdir/in.txt
   ln -s realdir $R/linkdir
   ln -s .. $R/cyc/up
+  printf 'old content that is long\n' > $R/existing.txt
+  # リンク先を辿れない symlink（REQ-scan-018。ループは cyc/up）
+  ln -s existing.txt/inside $R/through_file
+  # 名前を読めない symlink（REQ-scan-012・018）
+  ln -s realdir "$R/$(printf 'link\377name')"
   mkfifo $R/fifo
   echo secret > $R/noperm/s.txt
   chmod 000 $R/noperm
   touch "$R/$(printf 'bad\377name')"
-  printf 'old content that is long\n' > $R/existing.txt
 }
