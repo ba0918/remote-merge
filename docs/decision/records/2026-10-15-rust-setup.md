@@ -6,7 +6,7 @@ Rust のルール（ba0918-rust）を AGENTS.md の routing に足したうえ�
 edition は全 crate が 2021 のままで、MSRV・ツールチェーンの固定・マニフェストの lint 設定がなく、clippy はコマンド行の -D warnings だけで動いていた。
 2026-10-15 の実測（依存の要求・lint ごとの指摘数）に沿って、今の変更で有効にするものと、直してから広げるものに分ける。
 
-Position: 版とツールチェーンとゲートは反映済み。lint は A5 まで反映済み、A6・A7 はコードの掃除で行う。
+Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（unwrap_used）と A7 の needless_pass_by_value も反映済み。残りは A7 の wildcard_enum_match_arm と ssh の print。
 
 ## Agreements
 
