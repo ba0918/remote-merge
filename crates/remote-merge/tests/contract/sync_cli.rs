@@ -145,6 +145,21 @@ fn any_other_answer_cancels_without_writing_and_exits_with_zero() {
     }
 }
 
+// --format json の取り消しは成功でもエラーでもないので JSON を出さない
+// @kotowari[REQ-cli-018]
+#[test]
+fn json_sync_cancelled_by_an_answer_prints_nothing_and_exits_with_zero() {
+    let env = one_merge_and_one_deletion_on_each_target();
+
+    let output = sync(&env, &["--format", "json"], Some("n\n"));
+
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Sync cancelled."), "{stderr}");
+    assert_exit_success(&output);
+    assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
+}
+
 // @kotowari[REQ-cli-040]
 #[test]
 fn force_dry_run_and_nothing_to_write_do_not_ask() {
@@ -178,7 +193,7 @@ fn a_target_with_only_merges_or_only_deletions_still_has_a_plan_line() {
 
     let output = sync(&env, &[], Some("n\n"));
 
-    // 件数が 0 の部分を出すか省くかは確かめない（IR の行の形との対応は未決）
+    // 件数が 0 の部分は出さない（docs/decision/records/2026-10-15-flag-resolution.md の A3）
     let stderr = String::from_utf8_lossy(&output.stderr);
     let line_of = |label: &str| {
         stderr
@@ -186,8 +201,12 @@ fn a_target_with_only_merges_or_only_deletions_still_has_a_plan_line() {
             .find(|line| line.contains(&format!("[{label}]")))
             .unwrap_or_else(|| panic!("no plan line for {label}: {stderr}"))
     };
-    assert!(line_of("develop").contains("1 files to merge"), "{stderr}");
-    assert!(line_of("staging").contains("1 files to delete"), "{stderr}");
+    let develop = line_of("develop");
+    assert!(develop.contains("1 files to merge"), "{stderr}");
+    assert!(!develop.contains("delete"), "{stderr}");
+    let staging = line_of("staging");
+    assert!(staging.contains("1 files to delete"), "{stderr}");
+    assert!(!staging.contains("merge"), "{stderr}");
     assert_eq!(prompt_count(&output), 1, "{stderr}");
 }
 
