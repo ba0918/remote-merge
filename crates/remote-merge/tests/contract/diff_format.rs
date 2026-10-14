@@ -290,6 +290,41 @@ fn req_cli_058_text_starts_with_the_first_file_header() {
     assert!(text.starts_with("--- a/f.txt (local)\n"), "{text:?}");
 }
 
+// "@@" の行の行番号は 0 始まり（先頭の行の変更は "@@ -0,1 +0,1 @@" になる）
+// @kotowari[REQ-cli-058]
+#[test]
+fn req_cli_058_hunk_headers_use_zero_based_line_numbers() {
+    let fixture = DiffFixture::new(&[("f.txt", b"old\n")], &[("f.txt", b"new\n")]);
+
+    let (output, _) = fixture.diff(&["f.txt"]);
+    let text = format_multi_diff_text(&output);
+    let header = text
+        .lines()
+        .find(|line| line.starts_with("@@"))
+        .unwrap_or_else(|| panic!("{text}"));
+
+    assert_eq!(header, "@@ -0,1 +0,1 @@", "{text}");
+}
+
+// JSON の left_start・right_start は 0 始まり（1 始まりなら 3 になる位置で確かめる）
+// @kotowari[REQ-cli-053]
+#[test]
+fn req_cli_053_hunk_starts_use_zero_based_line_numbers() {
+    let left: String = (1..=7).map(|n| format!("{n}\n")).collect();
+    let right = left.replacen("6\n", "six\n", 1);
+    let fixture = DiffFixture::new(
+        &[("f.txt", left.as_bytes())],
+        &[("f.txt", right.as_bytes())],
+    );
+
+    let (output, _) = fixture.diff(&["f.txt"]);
+    let json = json(&output);
+    let file = entry(&json, "f.txt");
+
+    assert_eq!(file["hunks"][0]["left_start"], 2, "{json}");
+    assert_eq!(file["hunks"][0]["right_start"], 2, "{json}");
+}
+
 // 文脈の範囲より離れた二つの変更はそれぞれの hunk に分かれ、どちらの変更の行も出る。
 // 二つ目は一行だけの削除にし、hunk の終わりをその一行から求める場合を通す
 // @kotowari[REQ-cli-058]
