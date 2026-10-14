@@ -6,7 +6,7 @@ Rust のルール（ba0918-rust）を AGENTS.md の routing に足したうえ�
 edition は全 crate が 2021 のままで、MSRV・ツールチェーンの固定・マニフェストの lint 設定がなく、clippy はコマンド行の -D warnings だけで動いていた。
 2026-10-15 の実測（依存の要求・lint ごとの指摘数）に沿って、今の変更で有効にするものと、直してから広げるものに分ける。
 
-Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（unwrap_used）と A7 の needless_pass_by_value も反映済み。残りは A7 の wildcard_enum_match_arm と ssh の print。
+Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（unwrap_used）と A7 の needless_pass_by_value、A8（wildcard_enum_match_arm の採否）、A9（ssh の print）も反映済み。この決定で延期したものは残っていない。
 
 ## Agreements
 
@@ -31,3 +31,9 @@ Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（u
 - A7 clippy の needless_pass_by_value（58 件）と wildcard_enum_match_arm（133 件）、ssh ライブラリの対話の問いの print（9 件）も、直してから有効にする。
   - why: ルールは「指摘を直すか、理由つきの抑制を同じ変更で置く」を求める。数が多く、ssh の print は問いを呼び出し側へ渡す設計の変更になるため、コードの掃除の単位に分ける。
   - decided_by: AI（実測による）
+- A8 wildcard_enum_match_arm は、自前の enum を主に照合する crate（core・engine）の直下で有効にし、他 crate や外部の型を主に照合する crate（agent・製品・ssh）では有効にしない。
+  - why: 重複を除いた実測は 86 箇所。core と engine は自前の enum（DiffResult・RawKind・ListedKind・Judged・MergeEntry など）が主で、外部の enum（std::io::ErrorKind・std::path::Component）は理由つきの expect にした。agent は 31 箇所すべてが protocol の AgentResponse、製品は 23 箇所のうち 18 箇所が他 crate か外部の型で、有効にすると理由つきの抑制が並ぶだけになる（ba0918-rust の lints.md はこの場合「有効にせず規則を review に残す」と定める）。照合の対象が自前の enum に移った時点で、その crate で有効にする。
+  - decided_by: AI（実測と lints.md の指示）
+- A9 ssh ライブラリの出力を呼び出し側に移し、ssh の直下でも print_stdout/print_stderr を deny にする。
+  - why: ホストキー確認の問いは表示先を引数で受け取り（trait の実装が stderr を渡す）、パスフレーズの案内は利用者向けの tracing（target: remote_merge::warning。main の USER_WARNINGS が記録の細かさによらず標準エラーに出す）に移した。テスト専用の知らせには理由つきの expect を置いた。これで 7 つのライブラリすべてが同じ扱いになる。
+  - decided_by: AI（ba0918-rust の規則）
