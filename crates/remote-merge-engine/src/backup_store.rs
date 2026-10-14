@@ -101,7 +101,11 @@ impl BackupStore {
             .collect::<Vec<_>>();
         loop {
             let refs = existing.iter().map(String::as_str).collect::<Vec<_>>();
-            let id = next_session_id(self.now, &refs);
+            let id = next_session_id(self.now, &refs).map_err(|_| {
+                anyhow::anyhow!(
+                    "backup session id could not be allocated: the sequence for this time is at its maximum"
+                )
+            })?;
             let reservation = reservations.join(&id);
             match fs::create_dir(&reservation) {
                 Ok(()) => {

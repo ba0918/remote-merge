@@ -543,7 +543,7 @@ fn created_session_ids_follow_the_timestamp_and_suffix_format() {
             .collect::<Vec<_>>();
         let refs = existing.iter().map(String::as_str).collect::<Vec<_>>();
 
-        let id = next_session_id(now, &refs);
+        let id = next_session_id(now, &refs).expect("the sequence has room");
 
         let timestamp = now.format("%Y%m%d-%H%M%S").to_string();
         prop_assert!(id.starts_with(&timestamp), "{id} does not start with {timestamp}");
@@ -593,7 +593,7 @@ fn next_session_id_differs_from_every_existing_id() {
             .collect::<Vec<_>>();
         let refs = existing.iter().map(String::as_str).collect::<Vec<_>>();
 
-        let id = next_session_id(now, &refs);
+        let id = next_session_id(now, &refs).expect("the sequence has room");
 
         prop_assert!(!existing.contains(&id), "{id} repeats one of {existing:?}");
     });
@@ -612,11 +612,23 @@ fn tenth_session_sorts_after_ninth_session() {
 #[test]
 fn same_time_uses_second_session_suffix() {
     let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
-    let first = next_session_id(now, &[]);
-    let second = next_session_id(now, &[first.as_str()]);
+    let first = next_session_id(now, &[]).expect("the sequence has room");
+    let second = next_session_id(now, &[first.as_str()]).expect("the sequence has room");
 
     assert_eq!(first, "20260914-155250");
     assert_eq!(second, "20260914-155250-2");
+}
+
+// @kotowari[REQ-backup-022]
+#[test]
+fn the_sequence_at_the_maximum_leaves_no_next_id() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
+
+    assert!(next_session_id(now, &["20260914-155250-18446744073709551615"]).is_err());
+    assert_eq!(
+        next_session_id(now, &["20260914-155250-18446744073709551614"]).unwrap(),
+        "20260914-155250-18446744073709551615"
+    );
 }
 
 fn create_two_same_second_sessions(

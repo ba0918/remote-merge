@@ -100,8 +100,15 @@ pub fn backup_timestamp() -> String {
     Utc::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
+/// 次のセッション ID を決められない理由（同じ日時の連番が使える最大値に達した）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionSequenceExhausted;
+
 /// 指定時刻と既存 ID から、次のバックアップセッション ID を決める。
-pub fn next_session_id(now: DateTime<Utc>, existing_ids: &[&str]) -> String {
+pub fn next_session_id(
+    now: DateTime<Utc>,
+    existing_ids: &[&str],
+) -> Result<String, SessionSequenceExhausted> {
     let timestamp = now.format("%Y%m%d-%H%M%S").to_string();
     let next_sequence = existing_ids
         .iter()
@@ -109,11 +116,13 @@ pub fn next_session_id(now: DateTime<Utc>, existing_ids: &[&str]) -> String {
         .filter(|id| id.timestamp.format("%Y%m%d-%H%M%S").to_string() == timestamp)
         .map(|id| id.sequence)
         .max()
-        .map_or(1, |sequence| sequence + 1);
-    match next_sequence {
+        .map_or(Ok(1), |sequence| {
+            sequence.checked_add(1).ok_or(SessionSequenceExhausted)
+        })?;
+    Ok(match next_sequence {
         1 => timestamp,
         sequence => format!("{timestamp}-{sequence}"),
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -312,5 +321,19 @@ mod tests {
         let now = Utc.with_ymd_and_hms(2026, 9, 21, 15, 52, 50).unwrap();
 
         assert_eq!(is_session_expired("20260914-155250-2", 7, now), Some(true));
+    }
+
+    #[test]
+    fn the_last_sequence_has_no_next_id() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
+
+        assert_eq!(
+            next_session_id(now, &["20260914-155250-18446744073709551614"]),
+            Ok("20260914-155250-18446744073709551615".to_string())
+        );
+        assert_eq!(
+            next_session_id(now, &["20260914-155250-18446744073709551615"]),
+            Err(SessionSequenceExhausted)
+        );
     }
 }
