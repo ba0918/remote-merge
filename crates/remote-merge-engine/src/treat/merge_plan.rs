@@ -81,7 +81,11 @@ pub fn merge_plan(
                     ReferenceCheck::Fail(failure) => MergeEntry::Fail(failure.text().to_string()),
                 }
             }
-            other => other,
+            entry @ (MergeEntry::WriteFile
+            | MergeEntry::WriteLink
+            | MergeEntry::Delete
+            | MergeEntry::Skip(_)
+            | MergeEntry::Fail(_)) => entry,
         };
         entries.push((path.clone(), entry));
     }
@@ -121,7 +125,10 @@ fn with_destination_read_failure(entry: MergeEntry, comparison: &PathComparison)
     match entry {
         MergeEntry::WriteFile | MergeEntry::WriteLink | MergeEntry::Delete => {}
         MergeEntry::Fail(_) if !sides.is_empty() => {}
-        other => return other,
+        entry @ (MergeEntry::Skip(_)
+        | MergeEntry::Fail(_)
+        | MergeEntry::Absent
+        | MergeEntry::Nothing) => return entry,
     }
     if !sides.iter().any(|side| side.role == Role::Right) {
         sides.push(right);

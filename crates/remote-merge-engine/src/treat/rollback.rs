@@ -75,11 +75,11 @@ pub fn rollback_plan(paths: Vec<(String, Recorded, TargetFacts)>) -> Vec<(String
         .collect();
     let unresolvable = judged.iter().find_map(|(_, judged)| match judged {
         Judged::Unresolvable(cause) => Some(cause.clone()),
-        _ => None,
+        Judged::Entry(_) | Judged::Blocks(_) => None,
     });
     let blocking = judged.iter().find_map(|(_, judged)| match judged {
         Judged::Blocks(reason) => Some(*reason),
-        _ => None,
+        Judged::Entry(_) | Judged::Unresolvable(_) => None,
     });
     judged
         .into_iter()
@@ -142,7 +142,10 @@ fn judge_file(recorded_path: &str, state: &SideState, entry: &ResolvedPath) -> J
             } if Path::new(real_path) == Path::new(recorded_path) => {
                 Judged::Entry(RestoreEntry::Restore)
             }
-            _ => Judged::Blocks(CHANGED_LOCATION),
+            ResolvedPath::Missing { .. }
+            | ResolvedPath::Exists { .. }
+            | ResolvedPath::Symlink { .. }
+            | ResolvedPath::AncestorNotDirectory { .. } => Judged::Blocks(CHANGED_LOCATION),
         },
         SideState::Absent => match entry {
             ResolvedPath::Missing {
@@ -157,7 +160,9 @@ fn judge_file(recorded_path: &str, state: &SideState, entry: &ResolvedPath) -> J
             {
                 Judged::Entry(RestoreEntry::Restore)
             }
-            _ => Judged::Blocks(CHANGED_LOCATION),
+            ResolvedPath::Exists { .. }
+            | ResolvedPath::Symlink { .. }
+            | ResolvedPath::Missing { .. } => Judged::Blocks(CHANGED_LOCATION),
         },
     }
 }
@@ -177,10 +182,18 @@ fn judge_link(
                 {
                     Judged::Entry(RestoreEntry::Restore)
                 }
-                _ => Judged::Blocks(CHANGED_LOCATION),
+                ResolvedPath::Missing { .. }
+                | ResolvedPath::Exists { .. }
+                | ResolvedPath::Symlink { .. }
+                | ResolvedPath::AncestorNotDirectory { .. } => Judged::Blocks(CHANGED_LOCATION),
             }
         }
-        _ => Judged::Blocks(LINK_CHANGED),
+        SideState::Absent
+        | SideState::UnreadableName
+        | SideState::Other
+        | SideState::File { .. }
+        | SideState::Directory
+        | SideState::Symlink { .. } => Judged::Blocks(LINK_CHANGED),
     }
 }
 

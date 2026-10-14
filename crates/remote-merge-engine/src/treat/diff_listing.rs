@@ -165,7 +165,11 @@ fn reference_error(comparison: &PathComparison) -> Option<String> {
         .filter_map(|role| comparison.pair(*role, Role::Ref))
         .find_map(|pair| match &pair.verdict {
             Verdict::Undecidable(why) => Some(why.to_string()),
-            _ => None,
+            Verdict::BothAbsent
+            | Verdict::OneSided(_)
+            | Verdict::KindDiffers
+            | Verdict::Same
+            | Verdict::Differs => None,
         })
 }
 

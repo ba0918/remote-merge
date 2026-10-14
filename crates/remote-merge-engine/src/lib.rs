@@ -1,3 +1,4 @@
+#![warn(clippy::wildcard_enum_match_arm)]
 #![warn(clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
