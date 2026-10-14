@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
 //! Agent E2E テスト。
 //!
 //! Client → Server → Dispatch → file_io・走査の全プロトコルフローを

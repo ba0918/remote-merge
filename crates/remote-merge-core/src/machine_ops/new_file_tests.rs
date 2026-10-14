@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
 //! 新しいファイルを作る書き込みが、確かめた後に同じパスに現れたものを書き換えないこと
 //! （docs/ir/merge/concurrency.md の REQ-merge-043）
 use std::fs;

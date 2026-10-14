@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
 //! クライアントのテストの道具
 
 pub(super) use super::super::*;

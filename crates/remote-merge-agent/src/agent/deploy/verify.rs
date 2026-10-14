@@ -59,7 +59,7 @@ pub fn sha256_of_bytes(data: &[u8]) -> String {
     let digest = Sha256::digest(data);
     let mut s = String::with_capacity(64);
     for b in digest.iter() {
-        write!(s, "{:02x}", b).unwrap();
+        write!(s, "{:02x}", b).expect("String への write! は失敗しない");
     }
     s
 }

@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 pub mod client;
 pub mod hint;
 pub mod host_key_verifier;

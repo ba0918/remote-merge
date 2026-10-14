@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;

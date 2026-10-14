@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
 //! 単体テスト用の、一つの問い合わせにだけ決まった応答を返すエージェント。
 
 use std::io::Write;

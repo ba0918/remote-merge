@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
 //! 読めない応答・要求と合わない応答は接続断になり、エージェントが答えた失敗は種類で返る
 
 use super::support::*;

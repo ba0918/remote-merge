@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 pub mod agent;
 pub mod backup;

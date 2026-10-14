@@ -1,4 +1,8 @@
 #![expect(
+    clippy::unwrap_used,
+    reason = "テストの前提（フィクスチャと下ごしらえ）は unwrap で書く"
+)]
+#![expect(
     unsafe_code,
     reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
 )]

@@ -112,7 +112,9 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
         let line = &lines[i];
         if line.tag == DiffTag::Delete {
             let start_idx = i;
-            let ref_start = line.old_index.unwrap();
+            let ref_start = line
+                .old_index
+                .expect("Delete の行は old_index を持つ（削除行には番号が付く）");
             let mut replacement = Vec::new();
 
             // 連続する Delete を消費
@@ -263,7 +265,9 @@ fn merge_overlapping_regions(regions: &mut Vec<ConflictRegion>) {
 
     let mut merged = vec![regions[0].clone()];
     for region in &regions[1..] {
-        let last = merged.last_mut().unwrap();
+        let last = merged
+            .last_mut()
+            .expect("merged は先頭の領域で初期化してあり、空にならない");
         if region.ref_range.start < last.ref_range.end {
             // マージ
             last.ref_range.end = last.ref_range.end.max(region.ref_range.end);
