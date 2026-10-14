@@ -16,7 +16,7 @@ use super::compare_flow::{
     CompareRequest, CompareScope, EntryLimit, ExternalLinks, LostDestination, UnfollowableLinks,
 };
 use super::core::CoreRuntime;
-use super::root_checked::RootAbsent;
+use super::root_checked::{RootAbsent, is_root_missing};
 use crate::side::Side;
 
 impl CoreRuntime {
@@ -33,10 +33,25 @@ impl CoreRuntime {
             asked.push(path.parent_and_name().0);
         }
         // root_dir もパスの深さによらず同じ問いで尋ね、なければ走査の root_dir の誤りと同じにする
-        let mut answers = self
-            .inspect_under_root(target, &asked, RootAbsent::MissingAtStart)?
-            .answers
-            .into_iter();
+        let under = match self.inspect_under_root(target, &asked, RootAbsent::MissingAtStart) {
+            Ok(under) => under,
+            // つなぎ直しても `接続断` なら、呼び出し側がどのパスも読み込みの失敗にする（REQ-ssh-003）
+            Err(error) if super::connection::classify(&error).is_disconnection() => {
+                return Err(error);
+            }
+            // root_dir がないときは、走査の root_dir の誤りとして止める（REQ-merge-044）
+            Err(error) if is_root_missing(&error) => return Err(error),
+            // 戻す先を辿れないときは、root_dir がないとせず、どのパスも "cannot resolve path: " の
+            // 失敗にする（REQ-backup-003）
+            Err(error) => {
+                let cause = unresolved_cause(&error);
+                return Ok(paths
+                    .iter()
+                    .map(|_| TargetFacts::Unresolvable(cause.clone()))
+                    .collect());
+            }
+        };
+        let mut answers = under.answers.into_iter();
         let mut resolved = Vec::new();
         for path in paths {
             let (Some(entry), Some(parent)) = (answers.next(), answers.next()) else {
@@ -138,3 +153,7 @@ pub(super) fn recorded(record: &BackupRecord) -> anyhow::Result<Recorded> {
         BackupRecord::Symlink { .. } => Recorded::ReplacedLink,
     })
 }
+
+#[cfg(test)]
+#[path = "rollback_facts_tests.rs"]
+mod tests;

@@ -1,13 +1,15 @@
 //! root_dir がないことを、まとめた問いで見分ける規則（docs/ir/merge/concurrency.md の REQ-merge-044、
 //! docs/ir/scan/listing.md の REQ-scan-015）。パスをまとめて確かめる問いには、パスの深さによらず
 //! root_dir そのものを先頭に足し、その答えで決める。root_dir を問いに入れると [`RootWatch`] は
-//! 確かめ直さずに答えを渡す（どちらの誤りにするかは尋ねる段が決める）。変更の前のまとめた問いで
-//! root_dir がなくなったと分かったときの、パスごとの error もここで決める
+//! 確かめ直さずに答えを渡す（どちらの誤りにするかは尋ねる段が決める）。ない・ディレクトリでない・
+//! 祖先がディレクトリでない（"not a directory" の誤り）は root_dir がなくなったものとし、辿れない
+//! （権限がない・接続断など）はそのまま返す。変更の前のまとめた問いで root_dir がなくなったと
+//! 分かったときの、パスごとの error もここで決める
 //!
 //! [`RootWatch`]: super::root_watch::RootWatch
 
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation, Prefixed};
-use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
+use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 
@@ -56,7 +58,9 @@ impl CoreRuntime {
                     ..
                 },
             )) => real_path,
-            Some(Err(error)) => return Err(error),
+            // root_dir の祖先がディレクトリでない（"not a directory" の誤り）も、root_dir が
+            // なくなったものとする（REQ-merge-044）。辿れない（権限がない・接続断など）はそのまま返す
+            Some(Err(error)) if !is_not_a_directory(&error) => return Err(error),
             // root_dir がないかディレクトリでない
             _ => {
                 return Err(match absent {
@@ -118,6 +122,24 @@ impl CoreRuntime {
                 .collect(),
         )
     }
+}
+
+/// `error` が、root_dir の祖先がディレクトリでないこと（"not a directory" の誤り）を表すか。
+/// 辿れない（権限がない・接続断など）は偽
+pub(super) fn is_not_a_directory(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory))
+}
+
+/// `error` が、その側への最初の問いで root_dir がないと分かったときの走査の root_dir の誤り
+/// （[`RootAbsent::MissingAtStart`]）か
+pub(super) fn is_root_missing(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<ScanStopped>()
+            .is_some_and(|stopped| stopped.failure == ScanFailure::RootMissing)
+    })
 }
 
 /// 走査の root_dir がない誤りと同じ誤り（経路ごとの文言。REQ-scan-015）

@@ -3,7 +3,7 @@
 //! の D47・D48）。三つの経路の比較先を `for_side` がこれで包むので、確かめ直しはここ一か所にある。
 
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation, PathResult, op_error_of};
-use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
+use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 
 use super::core::CoreRuntime;
@@ -39,9 +39,7 @@ impl RootWatch {
                 *target_kind != Some(ExistingKind::Directory)
             }
             // root_dir の祖先がディレクトリでない（REQ-paths-002 の "not a directory" の誤り）
-            Err(error) => error.chain().any(|cause| {
-                cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory)
-            }),
+            Err(error) => super::root_checked::is_not_a_directory(error),
         }
     }
 

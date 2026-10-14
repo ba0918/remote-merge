@@ -52,6 +52,51 @@ fn a_missing_root_dir_at_the_start_is_the_scan_root_error() {
     assert!(!runtime.has_stopped());
 }
 
+/// `root` の祖先を通常ファイルに置き換える（root_dir の確認が "not a directory" の誤りになる）
+fn ancestor_replaced_by_a_file() -> (tempfile::TempDir, std::path::PathBuf) {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("app").join("web");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::remove_dir_all(temp.path().join("app")).unwrap();
+    std::fs::write(temp.path().join("app"), "not a directory any more").unwrap();
+    (temp, root)
+}
+
+// root_dir の祖先が通常ファイルに置き換わったときも、走査の後なら root_dir がないにしてその側を止める
+// @kotowari[REQ-merge-044]
+#[test]
+fn an_ancestor_replaced_by_a_file_after_the_scan_stops_the_side() {
+    let (_temp, root) = ancestor_replaced_by_a_file();
+    let mut runtime = runtime_on(&root);
+
+    let error = runtime
+        .inspect_under_root(&Side::Local, &deep(), RootAbsent::GoneAfterScan)
+        .err()
+        .expect("root_dir is gone");
+
+    assert_eq!(failure_of(&error), Some(&OpFailure::RootGone), "{error:#}");
+    assert!(runtime.stopped_for_root_gone(&Side::Local));
+}
+
+// その側への最初の問い（rollback の事実を集める問い）なら、走査の root_dir の誤りと同じにする
+// @kotowari[REQ-merge-044, REQ-scan-015]
+#[test]
+fn an_ancestor_replaced_by_a_file_at_the_start_is_the_scan_root_error() {
+    let (_temp, root) = ancestor_replaced_by_a_file();
+    let mut runtime = runtime_on(&root);
+
+    let error = runtime
+        .inspect_under_root(&Side::Local, &deep(), RootAbsent::MissingAtStart)
+        .err()
+        .expect("root_dir is gone");
+
+    let stopped = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ScanStopped>());
+    assert_eq!(stopped.map(|s| &s.failure), Some(&ScanFailure::RootMissing));
+    assert!(!runtime.has_stopped());
+}
+
 // root_dir がない error はまとめの最初のファイルにだけ付け、ほかは手を付けていない error にする
 // @kotowari[REQ-merge-044]
 #[test]
