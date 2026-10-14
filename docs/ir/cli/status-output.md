@@ -1,0 +1,75 @@
+# status の出力と終了コード
+
+status の結果の集計、テキストと JSON の形、集計だけの表示、終了コード。
+
+## Requirements
+
+### REQ-cli-029: 全ファイルを種類ごとに数える
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-27-adopt-status.md#A4
+- verification: unit
+
+status の集計は --all と --summary の指定によらず、"equal" を含む全ファイルを "modified"・"left_only"・"right_only"・"equal" ごとに数える。
+
+### REQ-cli-030: 差分の有無を終了コードで返す
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-27-adopt-status.md#A5
+- verification: unit
+- definition: TBL-cli-002
+
+status は TBL-cli-002 に従って終了コードを返す。
+
+### REQ-cli-031: 出力形式を選び、テキストでは記号で示す
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-27-adopt-status.md#A6, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5
+- verification: unit
+- definition: TBL-cli-003
+
+status は --format に "text" と "json" を受け付けて "diff" を "text" と同じに扱い、ほかの値はエラーにする。
+テキストでは "Comparing: 左 ↔ 右" の見出しに続けて 1 行 1 ファイルを TBL-cli-003 の記号とパスで示し、最後に "Summary: N modified, N left only, N right only, N equal" の行を出す。
+
+### REQ-cli-032: JSON で比較対象・ファイル・集計を返す
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-status.md#A7, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16
+- verification: unit
+
+--format に "json" を指定した status は "left" と "right"（"label" と "root"）、"files"（"path"・"status"）、"summary" を出し、"status" の値を "modified"・"left_only"・"right_only"・"equal" とする。
+中身を読み比べるファイルを読めなかったときは、REQ-cli-088 のとおりトップレベルの "errors"（"path"・"reason"）も出し、"summary" にその件数を出す。
+"summary" の件数のキー名は IR で決めず、実装者が決める。テストは "errors" の項目と終了コードを確かめ、件数のキー名を固定しない。
+
+### REQ-cli-033: 集計だけを表示できる
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-status.md#A8
+- verification: unit
+
+--summary を指定した status は、テキストではファイルの行を出さずに見出しと集計だけを出し、JSON では "files" を出さない。
+
+### REQ-cli-070: -v で右の Agent の接続状態を示す
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A1, docs/decision/records/2026-10-12-foundation.md#A12, docs/decision/records/2026-10-12-foundation-5.md#F25
+- verification: unit
+
+-v を指定し右がリモートの status は、JSON では "agent" に右の Agent の接続状態を "connected" の文字列で出し、テキストでは集計の行（--ref があれば "Ref:" の行）の後に "Agent: connected" の行を出す（エージェントを使えないサーバは ssh/fallback.md の REQ-ssh-005 のとおり比べる前に止まる）。
+-v がないときと右がローカルのときは、JSON の "agent" もテキストの行も出さない。
+
+## Decision tables
+
+### TBL-cli-002: status の終了コード
+- source: docs/decision/records/2026-09-27-adopt-status.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A5
+
+| 結果 | 終了コード |
+|---|---|
+| 中身を読み比べるファイルを読めなかったものがある | 2 |
+| 読めなかったファイルがなく "modified"・"left_only"・"right_only" が一件もない | 0 |
+| 読めなかったファイルがなく "modified"・"left_only"・"right_only" が一件以上ある | 1 |
+| エラーで止まった | 2 |
+
+### TBL-cli-003: テキストの記号
+- source: docs/decision/records/2026-09-27-adopt-status.md#A6
+
+| 判定 | 記号 |
+|---|---|
+| "modified" | "M" |
+| "left_only" | "L" |
+| "right_only" | "R" |
+| "equal" | "=" |

@@ -1,0 +1,621 @@
+#![cfg(unix)]
+
+use std::fs;
+use std::os::unix::fs::symlink;
+
+use chrono::{TimeZone, Utc};
+use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
+use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::config::load_config_from_paths;
+use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
+use remote_merge::side::Side;
+use tempfile::TempDir;
+
+// @kotowari[EX-backup-005, EX-backup-016]
+#[test]
+fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let old_dir = TempDir::new().unwrap();
+    let new_dir = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(destination.path().join("first.txt"), "first before\n").unwrap();
+    fs::write(old_dir.path().join("second.txt"), "second before\n").unwrap();
+    fs::write(new_dir.path().join("second.txt"), "third party\n").unwrap();
+    symlink(old_dir.path(), destination.path().join("shared")).unwrap();
+    let config_path = local.path().join("config.toml");
+    fs::write(&config_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+        local.path().display().to_string(), destination.path().display().to_string()
+    )).unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", destination.path())
+        .with_backup_store(Some(backup.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap());
+    let side = Side::Remote("develop".into());
+    let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    let session = core.reserve_backup_session(&[]).unwrap();
+    for path in ["first.txt", "shared/second.txt"] {
+        core.save_backup(&side, path, &session, false).unwrap();
+        fs::write(destination.path().join(path), "merged\n").unwrap();
+    }
+    core.finish_backup_session(&session);
+    drop(core);
+    fs::remove_file(destination.path().join("shared")).unwrap();
+    symlink(new_dir.path(), destination.path().join("shared")).unwrap();
+
+    let preview = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session.clone()),
+            dry_run: true,
+            force: true,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::DryRun {
+        output: preview, ..
+    } = preview.output
+    else {
+        panic!("expected dry-run result");
+    };
+    assert!(preview.restored.is_empty(), "{preview:?}");
+    assert_eq!(preview.skipped.len(), 2, "{preview:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("first.txt")).unwrap(),
+        "merged\n"
+    );
+
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore result");
+    };
+    assert!(output.restored.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("first.txt")).unwrap(),
+        "merged\n"
+    );
+    assert_eq!(
+        fs::read_to_string(old_dir.path().join("second.txt")).unwrap(),
+        "merged\n"
+    );
+    assert_eq!(
+        fs::read_to_string(new_dir.path().join("second.txt")).unwrap(),
+        "third party\n"
+    );
+    assert_eq!(output.skipped.len(), 2, "{output:?}");
+    assert!(
+        output
+            .skipped
+            .iter()
+            .all(|entry| entry.reason.contains("different location")),
+        "{output:?}"
+    );
+}
+
+// @kotowari[EX-backup-006]
+#[test]
+fn unchanged_parent_link_allows_every_file_in_the_session_to_be_restored() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let shared = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(destination.path().join("first.txt"), "first before\n").unwrap();
+    fs::write(shared.path().join("second.txt"), "second before\n").unwrap();
+    symlink(shared.path(), destination.path().join("shared")).unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    let session = core.reserve_backup_session(&[]).unwrap();
+    let side = Side::Remote("develop".into());
+    for path in ["first.txt", "shared/second.txt"] {
+        core.save_backup(&side, path, &session, false).unwrap();
+        fs::write(destination.path().join(path), "merged\n").unwrap();
+    }
+    core.finish_backup_session(&session);
+    drop(core);
+
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore")
+    };
+    let paths: std::collections::HashSet<_> = output
+        .restored
+        .iter()
+        .map(|item| item.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        ["first.txt", "shared/second.txt"].into_iter().collect(),
+        "{output:?}"
+    );
+    assert!(output.skipped.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("first.txt")).unwrap(),
+        "first before\n"
+    );
+    assert_eq!(
+        fs::read_to_string(shared.path().join("second.txt")).unwrap(),
+        "second before\n"
+    );
+}
+
+// @kotowari[EX-backup-020]
+#[test]
+fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("old.txt"), "old\n").unwrap();
+    fs::write(destination.path().join("new.txt"), "new\n").unwrap();
+    symlink("new.txt", local.path().join("link.txt")).unwrap();
+    symlink("old.txt", destination.path().join("link.txt")).unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_merge(
+        symlink_merge_args(vec!["link.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(merged) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(merged.merged.len(), 1, "{merged:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("new.txt")
+    );
+
+    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let RollbackCommandOutput::Restore(restored) = rollback.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(restored.restored.len(), 1, "{restored:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("old.txt")
+    );
+}
+
+// @kotowari[EX-backup-021, EX-backup-022]
+#[test]
+fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_same_file() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("old.txt"), "old\n").unwrap();
+    fs::write(destination.path().join("new.txt"), "new\n").unwrap();
+    symlink("new.txt", local.path().join("link.txt")).unwrap();
+    symlink("old.txt", destination.path().join("link.txt")).unwrap();
+    fs::write(local.path().join("file.txt"), "brand new content\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old content\n").unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_merge(
+        symlink_merge_args(vec!["file.txt", "link.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(merged) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(merged.merged.len(), 2, "{merged:?}");
+    fs::remove_file(destination.path().join("link.txt")).unwrap();
+    symlink("./new.txt", destination.path().join("link.txt")).unwrap();
+
+    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let RollbackCommandOutput::Restore(restored) = rollback.output else {
+        panic!("expected restore result")
+    };
+    assert!(restored.restored.is_empty(), "{restored:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("./new.txt")
+    );
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "brand new content\n"
+    );
+}
+
+fn expired_backup_fixture() -> (
+    TempDir,
+    TempDir,
+    TempDir,
+    remote_merge::config::AppConfig,
+    RuntimeTargets,
+    String,
+) {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(destination.path().join("file.txt"), "before\n").unwrap();
+    let (mut config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    config.backup.retention_days = 1;
+    let old = targets
+        .clone()
+        .with_now(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap());
+    let mut core = CoreRuntime::with_targets(config.clone(), old);
+    let session = core.reserve_backup_session(&[]).unwrap();
+    core.save_backup(&Side::Remote("develop".into()), "file.txt", &session, false)
+        .unwrap();
+    fs::write(destination.path().join("file.txt"), "after\n").unwrap();
+    core.finish_backup_session(&session);
+    drop(core);
+    let current = targets.with_now(Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap());
+    (local, destination, backup, config, current, session)
+}
+
+// @kotowari[EX-backup-013]
+#[test]
+fn expired_backup_is_not_restored_without_force() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert!(list
+        .sessions
+        .iter()
+        .any(|entry| entry.session_id == session && entry.expired));
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    );
+    assert!(result
+        .err()
+        .expect("expired session must be rejected")
+        .to_string()
+        .contains("expired"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "after\n"
+    );
+}
+
+// @kotowari[EX-backup-014]
+#[test]
+fn expired_backup_with_saved_data_is_restored_when_forced() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert!(output.failed.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "before\n"
+    );
+}
+
+// @kotowari[EX-backup-019]
+#[test]
+fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    core.cleanup_expired_backups().unwrap();
+    drop(core);
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert!(list.sessions.is_empty(), "{list:?}");
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    );
+    assert!(result
+        .err()
+        .expect("cleaned session must not be restorable")
+        .to_string()
+        .contains("No backup sessions found"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "after\n"
+    );
+}
+
+// @kotowari[EX-backup-011]
+#[test]
+fn one_sync_of_two_files_appears_as_one_rollback_session() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    for path in ["first.txt", "second.txt"] {
+        fs::write(local.path().join(path), "new\n").unwrap();
+        fs::write(destination.path().join(path), "old\n").unwrap();
+    }
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["first.txt".into(), "second.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 2, "{output:?}");
+
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert_eq!(list.sessions.len(), 1, "{list:?}");
+    let files: std::collections::HashSet<_> = list.sessions[0]
+        .files
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(files, ["first.txt", "second.txt"].into_iter().collect());
+    for path in ["first.txt", "second.txt"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(path)).unwrap(),
+            "new\n"
+        );
+    }
+}
+
+// @kotowari[EX-backup-015]
+#[test]
+fn previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    let session = core.reserve_backup_session(&[]).unwrap();
+    let side = Side::Remote("develop".into());
+    for path in ["first.txt", "second.txt"] {
+        fs::write(destination.path().join(path), "before\n").unwrap();
+        core.save_backup(&side, path, &session, false).unwrap();
+        fs::write(destination.path().join(path), "after\n").unwrap();
+    }
+    core.finish_backup_session(&session);
+    drop(core);
+
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: true,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::DryRun { output, .. } = result.output else {
+        panic!("expected preview")
+    };
+    let paths: std::collections::HashSet<_> = output
+        .restored
+        .iter()
+        .map(|item| item.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        ["first.txt", "second.txt"].into_iter().collect(),
+        "{output:?}"
+    );
+    for path in ["first.txt", "second.txt"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(path)).unwrap(),
+            "after\n"
+        );
+    }
+}
+
+// @kotowari[EX-backup-012]
+#[test]
+fn separate_merges_appear_as_distinct_rollback_sessions() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "first\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let first = execute_merge(
+        symlink_merge_args(vec!["file.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(first) = first.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(first.merged.len(), 1, "{first:?}");
+    fs::write(local.path().join("file.txt"), "second\n").unwrap();
+    let second = execute_merge(
+        symlink_merge_args(vec!["file.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(second) = second.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(second.merged.len(), 1, "{second:?}");
+
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert_eq!(list.sessions.len(), 2, "{list:?}");
+    assert_ne!(list.sessions[0].session_id, list.sessions[1].session_id);
+    assert!(list
+        .sessions
+        .iter()
+        .all(|session| session.files.len() == 1 && session.files[0].path == "file.txt"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "second\n"
+    );
+}
+
+fn symlink_merge_setup(
+    local: &TempDir,
+    destination: &TempDir,
+    backup: &TempDir,
+) -> (remote_merge::config::AppConfig, RuntimeTargets) {
+    let config_path = local.path().join("config.toml");
+    fs::write(&config_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+        local.path().display().to_string(), destination.path().display().to_string()
+    )).unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", destination.path())
+        .with_backup_store(Some(backup.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap());
+    (config, targets)
+}
+
+fn symlink_merge_args(paths: Vec<&str>) -> MergeArgs {
+    MergeArgs {
+        paths: paths.into_iter().map(str::to_owned).collect(),
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        dry_run: false,
+        force: true,
+        delete: false,
+        with_permissions: false,
+        checksum: false,
+        format: "json".into(),
+        max_entries: None,
+        hunks: None,
+    }
+}
+
+fn rollback_args(session: Option<String>) -> RollbackArgs {
+    RollbackArgs {
+        target: Some("develop".into()),
+        list: false,
+        session,
+        dry_run: false,
+        force: true,
+        format: "json".into(),
+    }
+}

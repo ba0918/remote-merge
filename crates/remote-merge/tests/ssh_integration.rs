@@ -1,0 +1,753 @@
+#![cfg(unix)]
+//! インプロセス SSH サーバーを使った結合テスト
+//!
+//! russh::server でテスト用 SSH サーバーを起動し、
+//! SshClient で接続・コマンド実行・ツリー取得を検証する。
+
+#[path = "common/login_shell.rs"]
+mod login_shell;
+
+use std::collections::HashMap;
+use std::io::Write;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use russh::keys::ssh_key::rand_core::OsRng;
+use russh::keys::{Algorithm, PrivateKey, PublicKey};
+use russh::server::{Auth, Msg, Server as _, Session};
+use russh::{server, Channel, ChannelId, CryptoVec};
+use tempfile::NamedTempFile;
+use tokio::net::TcpListener;
+
+// ── テスト用 SSH サーバー ──
+
+/// 登録したコマンドへの応答: stdout と終了コード。終了コードが None なら終了ステータスを送らない
+type CommandResponse = (String, Option<u32>);
+
+/// テスト用のコマンドレスポンスを保持するレジストリ
+#[derive(Clone, Default)]
+struct CommandRegistry {
+    /// コマンドパターン → 応答のマッピング
+    responses: Arc<Mutex<HashMap<String, CommandResponse>>>,
+}
+
+impl CommandRegistry {
+    fn register(&self, pattern: &str, stdout: &str, exit_code: u32) {
+        self.responses
+            .lock()
+            .unwrap()
+            .insert(pattern.to_string(), (stdout.to_string(), Some(exit_code)));
+    }
+
+    /// 出力を送った後、終了ステータスを送らずにチャネルを閉じる応答を登録する
+    fn register_without_exit_status(&self, pattern: &str, stdout: &str) {
+        self.responses
+            .lock()
+            .unwrap()
+            .insert(pattern.to_string(), (stdout.to_string(), None));
+    }
+
+    fn lookup(&self, command: &str) -> CommandResponse {
+        let responses = self.responses.lock().unwrap();
+        // 完全一致を探す
+        if let Some(resp) = responses.get(command) {
+            return resp.clone();
+        }
+        // 部分一致を探す（find コマンドなどのパターンマッチ用）
+        for (pattern, resp) in responses.iter() {
+            if command.contains(pattern) {
+                return resp.clone();
+            }
+        }
+        // デフォルト: 空のレスポンス
+        (String::new(), Some(0))
+    }
+}
+
+/// テストサーバーの起動結果をまとめる構造体
+struct TestServerHandle {
+    port: u16,
+    registry: CommandRegistry,
+    received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
+    #[allow(dead_code)]
+    exec_commands: Arc<Mutex<HashMap<ChannelId, String>>>,
+}
+
+#[derive(Clone)]
+struct TestServer {
+    id: usize,
+    registry: CommandRegistry,
+    /// 認証に使うパスワード (None = 全て許可)
+    password: Option<String>,
+    received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
+    exec_commands: Arc<Mutex<HashMap<ChannelId, String>>>,
+}
+
+impl server::Server for TestServer {
+    type Handler = TestHandler;
+
+    fn new_client(&mut self, _: Option<SocketAddr>) -> TestHandler {
+        let handler = TestHandler {
+            id: self.id,
+            registry: self.registry.clone(),
+            password: self.password.clone(),
+            received_data: self.received_data.clone(),
+            exec_commands: self.exec_commands.clone(),
+        };
+        self.id += 1;
+        handler
+    }
+}
+
+struct TestHandler {
+    #[allow(dead_code)]
+    id: usize,
+    registry: CommandRegistry,
+    password: Option<String>,
+    /// stdin で受信したデータを記録する（write_file テスト用）
+    received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
+    /// exec で実行されたコマンドを記録する（write_file テスト用）
+    exec_commands: Arc<Mutex<HashMap<ChannelId, String>>>,
+}
+
+impl server::Handler for TestHandler {
+    type Error = anyhow::Error;
+
+    async fn channel_open_session(
+        &mut self,
+        _channel: Channel<Msg>,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+
+    async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
+        Ok(Auth::Accept)
+    }
+
+    async fn auth_password(&mut self, _user: &str, password: &str) -> Result<Auth, Self::Error> {
+        match &self.password {
+            Some(expected) if password == expected => Ok(Auth::Accept),
+            Some(_) => Ok(Auth::reject()),
+            None => Ok(Auth::Accept),
+        }
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.received_data
+            .lock()
+            .unwrap()
+            .entry(channel)
+            .or_default()
+            .extend_from_slice(data);
+        Ok(())
+    }
+
+    async fn channel_eof(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // write 系コマンド（cat >... や openssl base64 -d ...）の場合、
+        // EOF 受信で書き込み完了として exit_status 0 + close を返す
+        let is_write_cmd = self
+            .exec_commands
+            .lock()
+            .unwrap()
+            .get(&channel)
+            .map(|cmd| is_write_command(cmd))
+            .unwrap_or(false);
+
+        if is_write_cmd {
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+        }
+        Ok(())
+    }
+
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let command = login_shell::script_of(data);
+
+        // write 系コマンドは exec_commands に記録し、stdin データ待ちにする
+        let is_write_cmd = is_write_command(&command);
+        if is_write_cmd {
+            self.exec_commands.lock().unwrap().insert(channel, command);
+            // stdin データを待つため、ここでは close しない
+            return Ok(());
+        }
+
+        // 通常のコマンド（既存ロジック）
+        let (stdout, exit_code) = self.registry.lookup(&command);
+
+        // stdout を送信
+        if !stdout.is_empty() {
+            session.data(channel, CryptoVec::from(stdout.as_bytes()))?;
+        }
+
+        // 終了ステータスを送信
+        if let Some(exit_code) = exit_code {
+            session.exit_status_request(channel, exit_code)?;
+        }
+
+        // EOF + close
+        session.eof(channel)?;
+        session.close(channel)?;
+
+        Ok(())
+    }
+}
+
+/// 標準入力の中身を書き込むコマンド（エージェントの配置のアップロード）か
+fn is_write_command(command: &str) -> bool {
+    command.contains("openssl base64 -d -A -out")
+}
+
+/// 標準入力を `path` に書くコマンド（エージェントの配置のアップロードと同じ形）
+fn upload_command(path: &str) -> String {
+    format!("openssl base64 -d -A -out {path}")
+}
+
+/// テスト用 SSH サーバーを起動し、TestServerHandle を返す
+async fn start_test_server() -> TestServerHandle {
+    start_test_server_with_password(None).await
+}
+
+async fn start_test_server_with_password(password: Option<String>) -> TestServerHandle {
+    let registry = CommandRegistry::default();
+    let received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let exec_commands: Arc<Mutex<HashMap<ChannelId, String>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    let mut config = server::Config {
+        auth_rejection_time: Duration::from_millis(100),
+        auth_rejection_time_initial: Some(Duration::from_millis(0)),
+        inactivity_timeout: Some(Duration::from_secs(10)),
+        ..Default::default()
+    };
+    config
+        .keys
+        .push(russh::keys::PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
+    let config = Arc::new(config);
+
+    let mut server = TestServer {
+        id: 0,
+        registry: registry.clone(),
+        password,
+        received_data: received_data.clone(),
+        exec_commands: exec_commands.clone(),
+    };
+
+    // bind と run_on_socket を同一 async ブロック内で実行し、
+    // ポートだけ oneshot channel で通知する。
+    // これにより drop → 再バインドの TOCTOU レースを解消。
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        // listener は同一 async ブロック内で借用されるためライフタイム問題なし
+        let _ = server.run_on_socket(config, &listener).await;
+    });
+    let port = port_rx.await.unwrap();
+
+    TestServerHandle {
+        port,
+        registry,
+        received_data,
+        exec_commands,
+    }
+}
+
+// ── remote-merge のモジュールを使うための re-export ──
+
+use remote_merge::config::{AuthMethod, ServerConfig, SshConfig};
+use remote_merge::ssh::client::SshClient;
+
+/// テスト用の一時SSH鍵ファイルを生成する
+fn generate_test_key() -> NamedTempFile {
+    let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+    let openssh_str = key
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(openssh_str.as_bytes()).unwrap();
+    f.flush().unwrap();
+    // パーミッション設定 (600)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(f.path(), std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    f
+}
+
+fn make_server_config(port: u16, auth: AuthMethod, key_path: Option<PathBuf>) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port,
+        user: "testuser".to_string(),
+        auth,
+        password: None,
+        key: key_path,
+        root_dir: PathBuf::from("/var/www/app"),
+        ssh_options: None,
+        sudo: false,
+        file_permissions: None,
+        dir_permissions: None,
+    }
+}
+
+fn make_ssh_config() -> SshConfig {
+    SshConfig {
+        timeout_sec: 5,
+        ..SshConfig::default()
+    }
+}
+
+/// known_hosts を `dir` の下に置いた設定。テストは利用者の ~/.ssh/known_hosts に触れない
+/// （docs/decision/records/2026-10-12-foundation-1.md の B9）
+fn isolated_ssh_config(dir: &tempfile::TempDir) -> SshConfig {
+    SshConfig {
+        known_hosts: Some(dir.path().join("known_hosts")),
+        ..make_ssh_config()
+    }
+}
+
+// ── テストケース ──
+
+#[tokio::test]
+async fn test_ssh_connect_and_exec() {
+    let handle = start_test_server().await;
+    handle.registry.register("echo hello", "hello\n", 0);
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("SSH接続に失敗");
+
+    let output = client.exec("echo hello").await.expect("exec に失敗");
+    assert_eq!(output, "hello\n");
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_ssh_password_auth() {
+    let handle = start_test_server_with_password(Some("secret123".to_string())).await;
+    handle.registry.register("whoami", "testuser\n", 0);
+
+    // 環境変数でパスワードを設定
+    std::env::set_var("REMOTE_MERGE_PASSWORD_TEST", "secret123");
+
+    let server_config = make_server_config(handle.port, AuthMethod::Password, None);
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("パスワード認証に失敗");
+
+    let output = client.exec("whoami").await.expect("exec に失敗");
+    assert_eq!(output, "testuser\n");
+
+    client.disconnect().await.expect("切断に失敗");
+
+    // クリーンアップ
+    std::env::remove_var("REMOTE_MERGE_PASSWORD_TEST");
+}
+
+#[tokio::test]
+async fn test_ssh_connection_timeout() {
+    // 存在しないアドレスに接続してタイムアウトを確認
+    let server_config = ServerConfig {
+        host: "192.0.2.1".to_string(), // TEST-NET: 到達不能なアドレス
+        port: 22,
+        user: "test".to_string(),
+        auth: AuthMethod::Key,
+        password: None,
+        key: None,
+        root_dir: PathBuf::from("/tmp"),
+        ssh_options: None,
+        sudo: false,
+        file_permissions: None,
+        dir_permissions: None,
+    };
+    let ssh_config = SshConfig {
+        timeout_sec: 1,
+        ..SshConfig::default()
+    };
+
+    let start = std::time::Instant::now();
+    let result = SshClient::connect("test", &server_config, &ssh_config).await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_err());
+    // タイムアウトは1秒 + αで完了するはず
+    assert!(elapsed < Duration::from_secs(3));
+}
+
+#[tokio::test]
+async fn test_ssh_nonzero_exit_code() {
+    let handle = start_test_server().await;
+    handle.registry.register(
+        "ls /nonexistent",
+        "ls: cannot access '/nonexistent': No such file or directory\n",
+        2,
+    );
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("SSH接続に失敗");
+
+    // 非ゼロ終了でもstdoutは取得できる
+    let output = client.exec("ls /nonexistent").await.expect("exec に失敗");
+    assert!(output.contains("No such file or directory"));
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+async fn connect_client(handle: &TestServerHandle) -> (SshClient, NamedTempFile) {
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let client = SshClient::connect_insecure("test", &server_config, &make_ssh_config())
+        .await
+        .expect("SSH接続に失敗");
+    (client, key_file)
+}
+
+// エージェントを置くコマンドの出力が終了ステータスなしで切れたら、途中までの出力で成功にしない
+#[tokio::test]
+async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
+    let handle = start_test_server().await;
+    handle
+        .registry
+        .register_without_exit_status("cut-off-command", "partial");
+    let (mut client, _key) = connect_client(&handle).await;
+
+    let error = client
+        .run_with_input("cut-off-command", b"input")
+        .await
+        .expect_err("a command without an exit status must not succeed");
+
+    assert!(
+        remote_merge::error::is_connection_error(&error),
+        "{error:?}"
+    );
+}
+
+// ── write_file テストケース ──
+
+#[tokio::test]
+async fn test_ssh_write_file_small() {
+    let handle = start_test_server().await;
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("SSH接続に失敗");
+
+    let content = "Hello, world!\nLine 2\n";
+    client
+        .run_with_input(&upload_command("/var/www/app/test.txt"), content.as_bytes())
+        .await
+        .expect("write_file に失敗");
+
+    // サーバーが受信したデータを検証
+    {
+        let received = handle.received_data.lock().unwrap();
+        let all_data: Vec<u8> = received.values().flat_map(|v| v.iter().copied()).collect();
+        assert_eq!(String::from_utf8(all_data).unwrap(), content);
+    }
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_ssh_write_file_large_chunked() {
+    let handle = start_test_server().await;
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("SSH接続に失敗");
+
+    // 100KB のデータ — 32KB チャンクで 4 チャンクに分割されるはず
+    let content: String = "A".repeat(100 * 1024);
+    client
+        .run_with_input(
+            &upload_command("/var/www/app/large.txt"),
+            content.as_bytes(),
+        )
+        .await
+        .expect("write_file (large) に失敗");
+
+    // サーバーが受信したデータの合計サイズを検証
+    {
+        let received = handle.received_data.lock().unwrap();
+        let total_size: usize = received.values().map(|v| v.len()).sum();
+        assert_eq!(total_size, 100 * 1024);
+    }
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_ssh_write_file_bytes_large_chunked() {
+    let handle = start_test_server().await;
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("SSH接続に失敗");
+
+    // 64KB のバイナリデータ（NUL バイト含む）
+    let binary_data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
+    client
+        .run_with_input(
+            &upload_command("/var/www/app/binary.bin"),
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &binary_data)
+                .as_bytes(),
+        )
+        .await
+        .expect("write_file_bytes (large) に失敗");
+
+    // サーバーが受信したデータは base64 エンコードされている
+    // 受信データをデコードして元データと一致するか確認
+    {
+        let received = handle.received_data.lock().unwrap();
+        let all_data: Vec<u8> = received.values().flat_map(|v| v.iter().copied()).collect();
+        let received_str = String::from_utf8(all_data).expect("base64 データは UTF-8 のはず");
+
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(received_str.trim())
+            .expect("base64 デコードに失敗");
+        assert_eq!(decoded, binary_data);
+    }
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+// ── HostKeyVerifier 統合テスト ──
+
+use remote_merge::ssh::host_key_verifier::HostKeyVerifier;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+/// テスト用の MockVerifier: 呼び出しを記録し、設定に応じて accept/reject する
+struct MockVerifier {
+    should_accept: bool,
+    call_count: AtomicUsize,
+    was_called: AtomicBool,
+}
+
+impl MockVerifier {
+    fn new(should_accept: bool) -> Self {
+        Self {
+            should_accept,
+            call_count: AtomicUsize::new(0),
+            was_called: AtomicBool::new(false),
+        }
+    }
+
+    fn was_called(&self) -> bool {
+        self.was_called.load(Ordering::SeqCst)
+    }
+
+    fn call_count(&self) -> usize {
+        self.call_count.load(Ordering::SeqCst)
+    }
+}
+
+impl HostKeyVerifier for MockVerifier {
+    fn verify_host_key(
+        &self,
+        _host: &str,
+        _port: u16,
+        _key_type: &str,
+        _fingerprint: &str,
+    ) -> bool {
+        self.was_called.store(true, Ordering::SeqCst);
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.should_accept
+    }
+}
+
+#[tokio::test]
+async fn test_connect_with_verifier_accept_succeeds() {
+    // 未知ホスト → verifier が true を返す → 接続成功
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = isolated_ssh_config(&known_hosts);
+
+    let verifier = MockVerifier::new(true);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    // 未知ホスト（テストの known_hosts には登録されていない）なので verifier が呼ばれる。
+    assert!(
+        result.is_ok(),
+        "connect_with_verifier should succeed when verifier accepts"
+    );
+
+    let client = result.unwrap();
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_connect_with_verifier_reject_fails() {
+    // verifier が false を返す → 接続拒否
+    let handle = start_test_server().await;
+
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = isolated_ssh_config(&known_hosts);
+
+    let verifier = MockVerifier::new(false);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    // 未知ホスト → verifier が false を返す → 接続拒否
+    assert!(
+        verifier.was_called(),
+        "verifier should be called for unknown host"
+    );
+    assert!(result.is_err(), "connect should fail when verifier rejects");
+    let err_msg = format!("{}", result.err().expect("should be error"));
+    assert!(
+        err_msg.contains("Host key verification failed"),
+        "error should mention verification failure: {}",
+        err_msg,
+    );
+}
+
+#[tokio::test]
+async fn test_known_host_skips_verifier() {
+    // 既知ホスト → verifier が呼ばれない
+    // connect_insecure は skip_host_key_check=true なので verifier は不要
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    // connect_insecure は known_hosts チェックをスキップする（= verifier 不要）
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("connect_insecure should succeed");
+
+    let output = client.exec("echo ok").await.expect("exec should succeed");
+    assert_eq!(output, "ok\n");
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_verifier_called_at_most_once_per_connection() {
+    // verifier は1回の接続で最大1回だけ呼ばれる
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = isolated_ssh_config(&known_hosts);
+
+    let verifier = MockVerifier::new(true);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    assert!(result.is_ok());
+    // verifier が呼ばれた場合、1回だけ呼ばれることを検証
+    assert!(
+        verifier.call_count() <= 1,
+        "verifier should be called at most once, got {}",
+        verifier.call_count()
+    );
+
+    let client = result.unwrap();
+    client.disconnect().await.expect("切断に失敗");
+}

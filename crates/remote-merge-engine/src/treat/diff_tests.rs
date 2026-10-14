@@ -1,0 +1,104 @@
+//! diff の扱いの表（docs/ir/cli/diff-output.md の REQ-cli-053・056、TBL-compare-005）の単体テスト
+use std::collections::BTreeMap;
+
+use remote_merge_core::compare::{
+    Pair, PairVerdict, PathComparison, PathStates, Present, Role, SideState, Undecidable, Verdict,
+};
+
+use super::*;
+
+fn file() -> SideState {
+    SideState::File {
+        size: Some(1),
+        mtime: None,
+    }
+}
+
+fn compared(left: SideState, right: SideState, verdict: Verdict) -> PathComparison {
+    PathComparison {
+        states: PathStates {
+            states: BTreeMap::from([(Role::Left, left), (Role::Right, right)]),
+            ..PathStates::default()
+        },
+        pairs: vec![PairVerdict {
+            pair: Pair {
+                first: Role::Left,
+                second: Role::Right,
+            },
+            verdict,
+            followed: None,
+        }],
+        hashes: BTreeMap::new(),
+        contents: BTreeMap::new(),
+    }
+}
+
+// @kotowari[REQ-cli-053, REQ-cli-060, REQ-cli-086]
+#[test]
+fn a_differing_one_sided_or_kind_differing_pair_is_a_change() {
+    let cases = [
+        (compared(file(), file(), Verdict::Differs), Change::Differs),
+        (
+            compared(file(), SideState::Absent, Verdict::OneSided(Present::First)),
+            Change::OneSided(Present::First),
+        ),
+        (
+            compared(
+                SideState::Absent,
+                file(),
+                Verdict::OneSided(Present::Second),
+            ),
+            Change::OneSided(Present::Second),
+        ),
+        (
+            compared(SideState::Directory, file(), Verdict::KindDiffers),
+            Change::KindDiffers,
+        ),
+    ];
+    for (comparison, change) in cases {
+        assert_eq!(diff_entry(&comparison), DiffEntry::Changed(change));
+    }
+}
+
+// @kotowari[REQ-cli-083, REQ-cli-053]
+#[test]
+fn the_same_pair_is_unchanged() {
+    let comparison = compared(file(), file(), Verdict::Same);
+    assert_eq!(diff_entry(&comparison), DiffEntry::Unchanged);
+}
+
+// @kotowari[REQ-cli-089, TBL-compare-005]
+#[test]
+fn an_undecidable_pair_goes_to_errors_with_its_reason() {
+    let why = Undecidable::NotRegularFile(vec![Role::Left]);
+    let comparison = compared(SideState::Other, file(), Verdict::Undecidable(why));
+    assert_eq!(
+        diff_entry(&comparison),
+        DiffEntry::Unreadable("not a regular file: left".into())
+    );
+}
+
+// ディレクトリそのものと、両側にないパスは項目にしない（その下の項目を比べる）
+#[test]
+fn directories_and_paths_on_neither_side_are_not_listed() {
+    for comparison in [
+        compared(SideState::Directory, SideState::Directory, Verdict::Same),
+        compared(
+            SideState::Directory,
+            SideState::Absent,
+            Verdict::OneSided(Present::First),
+        ),
+        compared(SideState::Absent, SideState::Absent, Verdict::BothAbsent),
+    ] {
+        assert_eq!(diff_entry(&comparison), DiffEntry::NotListed);
+    }
+}
+
+// @kotowari[REQ-cli-056]
+#[test]
+fn the_exit_code_is_2_with_errors_1_with_changes_and_0_otherwise() {
+    assert_eq!(exit_code(false, false), 0);
+    assert_eq!(exit_code(true, false), 1);
+    assert_eq!(exit_code(false, true), 2);
+    assert_eq!(exit_code(true, true), 2);
+}

@@ -1,0 +1,125 @@
+# remote-merge
+
+SSH 経由でローカルとリモートサーバー間のファイル差分を表示・マージする CLI ツール。
+
+## Features
+
+- 複数サーバー（develop, staging, release など）とのファイルツリー比較
+- `status` / `diff` / `merge` / `sync` / `rollback` サブコマンド（`--format json` で機械可読な出力）
+- hunk 単位マージ（`merge --hunks`）
+- 3-way 比較（`--ref` で参照サーバーを指定）
+- マージ時の楽観的ロック（mtime チェック）
+- Agent モードによる高速リモート操作
+
+## Install
+
+**Linux / macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.ps1 | iex
+```
+
+バージョン指定やインストール先の変更も可能:
+
+```bash
+VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
+```
+
+**ソースからビルド:**
+
+```bash
+cargo install --path crates/remote-merge
+```
+
+ソースからのインストールには、同じcheckout内の `crates/remote-merge-core` と `crates/remote-merge-protocol` も必要です。
+
+## Quick Start
+
+```bash
+# プロジェクト設定ファイルを生成
+remote-merge init
+
+# .remote-merge.toml を編集してサーバー情報を設定
+
+# 差分のあるファイルを一覧する
+remote-merge status --left local --right develop
+
+# 差分を表示する
+remote-merge diff path/to/file --left local --right develop
+
+# マージする
+remote-merge merge path/to/file --left local --right develop
+```
+
+サブコマンドを付けずに起動すると、使い方を標準エラーに出して終了コード 2 で終わる。
+
+## Usage
+
+```
+Usage: remote-merge [OPTIONS] <COMMAND>
+
+Commands:
+  init      Initialize project config file
+  status    List files with differences
+  diff      Show diff for file(s) or directory
+  merge     Merge files
+  sync      Sync files to multiple servers (1:N synchronization)
+  rollback  Restore files from a backup session
+  logs      Show debug logs
+  agent     Start agent server (used internally via SSH)
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <CONFIG>        Path to project config file [overrides .remote-merge.toml in CWD]
+  -y, --yes                    Auto-accept prompts (e.g., unknown host key verification)
+  -v, --verbose...             Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
+      --debug                  Shorthand for --log-level debug
+      --log-level <LOG_LEVEL>  Set log level explicitly (error, warn, info, debug, trace)
+  -h, --help                   Print help
+  -V, --version                Print version
+```
+
+## Configuration
+
+設定ファイルは TOML 形式。グローバル設定とプロジェクト設定の 2 階層で管理される。
+
+| ファイル | パス |
+|--------|------|
+| グローバル | `~/.config/remote-merge/config.toml` |
+| プロジェクト | `.remote-merge.toml`（カレントディレクトリ） |
+
+プロジェクト設定はグローバル設定を上書きする（`[filter]` セクションのみ和集合でマージ）。
+
+```toml
+[local]
+root_dir = "/path/to/local/project"
+
+[servers.develop]
+host = "dev.example.com"
+port = 22
+user = "deploy"
+auth = "key"                    # "key" or "password"
+key = "~/.ssh/id_ed25519"
+root_dir = "/var/www/project"
+
+[filter]
+exclude = [".git", "node_modules", "vendor"]
+
+[ssh]
+timeout_sec = 300
+strict_host_key_checking = "ask"  # "yes", "no", "ask"
+
+[backup]
+enabled = true
+retention_days = 7
+```
+
+## License
+
+MIT

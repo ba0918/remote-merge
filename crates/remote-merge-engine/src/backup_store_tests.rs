@@ -1,0 +1,83 @@
+//! バックアップの集約先の単体テスト
+use super::*;
+
+// 何も保存しなかったセッションを終えても、同時に動く別の実行が使う集約先の場所（予約の場所）は
+// 消さない。消すと、予約の場所を作った後で自分の予約を作る前の別の実行が、場所がないとして止まる
+// （PROJECT.md の Security boundary の「同時に動く別の作業」で黙って失敗させない）
+#[test]
+fn finishing_a_session_that_saved_nothing_keeps_the_place_other_runs_reserve_in() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("store");
+    let now = Utc::now();
+    let mut first = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), now);
+    let id = first.reserve_session().unwrap();
+
+    first.finish_session(&id);
+
+    // 別の実行は、予約の場所を作った後に、その中を一覧して自分の予約を作る
+    let reservations = root.join("reservations");
+    assert!(fs::read_dir(&reservations).is_ok(), "{reservations:?}");
+    assert!(!reservations.join(&id).exists());
+    assert!(!root.join("sessions").join(&id).exists());
+}
+
+/// root_dir を `root` にしたローカルだけの設定（保持は 1 日）
+fn config_with_root(temp: &Path, root: &Path) -> AppConfig {
+    let path = temp.join("config.toml");
+    fs::write(
+        &path,
+        format!(
+            "[local]\nroot_dir = {:?}\n[backup]\nenabled = true\nretention_days = 1\n",
+            root.display().to_string()
+        ),
+    )
+    .unwrap();
+    remote_merge_config::load_config_from_paths(Some(&path), None).unwrap()
+}
+
+// 同時に動く別の merge・sync が同じ期限切れのセッションを先に消していても、消すものがないとして
+// 誤りにしない（PROJECT.md の Security boundary の「同時に動く別の作業」）。先に消されたセッションは、
+// 一覧した後に中を読めなくなったセッション（ここでは辿った先のない名前）として起こす
+// @kotowari[REQ-backup-025]
+#[cfg(unix)]
+#[test]
+fn an_expired_session_another_run_removed_first_is_not_an_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("store");
+    let sessions = root.join("sessions");
+    fs::create_dir_all(&sessions).unwrap();
+    std::os::unix::fs::symlink(temp.path().join("gone"), sessions.join("20000101-000000")).unwrap();
+    let config = config_with_root(temp.path(), temp.path());
+    let store = BackupStore::new(Some(root), temp.path().to_path_buf(), Utc::now());
+
+    assert_eq!(store.cleanup_expired(&config).unwrap(), 0);
+}
+
+// 集約先の sessions を読めないときは、黙って 0 件にせず、どこを読めなかったかを示して止める
+// @kotowari[REQ-backup-025]
+#[cfg(unix)]
+#[test]
+fn sessions_that_cannot_be_read_are_an_error_and_not_zero_removed() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("store");
+    let sessions = root.join("sessions");
+    fs::create_dir_all(sessions.join("20000101-000000")).unwrap();
+    fs::set_permissions(&sessions, fs::Permissions::from_mode(0o000)).unwrap();
+    let applies = fs::read_dir(&sessions).is_err();
+    let config = config_with_root(temp.path(), temp.path());
+    let store = BackupStore::new(Some(root), temp.path().to_path_buf(), Utc::now());
+
+    let result = store.cleanup_expired(&config);
+    fs::set_permissions(&sessions, fs::Permissions::from_mode(0o700)).unwrap();
+    if !applies {
+        eprintln!("note: running as root; an unreadable directory cannot be made");
+        return;
+    }
+
+    let error = result.expect_err("an unreadable store must not be read as nothing to remove");
+    assert!(
+        error.to_string().contains(&sessions.display().to_string()),
+        "{error:#}"
+    );
+}

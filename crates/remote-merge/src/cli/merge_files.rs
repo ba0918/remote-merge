@@ -1,0 +1,198 @@
+//! ファイル全体の merge。比べる流れで比べ、treat の表で扱いを決め、書き込み先を変える
+
+use std::collections::BTreeMap;
+
+use remote_merge_core::compare::{choose_method, Command, Follow, PathComparison, Selection};
+use remote_merge_core::op_failure::SizeLimit;
+use remote_merge_core::relative_path::RelPath;
+use remote_merge_engine::treat::incomplete::incomplete_error;
+use remote_merge_engine::treat::merge::{exit_code, MergeEntry};
+use remote_merge_engine::treat::merge_plan::{merge_plan, PlanOptions, NOT_FOUND};
+use remote_merge_engine::treat::merge_result::target_lists;
+use remote_merge_engine::treat::merge_scope::{merge_targets, MergeScope, MergeTargets};
+use remote_merge_engine::treat::merge_uses::MergeUses;
+
+use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, MergeSides};
+use super::plan_apply::{apply_plan, change_counts, skip_reasons};
+use crate::runtime::{
+    ApplyOptions, CompareRequest, CompareScope, CompareSides, CoreRuntime, EntryLimit,
+    ExternalLinks, LostDestination, UnfollowableLinks,
+};
+use crate::service::path_resolver::paths_not_found;
+use crate::service::types::{MergeOutcome, MergeOutput};
+
+pub(super) fn merge_files(
+    core: &mut CoreRuntime,
+    args: &MergeArgs,
+    sides: &MergeSides,
+    paths: &[RelPath],
+    max_entries: usize,
+) -> anyhow::Result<MergeCommandResult> {
+    let planned = plan_merge(core, args, sides, paths, max_entries)?;
+    apply_merge(core, args, sides, planned)
+}
+
+/// 比べた結果と扱いの並び（比べた後・書き込み先を変える前の段）
+pub struct PlannedMerge {
+    paths: BTreeMap<String, PathComparison>,
+    plan: Vec<(String, MergeEntry)>,
+}
+
+/// 読み込み元・書き込み先・参照先を比べ、扱いの並びを作る
+pub fn plan_merge(
+    core: &mut CoreRuntime,
+    args: &MergeArgs,
+    sides: &MergeSides,
+    paths: &[RelPath],
+    max_entries: usize,
+) -> anyhow::Result<PlannedMerge> {
+    for side in [
+        Some(&sides.left),
+        Some(&sides.right),
+        sides.reference.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        core.connect_side(side)?;
+    }
+    let targets = merge_targets(paths, args.delete);
+    let reference_check = sides.reference.is_some() && !args.force;
+    let uses = MergeUses {
+        targets: targets.clone(),
+        delete: args.delete,
+        dry_run: args.dry_run,
+        reference_check,
+    };
+    let compare_sides = CompareSides {
+        left: sides.left.clone(),
+        right: sides.right.clone(),
+        reference: sides.reference.clone(),
+    };
+    let request = merge_request(&targets, args.checksum, args.force, max_entries);
+    // 比べている間に root_dir がなくなっていたら、root_dir の分かる誤りで止める（REQ-merge-044）
+    let comparison = core
+        .compare(&compare_sides, &request, &uses)
+        .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
+    if let Some(stopped) = core.root_gone_stop() {
+        return Err(stopped);
+    }
+    // 打ち切った一覧からは書き込みを始めない（docs/ir/scan/limits.md の REQ-scan-005）
+    if let Some(incomplete) = comparison.incomplete.first() {
+        return Err(incomplete_error(incomplete));
+    }
+    let options = PlanOptions {
+        delete: args.delete,
+        reference_check,
+    };
+    let plan = merge_plan(&comparison.paths, &targets, options);
+    stop_if_nothing_named_exists(&plan, &targets)?;
+    Ok(PlannedMerge {
+        paths: comparison.paths,
+        plan,
+    })
+}
+
+/// 扱いの並びを書き込み先に当て、結果と終了コードにする
+pub fn apply_merge(
+    core: &mut CoreRuntime,
+    args: &MergeArgs,
+    sides: &MergeSides,
+    planned: PlannedMerge,
+) -> anyhow::Result<MergeCommandResult> {
+    let PlannedMerge { paths, plan } = planned;
+    if !args.dry_run {
+        // 期限切れのバックアップは、--dry-run でない merge の初めに整理する（REQ-backup-025）
+        core.cleanup_expired_backups()?;
+    }
+    // 書き込むか消すファイルがあるときだけ、バックアップのセッションを用意する（F20）
+    let (writes, deletes) = change_counts(&plan);
+    let session = if core.config.backup.enabled && !args.dry_run && writes + deletes > 0 {
+        Some(core.reserve_backup_session(&[&sides.right])?)
+    } else {
+        None
+    };
+    let options = ApplyOptions {
+        dry_run: args.dry_run,
+        session: session.as_deref(),
+        with_permissions: args.with_permissions,
+        content_limit: remote_merge_core::op_failure::SizeLimit::from_force(args.force),
+    };
+    let with_ref = sides.reference.is_some();
+    let outcomes = apply_plan(core, &sides.right, &paths, &plan, &options, with_ref);
+    if let Some(session) = &session {
+        core.finish_backup_session(session);
+    }
+    let lists = target_lists(outcomes);
+    // 変更の最中の `接続断` か root_dir がなくなったことで書き込み先を止めたら、済んだファイルが
+    // あっても終了コード 2 にする（REQ-ssh-022・REQ-merge-044）
+    let stopped = core.stopped_error_for(&sides.right).is_some();
+    let code = exit_code(!lists.failed.is_empty() || stopped, &skip_reasons(&plan));
+    let output = MergeOutput {
+        merged: lists.merged,
+        skipped: lists.skipped,
+        deleted: lists.deleted,
+        failed: lists.failed,
+        ref_: sides.reference.as_ref().map(|side| core.source_info(side)),
+    };
+    let nothing = output.merged.is_empty()
+        && output.skipped.is_empty()
+        && output.deleted.is_empty()
+        && output.failed.is_empty();
+    let output = if nothing {
+        MergeCommandOutput::Outcome(MergeOutcome::NoFilesToMerge)
+    } else {
+        MergeCommandOutput::Files(output)
+    };
+    Ok(MergeCommandResult {
+        output,
+        exit_code: code,
+    })
+}
+
+/// 比べ方の求め。名前で指定したファイルは中身で比べる（TBL-compare-003）
+pub(super) fn merge_request(
+    targets: &MergeTargets,
+    checksum: bool,
+    force: bool,
+    max_entries: usize,
+) -> CompareRequest {
+    CompareRequest {
+        scope: match &targets.scope {
+            MergeScope::Whole => CompareScope::Whole,
+            MergeScope::Below(dirs) => CompareScope::Below(dirs.clone()),
+        },
+        max_entries,
+        entry_limit: EntryLimit::PerDirectory,
+        counted_before: Default::default(),
+        method: choose_method(Command::Merge, checksum, Selection::BelowDirectory),
+        content_paths: targets.named.iter().cloned().collect(),
+        follow: Follow::No,
+        // root_dir の外へ解決される symlink は、merge では辿る（REQ-merge-004・REQ-cli-026）
+        external_links: ExternalLinks::Follow,
+        content_limit: SizeLimit::from_force(force),
+        // 書き込みを始める前に止める（docs/ir/scan/directory-links.md の REQ-scan-018）
+        unfollowable_links: UnfollowableLinks::Stop,
+        // 書き込み先のまとめた読み込みで止めたら、そのファイルを failed に出す（REQ-ssh-003）
+        lost_destination: LostDestination::FailPaths,
+    }
+}
+
+/// 左右のどちらにもない名前を警告し、名前がすべてないなら書き込まずに止める（REQ-merge-035）
+pub(super) fn stop_if_nothing_named_exists(
+    plan: &[(String, MergeEntry)],
+    targets: &MergeTargets,
+) -> anyhow::Result<()> {
+    let missing: Vec<&String> = plan
+        .iter()
+        .filter(|(_, entry)| *entry == MergeEntry::Fail(NOT_FOUND.to_string()))
+        .map(|(path, _)| path)
+        .collect();
+    for path in &missing {
+        eprintln!("Warning: '{path}' not found on either side");
+    }
+    if !targets.named.is_empty() && missing.len() == targets.named.len() {
+        return Err(paths_not_found());
+    }
+    Ok(())
+}

@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path tests/container-e2e/Cargo.toml --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Install pinned kotowari
+        run: cargo install --git https://github.com/ba0918/kotowari.git --rev 5fe0f2998273e8f831e1ba4a5724bc34e57e4816 --locked kotowari
+
+      - name: Check specifications
+        run: kotowari check --format json
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install fish for the login shell tests
+        run: sudo apt-get update && sudo apt-get install -y fish
+
+      - name: Run tests
+        env:
+          REMOTE_MERGE_TEST_REQUIRE_FISH: "1"
+        run: |
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+          test_home=$(mktemp -d)
+          trap 'rm -rf -- "$test_home"' EXIT
+          mkdir -p "$test_home/config" "$test_home/data"
+          HOME="$test_home" XDG_CONFIG_HOME="$test_home/config" XDG_DATA_HOME="$test_home/data" cargo test --all-features
+
+  container-e2e:
+    name: OpenSSH and sudo (required)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl build tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake nasm
+
+      - name: Verify real OpenSSH and sudo
+        run: scripts/run-container-e2e.sh
+
+  build-musl:
+    name: Build (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-musl
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake nasm
+
+      - name: Build (musl)
+        run: cargo build --target x86_64-unknown-linux-musl
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate coverage
+        run: cargo llvm-cov --lcov --output-path lcov.info --ignore-filename-regex='main\.rs'
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-report
+          path: lcov.info

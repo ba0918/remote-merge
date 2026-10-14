@@ -1,0 +1,16 @@
+# Glossary
+
+| Term | Meaning | Source |
+|---|---|---|
+| バックアップセッション | 1 回の書き込み操作（merge、sync、rollback）で取ったバックアップの一式。セッション ID で識別する。 | docs/decision/records/2026-09-27-adopt-backup.md#A32 |
+| 書き込み先 | バックアップを区別する単位。リモートはホスト名・ポート・root_dir の組、ローカルは root_dir の絶対パスで決まる。設定上のサーバ名とは異なる。 | docs/decision/records/2026-09-27-adopt-backup.md#A33 |
+| 末尾の symlink | 操作対象のパスそのものが symlink である状態。 | docs/decision/records/legacy-terms.md#末尾の symlink |
+| 途中の symlink | 操作対象の親ディレクトリのうち root_dir より下に symlink がある状態。root_dir 自体の symlink は含めない。 | docs/decision/records/legacy-terms.md#途中の symlink |
+| 実パス | パスを "/" から要素ごとに辿り、symlink をすべてリンク先に置き換えた絶対パス。"."・空の要素・末尾の "/" を含まない。存在しない部分は名前をそのままつなぐ。OS の realpath の結果のことではない。「本当のパス」「canonical path」とは呼ばない。 | docs/decision/records/2026-10-06-path-resolution.md#A19, docs/decision/records/2026-10-06-path-resolution.md#A37 |
+| 参照先 | --ref で指定し、左右との比較にだけ使うサーバまたは local。 | docs/decision/records/2026-09-27-adopt-status.md#A13 |
+| 既定サーバ | 設定のサーバ名を名前順に並べて最初のサーバ。 | docs/decision/records/2026-09-27-adopt-status.md#A14 |
+| 競合 | 参照先に対して左右が同じ箇所を異なる内容に変えたこと。同じ箇所とは参照先からの変更の行の範囲が重なることで、バイナリや UTF-8 として読めないファイルはファイル全体を一つの箇所とする。左右の両方が参照先から変わっていても、変わった箇所が重ならなければ競合と呼ばない。 | docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4 |
+| グローバル設定 | 利用者ごとに一つ置き、どのプロジェクトで実行しても読まれる設定ファイル。 | docs/decision/records/2026-09-28-adopt-config-loading.md#A10 |
+| プロジェクト設定 | カレントディレクトリの ".remote-merge.toml"、または --config で指定した設定ファイル。 | docs/decision/records/2026-09-28-adopt-config-loading.md#A11 |
+| ログインした利用者 | 操作を行うアカウント。リモートでは SSH でつないだ利用者（sudo=true のサーバでも root ではなくその利用者）、ローカルではコマンドを動かした利用者。 | docs/decision/records/2026-10-12-foundation-5.md#F1 |
+| 接続断 | リモートへの要求を送り始めた後に、その結果を受け取れなかったこと。結果を運ぶ通信が途中で切れたこと・終わったこと・時間切れになったこと（分けて送る大きな書き込みの途中を含む）と、受け取ったものが要求への応答として読めなかったことを含む。相手が失敗を返したことや、リモートのコマンドが 0 以外で終わったことは含めない。 | docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-12-foundation-3.md#D11 |

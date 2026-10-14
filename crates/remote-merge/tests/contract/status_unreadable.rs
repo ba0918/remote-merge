@@ -1,0 +1,217 @@
+#![cfg(unix)]
+//! status で中身を読み比べるファイルを読めないとき（docs/ir/cli/unreadable.md の REQ-cli-088）の
+//! 契約テスト。
+//!
+//! 右がサーバで --ref がないときはハッシュの経路、右が local のときは中身を読む経路で比べるため、
+//! 左右を入れ替えた二つの構成で確かめる。
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+
+use remote_merge::service::output::format_json;
+
+use super::status_support::{args, fixture, write_at};
+
+const T0: u64 = 1_700_000_000;
+
+// 大きさが同じで更新時刻の違うファイルは中身を読み比べる。develop の側を読めなくする
+// @kotowari[EX-cli-086]
+#[test]
+fn a_file_that_cannot_be_read_for_comparison_is_reported_as_an_error_without_a_judgement() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "a.txt", b"alpha\n", T0);
+    write_at(fixture.develop.path(), "a.txt", b"bravo\n", T0 + 60);
+    write_at(fixture.local.path(), "b.txt", b"short\n", T0);
+    write_at(fixture.develop.path(), "b.txt", b"much longer\n", T0);
+    let unreadable = fixture.develop.path().join("a.txt");
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&unreadable).is_err(),
+        "test needs an unreadable develop/a.txt"
+    );
+
+    for (left, right) in [("local", "develop"), ("develop", "local")] {
+        let mut args = args(Some(left), Some(right));
+        args.all = true;
+        let result = fixture.run(args).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&format_json(&result.output).unwrap()).unwrap();
+
+        assert_eq!(result.exit_code, 2, "{left} {right}: {json}");
+        let errors = json["errors"]
+            .as_array()
+            .unwrap_or_else(|| panic!("errors missing: {json}"));
+        assert_eq!(errors.len(), 1, "{json}");
+        assert_eq!(errors[0]["path"], "a.txt", "{json}");
+        assert!(
+            errors[0]["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+            "{json}"
+        );
+        let files = json["files"].as_array().unwrap();
+        assert!(
+            !files.iter().any(|file| file["path"] == "a.txt"),
+            "{left} {right}: {json}"
+        );
+        // ほかのファイルの比較は続ける
+        assert!(
+            files
+                .iter()
+                .any(|file| file["path"] == "b.txt" && file["status"] == "modified"),
+            "{json}"
+        );
+    }
+}
+
+// テキストの出力では、読めなかったファイルのパスを標準エラーに出す（文言は固定しない）
+// @kotowari[REQ-cli-088]
+#[cfg(feature = "test-utils")]
+#[test]
+fn text_output_reports_an_unreadable_file_on_standard_error() {
+    let env = super::common::CliEnv::new(&[("a.txt", "alpha\n")], &[("a.txt", "bravo\n")]);
+    let remote = env.remote_dir.join("a.txt");
+    fs::File::options()
+        .write(true)
+        .open(&remote)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(T0))
+        .unwrap();
+    fs::set_permissions(&remote, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&remote).is_err(),
+        "test needs an unreadable remote a.txt"
+    );
+
+    let output = env
+        .cmd_with("status")
+        .args(["--left", "local", "--right", "develop", "--all"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("a.txt"),
+        "{output:?}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("a.txt"),
+        "{output:?}"
+    );
+}
+
+// 参照先との組を決めるために読む中身を読めなかったファイルは、判定を残し、印を出さず、
+// errors に出して終了コード 2 を返す。a.txt は左右を読み比べて "equal"、b.txt は大きさの違いで
+// "modified" と決まり、どちらも左と参照先が同じ大きさで更新時刻が違うので参照先を読みに行き、読めない
+// @kotowari[REQ-cli-088]
+#[test]
+fn a_file_whose_reference_alone_cannot_be_read_keeps_its_judgement_without_a_badge() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "a.txt", b"alpha\n", T0);
+    write_at(fixture.develop.path(), "a.txt", b"alpha\n", T0 + 60);
+    write_at(fixture.local.path(), "b.txt", b"short\n", T0);
+    write_at(fixture.develop.path(), "b.txt", b"much longer\n", T0);
+    for (path, content) in [("a.txt", b"alphX\n"), ("b.txt", b"shorX\n")] {
+        let reference = fixture.staging.path().join(path);
+        write_at(fixture.staging.path(), path, content, T0 + 30);
+        fs::set_permissions(&reference, fs::Permissions::from_mode(0o200)).unwrap();
+        assert!(
+            fs::File::open(&reference).is_err(),
+            "test needs an unreadable staging/{path}"
+        );
+    }
+    let mut args = args(Some("local"), Some("develop"));
+    args.all = true;
+    args.ref_server = Some("staging".into());
+
+    let result = fixture.run(args).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&format_json(&result.output).unwrap()).unwrap();
+
+    assert_eq!(result.exit_code, 2, "{json}");
+    let mut error_paths: Vec<&str> = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("errors missing: {json}"))
+        .iter()
+        .map(|error| {
+            assert!(
+                error["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty()),
+                "{json}"
+            );
+            error["path"].as_str().unwrap()
+        })
+        .collect();
+    error_paths.sort();
+    assert_eq!(error_paths, ["a.txt", "b.txt"], "{json}");
+    let file = |path: &str| {
+        json["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing: {json}"))
+            .clone()
+    };
+    assert_eq!(file("a.txt")["status"], "equal", "{json}");
+    assert_eq!(file("b.txt")["status"], "modified", "{json}");
+    assert!(file("a.txt").get("ref_badge").is_none(), "{json}");
+    assert!(file("b.txt").get("ref_badge").is_none(), "{json}");
+}
+
+fn make_unreadable(root: &std::path::Path, path: &str) {
+    let file = root.join(path);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&file).is_err(),
+        "test needs an unreadable {path}"
+    );
+}
+
+// 存在だけで決まる印は中身の読み込みに左右されず、三つともにあるファイルは読みに行った中身を読めなければ
+// 印を出さない。m.txt（左右にあり参照先にない）と o.txt（左だけにあり参照先にある）は左を、
+// t.txt（三つともにあり、左と参照先が同じ大きさで更新時刻が違う）は参照先を読めない
+// @kotowari[TBL-cli-005]
+#[test]
+fn only_a_badge_decided_by_contents_depends_on_reading_them() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "m.txt", b"short\n", T0);
+    write_at(fixture.develop.path(), "m.txt", b"much longer\n", T0);
+    write_at(fixture.local.path(), "o.txt", b"only\n", T0);
+    write_at(fixture.staging.path(), "o.txt", b"base\n", T0);
+    write_at(fixture.local.path(), "t.txt", b"alpha\n", T0);
+    write_at(fixture.develop.path(), "t.txt", b"bravo!\n", T0);
+    write_at(fixture.staging.path(), "t.txt", b"basee\n", T0 + 30);
+    make_unreadable(fixture.local.path(), "m.txt");
+    make_unreadable(fixture.local.path(), "o.txt");
+    make_unreadable(fixture.staging.path(), "t.txt");
+    let mut args = args(Some("local"), Some("develop"));
+    args.all = true;
+    args.ref_server = Some("staging".into());
+
+    let result = fixture.run(args).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&format_json(&result.output).unwrap()).unwrap();
+
+    let badge = |path: &str| {
+        json["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing: {json}"))
+            .get("ref_badge")
+            .cloned()
+    };
+    assert_eq!(badge("m.txt"), Some("missing_in_ref".into()), "{json}");
+    assert_eq!(badge("o.txt"), Some("differs".into()), "{json}");
+    assert_eq!(badge("t.txt"), None, "{json}");
+    let error_paths: Vec<&str> = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("errors missing: {json}"))
+        .iter()
+        .map(|error| error["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(error_paths, ["t.txt"], "{json}");
+}

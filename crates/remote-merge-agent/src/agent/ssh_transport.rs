@@ -1,0 +1,631 @@
+//! SSH チャネル ↔ sync Read/Write ブリッジ。
+//!
+//! russh の async SSH exec チャネルと AgentClient の sync I/O (UnixStream) を
+//! ブリッジスレッドで接続する。
+//!
+//! チャネルは単一の bridge スレッドが排他的に所有し、`tokio::select!` で
+//! 読み書き両方向を多重化する。これにより共有 Mutex によるデッドロックを防ぐ。
+//!
+//! bridge スレッド: SSH channel を排他所有し select! で双方向中継
+//! writer-relay スレッド: UnixStream → mpsc → bridge スレッド
+
+#[cfg(unix)]
+use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
+use std::sync::Arc;
+#[cfg(unix)]
+use std::thread::JoinHandle;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use anyhow::Result;
+#[cfg(unix)]
+use russh::ChannelMsg;
+
+/// リモートの agent が標準エラーに出した文字列を中継する記録の target。
+///
+/// 中身はリモートのシェルや sudo も含む外部の出力なので、診断ログのファイルには残さない。
+pub const REMOTE_STDERR_TARGET: &str = "remote_merge::agent::remote_stderr";
+
+/// ブリッジスレッドの join タイムアウト（秒）
+#[cfg(unix)]
+const JOIN_TIMEOUT_SECS: u64 = 2;
+
+/// writer-relay の read タイムアウト（ミリ秒）
+///
+/// shutdown フラグを定期チェックするためのポーリング間隔。
+#[cfg(unix)]
+const RELAY_READ_TIMEOUT_MS: u64 = 200;
+
+// ---------------------------------------------------------------------------
+// TransportGuard
+// ---------------------------------------------------------------------------
+
+/// ブリッジスレッドのライフサイクルを管理するガード。
+///
+/// `SshAgentTransport::into_streams()` から返され、ストリームとセットで保持する。
+/// Drop 時にスレッドを安全にシャットダウン・join する。
+#[cfg(unix)]
+pub struct TransportGuard {
+    bridge_thread: Option<JoinHandle<()>>,
+    writer_relay_thread: Option<JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+#[cfg(unix)]
+impl Drop for TransportGuard {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+
+        let deadline = Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
+        for t in [self.writer_relay_thread.take(), self.bridge_thread.take()]
+            .into_iter()
+            .flatten()
+        {
+            while !t.is_finished() {
+                if Instant::now() >= deadline {
+                    tracing::warn!(target: "remote_merge::agent::ssh_transport", "Bridge thread did not terminate within timeout");
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if t.is_finished() {
+                let _ = t.join();
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SshAgentTransport
+// ---------------------------------------------------------------------------
+
+/// SSH exec チャネルと AgentClient の間を中継するトランスポート。
+///
+/// `start()` でブリッジスレッド（+ writer-relay）を起動し、
+/// `into_streams()` で AgentClient に渡す UnixStream ペアと、
+/// スレッド管理用の `TransportGuard` を取り出す。
+///
+/// チャネルは bridge スレッドが排他所有するため、共有ロックによる
+/// デッドロックは原理的に発生しない。
+#[cfg(unix)]
+pub struct SshAgentTransport {
+    client_read: Option<UnixStream>,
+    client_write: Option<UnixStream>,
+    bridge_thread: Option<JoinHandle<()>>,
+    writer_relay_thread: Option<JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+#[cfg(unix)]
+impl SshAgentTransport {
+    /// SSH チャネルとブリッジスレッドを起動する。
+    ///
+    /// - `handle`: tokio ランタイムハンドル（block_on 用）
+    /// - `channel`: SSH exec チャネル（既にコマンド実行済みであること）
+    pub fn start(
+        handle: tokio::runtime::Handle,
+        channel: russh::Channel<russh::client::Msg>,
+    ) -> Result<Self> {
+        // read 方向: bridge → client_read
+        let (client_read, bridge_write) = UnixStream::pair()?;
+        // write 方向: client_write → writer-relay → bridge
+        let (bridge_read, client_write) = UnixStream::pair()?;
+
+        // writer-relay が shutdown フラグをポーリングできるよう read timeout を設定
+        bridge_read.set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))?;
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let (write_tx, write_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+
+        // Writer relay: UnixStream から読み取り → mpsc で bridge に送信
+        let shutdown2 = shutdown.clone();
+        let writer_relay_thread = std::thread::Builder::new()
+            .name("agent-write-relay".into())
+            .spawn(move || {
+                writer_relay_loop(bridge_read, write_tx, shutdown2);
+            })?;
+
+        // Bridge: channel を排他所有し、select! で双方向中継
+        let shutdown3 = shutdown.clone();
+        let bridge_thread = std::thread::Builder::new()
+            .name("agent-bridge".into())
+            .spawn(move || {
+                bridge_loop(handle, channel, bridge_write, write_rx, shutdown3);
+            })?;
+
+        Ok(Self {
+            client_read: Some(client_read),
+            client_write: Some(client_write),
+            bridge_thread: Some(bridge_thread),
+            writer_relay_thread: Some(writer_relay_thread),
+            shutdown,
+        })
+    }
+
+    /// AgentClient に渡す (read, write) ストリームペアと TransportGuard を取り出す。
+    ///
+    /// `TransportGuard` はブリッジスレッドのライフサイクルを管理する。
+    /// Guard を Drop すればスレッドがシャットダウンされる。
+    /// ストリームを先に閉じれば、スレッドは自然終了する。
+    pub fn into_streams(mut self) -> (UnixStream, UnixStream, TransportGuard) {
+        let r = self.client_read.take().expect("client_read already taken");
+        let w = self
+            .client_write
+            .take()
+            .expect("client_write already taken");
+        let guard = TransportGuard {
+            bridge_thread: self.bridge_thread.take(),
+            writer_relay_thread: self.writer_relay_thread.take(),
+            shutdown: self.shutdown.clone(),
+        };
+        // self の Drop は client_read/write=None, threads=None なので何もしない
+        (r, w, guard)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SshAgentTransport {
+    fn drop(&mut self) {
+        // into_streams() でスレッドが TransportGuard に移された場合は何もしない
+        let has_threads = self.bridge_thread.is_some() || self.writer_relay_thread.is_some();
+        if !has_threads {
+            return;
+        }
+
+        self.shutdown.store(true, Ordering::Release);
+
+        // UnixStream をシャットダウンしてブリッジスレッドに EOF を通知
+        if let Some(ref s) = self.client_read {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+        if let Some(ref s) = self.client_write {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+
+        // タイムアウト付きでスレッド終了を待機（is_finished ポーリング）
+        let deadline = Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
+        for t in [self.writer_relay_thread.take(), self.bridge_thread.take()]
+            .into_iter()
+            .flatten()
+        {
+            while !t.is_finished() {
+                if Instant::now() >= deadline {
+                    tracing::warn!(target: "remote_merge::agent::ssh_transport", "Bridge thread did not terminate within timeout");
+                    break; // スレッドをリークするが、ハングは回避
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if t.is_finished() {
+                let _ = t.join();
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ブリッジループ
+// ---------------------------------------------------------------------------
+
+/// pipe に対してバックプレッシャー対応の書き込みを行う。
+///
+/// OS の blocking I/O が自然にバッファ空きを待つ。
+/// 部分書き込み（write が小さい値を返す場合）はループで再試行する。
+#[cfg(unix)]
+fn write_all_with_backpressure(writer: &mut impl Write, data: &[u8]) -> io::Result<()> {
+    let mut remaining = data;
+    while !remaining.is_empty() {
+        match writer.write(remaining) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "pipe closed")),
+            Ok(n) => remaining = &remaining[n..],
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// bridge スレッド: channel を排他所有し、`tokio::select!` で
+/// SSH 受信データの読み取りと mpsc 経由の書き込みを多重化する。
+#[cfg(unix)]
+fn bridge_loop(
+    handle: tokio::runtime::Handle,
+    mut channel: russh::Channel<russh::client::Msg>,
+    mut bridge_write: UnixStream,
+    mut write_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    shutdown: Arc<AtomicBool>,
+) {
+    handle.block_on(async move {
+        loop {
+            if shutdown.load(Ordering::Acquire) {
+                tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: shutdown signal received");
+                break;
+            }
+            tokio::select! {
+                msg = channel.wait() => {
+                    match msg {
+                        Some(ChannelMsg::Data { ref data }) => {
+                            if let Err(e) = write_all_with_backpressure(&mut bridge_write, data) {
+                                tracing::warn!(target: "remote_merge::agent::ssh_transport", "bridge_loop: write to pipe failed: {e}");
+                                break;
+                            }
+                            let _ = bridge_write.flush();
+                        }
+                        Some(ChannelMsg::ExtendedData { ref data, .. }) => {
+                            // stderr をデバッグログに出力（診断用）
+                            if let Ok(text) = std::str::from_utf8(data) {
+                                tracing::debug!(target: REMOTE_STDERR_TARGET, "bridge_loop: stderr: {text}");
+                            }
+                        }
+                        Some(ChannelMsg::Eof) | None => {
+                            tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: channel EOF");
+                            let _ = bridge_write.shutdown(std::net::Shutdown::Write);
+                            break;
+                        }
+                        Some(_) => {} // ExitStatus 等は無視
+                    }
+                }
+                data = write_rx.recv() => {
+                    match data {
+                        Some(bytes) => {
+                            if let Err(e) = channel.data(&bytes[..]).await {
+                                tracing::warn!(target: "remote_merge::agent::ssh_transport", "bridge_loop: channel.data() failed: {e}");
+                                break;
+                            }
+                        }
+                        None => {
+                            // writer-relay が終了 → stdin EOF を送信
+                            tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: write_rx closed, sending EOF");
+                            let _ = channel.eof().await;
+                            // 読み取り方向はまだ継続する可能性があるが、
+                            // 多くのプロトコルでは EOF 後に応答が返るため続行
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// writer-relay スレッド: UnixStream から読み取り、mpsc で bridge に送信する。
+///
+/// bridge_read には read timeout が設定されている前提。
+/// タイムアウト時に shutdown フラグをチェックして安全に終了する。
+#[cfg(unix)]
+fn writer_relay_loop(
+    mut bridge_read: UnixStream,
+    write_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    shutdown: Arc<AtomicBool>,
+) {
+    let mut buf = vec![0u8; 32 * 1024];
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            tracing::debug!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: shutdown signal received");
+            break;
+        }
+        let n = match bridge_read.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(ref e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                // read timeout — shutdown チェックのためにループ先頭に戻る
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: read error: {e}");
+                break;
+            }
+        };
+        if write_tx.send(buf[..n].to_vec()).is_err() {
+            // 橋渡しの側が先に終わった。セッションの終わりにふつうに起きる順なので警告にしない
+            // （本当の切断は、手元の読み込みが接続断として知らせる）
+            tracing::debug!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: mpsc send failed (bridge closed)");
+            break;
+        }
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "ssh_transport_relay_tests.rs"]
+mod relay_tests;
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use super::*;
+
+    /// into_streams で取り出したストリームとガードが有効であることを確認
+    #[test]
+    fn into_streams_returns_valid_pair_and_guard() {
+        let (r, w) = UnixStream::pair().unwrap();
+        let transport = SshAgentTransport {
+            client_read: Some(r),
+            client_write: Some(w),
+            bridge_thread: None,
+            writer_relay_thread: None,
+            shutdown: Arc::new(AtomicBool::new(false)),
+        };
+        let (mut read_end, mut write_end, _guard) = transport.into_streams();
+        write_end.write_all(b"test").unwrap();
+        write_end.flush().unwrap();
+        read_end
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let mut buf = [0u8; 16];
+        let n = read_end.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"test");
+    }
+
+    /// into_streams 後の Drop で shutdown が true にならないことを確認
+    #[test]
+    fn into_streams_does_not_set_shutdown() {
+        let (r, w) = UnixStream::pair().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let transport = SshAgentTransport {
+            client_read: Some(r),
+            client_write: Some(w),
+            bridge_thread: None,
+            writer_relay_thread: None,
+            shutdown: shutdown.clone(),
+        };
+        let (_r, _w, guard) = transport.into_streams();
+        // transport の Drop が走った後も shutdown は false のまま
+        assert!(!shutdown.load(Ordering::Acquire));
+        // guard を明示的に drop して shutdown が true になることを確認
+        drop(guard);
+        assert!(shutdown.load(Ordering::Acquire));
+    }
+
+    /// writer_relay_loop が EOF で正常終了することを確認
+    #[test]
+    fn writer_relay_exits_on_eof() {
+        let (relay_read, relay_write) = UnixStream::pair().unwrap();
+        relay_read
+            .set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))
+            .unwrap();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = std::thread::spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                writer_relay_loop(relay_read, tx, shutdown);
+            }
+        });
+
+        // データを送信してから EOF
+        relay_write.shutdown(std::net::Shutdown::Write).unwrap();
+        handle.join().expect("writer_relay should exit cleanly");
+
+        // rx は空（EOF のみだったため何も送信されない、または空）
+        // ドロップ時にパニックしなければ OK
+        drop(rx);
+    }
+
+    /// writer_relay_loop がデータを中継することを確認
+    #[test]
+    fn writer_relay_forwards_data() {
+        let (relay_read, mut relay_write) = UnixStream::pair().unwrap();
+        relay_read
+            .set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))
+            .unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = std::thread::spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                writer_relay_loop(relay_read, tx, shutdown);
+            }
+        });
+
+        relay_write.write_all(b"hello").unwrap();
+        relay_write.flush().unwrap();
+        relay_write.shutdown(std::net::Shutdown::Write).unwrap();
+
+        handle.join().expect("writer_relay should exit cleanly");
+
+        let data = rx.try_recv().expect("should have received data");
+        assert_eq!(data, b"hello");
+    }
+
+    /// shutdown フラグで writer_relay_loop が終了することを確認
+    #[test]
+    fn writer_relay_exits_on_shutdown() {
+        let (relay_read, _relay_write) = UnixStream::pair().unwrap();
+        relay_read
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = std::thread::spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                writer_relay_loop(relay_read, tx, shutdown);
+            }
+        });
+
+        // shutdown フラグをセット
+        shutdown.store(true, Ordering::Release);
+
+        // タイムアウト + shutdown チェックで終了するはず
+        handle.join().expect("writer_relay should exit on shutdown");
+    }
+
+    // -----------------------------------------------------------------------
+    // write_all_with_backpressure テスト
+    // -----------------------------------------------------------------------
+
+    /// 正常な書き込みが成功することを確認
+    #[test]
+    fn write_all_with_backpressure_normal() {
+        let mut buf = Vec::new();
+        let data = b"hello world";
+        write_all_with_backpressure(&mut buf, data).unwrap();
+        assert_eq!(buf, data);
+    }
+
+    /// 空スライスを書き込んでも成功することを確認
+    #[test]
+    fn write_all_with_backpressure_empty() {
+        let mut buf = Vec::new();
+        write_all_with_backpressure(&mut buf, b"").unwrap();
+        assert!(buf.is_empty());
+    }
+
+    /// WriteZero エラー（pipe closed）を返すライターのスタブ
+    struct WriteZeroWriter;
+    impl Write for WriteZeroWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// write が 0 を返した場合に WriteZero エラーになることを確認
+    #[test]
+    fn write_all_with_backpressure_write_zero_returns_err() {
+        let mut w = WriteZeroWriter;
+        let err = write_all_with_backpressure(&mut w, b"data").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+    }
+
+    /// Interrupted エラー後にリトライして成功することを確認
+    struct InterruptedThenSuccessWriter {
+        interrupted_count: usize,
+        max_interrupted: usize,
+        written: Vec<u8>,
+    }
+    impl Write for InterruptedThenSuccessWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.interrupted_count < self.max_interrupted {
+                self.interrupted_count += 1;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
+            }
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Interrupted が発生してもリトライして正常完了することを確認
+    #[test]
+    fn write_all_with_backpressure_interrupted_then_retry() {
+        let mut w = InterruptedThenSuccessWriter {
+            interrupted_count: 0,
+            max_interrupted: 3,
+            written: Vec::new(),
+        };
+        let data = b"retry data";
+        write_all_with_backpressure(&mut w, data).unwrap();
+        assert_eq!(w.written, data);
+        assert_eq!(w.interrupted_count, 3);
+    }
+
+    /// 部分書き込み（write が小さい値を返す）を正しくリトライして全データを書き込むことを確認
+    struct PartialWriter {
+        chunk_size: usize,
+        written: Vec<u8>,
+    }
+    impl Write for PartialWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.chunk_size);
+            self.written.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// 部分書き込みがループで補完されて全データが揃うことを確認
+    #[test]
+    fn write_all_with_backpressure_partial_write() {
+        let mut w = PartialWriter {
+            chunk_size: 3,
+            written: Vec::new(),
+        };
+        let data = b"hello world";
+        write_all_with_backpressure(&mut w, data).unwrap();
+        assert_eq!(w.written, data);
+    }
+
+    /// Drop がタイムアウト内に完了することを確認（ハング防止）
+    #[test]
+    fn drop_does_not_hang() {
+        let (r, w) = UnixStream::pair().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        // 長時間スリープするスレッド（タイムアウトでリークされるはず）
+        let thread = std::thread::spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                while !shutdown.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        });
+
+        let transport = SshAgentTransport {
+            client_read: Some(r),
+            client_write: Some(w),
+            bridge_thread: Some(thread),
+            writer_relay_thread: None,
+            shutdown,
+        };
+
+        let start = Instant::now();
+        drop(transport);
+        let elapsed = start.elapsed();
+        // shutdown フラグで終了するので JOIN_TIMEOUT_SECS 以内に完了するはず
+        assert!(
+            elapsed < Duration::from_secs(JOIN_TIMEOUT_SECS + 1),
+            "drop took too long: {elapsed:?}"
+        );
+    }
+
+    /// TransportGuard の Drop がタイムアウト内に完了することを確認
+    #[test]
+    fn guard_drop_does_not_hang() {
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let thread = std::thread::spawn({
+            let shutdown = shutdown.clone();
+            move || {
+                while !shutdown.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        });
+
+        let guard = TransportGuard {
+            bridge_thread: Some(thread),
+            writer_relay_thread: None,
+            shutdown,
+        };
+
+        let start = Instant::now();
+        drop(guard);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(JOIN_TIMEOUT_SECS + 1),
+            "guard drop took too long: {elapsed:?}"
+        );
+    }
+}

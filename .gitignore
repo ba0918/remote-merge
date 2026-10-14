@@ -1,0 +1,44 @@
+# Rust
+/target
+/tests/container-e2e/target/
+
+# Agents
+.agents/worktrees/
+.agents/artifacts
+.agents/runtime
+.agents/tmp
+.agents/HANDOFF.md
+
+# Historical working documents (kept locally outside docs/)
+/.archive/
+
+# Claude
+.claude/settings.local.json
+.claude/worktrees
+.claude/docs/internal
+.claude/skills/remote-merge
+
+# Codex
+.codex/tmp
+
+# Cycle doc
+docs/internal
+docs/cycles
+docs/issues
+docs/reviews
+docs/session-history.md
+docs/status.md
+
+# Example
+examples
+demo
+.remote-merge.toml
+
+# Coverage
+lcov.info
+/coverage/.claude/worktrees/
+
+# 旧テスト環境の生成物は、移行後も既存の作業領域に残り得る。
+/testenv/.ssh/
+/testenv/data/
+logs/

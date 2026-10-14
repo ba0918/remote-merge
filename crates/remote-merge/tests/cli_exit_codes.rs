@@ -1,0 +1,41 @@
+#![cfg(unix)]
+//! CLI exit code セマンティクスの E2E テスト。
+//!
+//! 隔離された SSH fixture で結果と終了状態を確認する。
+
+mod common;
+use common::*;
+
+/// 同一ファイルの場合 diff は exit 0 を返す
+#[test]
+fn test_diff_exit_0_when_equal() {
+    let env = CliEnv::new(
+        &[("file.txt", "same content\n")],
+        &[("file.txt", "same content\n")],
+    );
+
+    let output = env
+        .cmd_with("diff")
+        .arg("file.txt")
+        .output()
+        .expect("failed to execute");
+
+    assert_exit_success(&output);
+}
+
+/// ファイル内容が異なる場合 diff は exit 1 を返す
+#[test]
+fn test_diff_exit_1_when_diff_found() {
+    let env = CliEnv::new(
+        &[("file.txt", "local version\n")],
+        &[("file.txt", "remote version\n")],
+    );
+
+    let output = env
+        .cmd_with("diff")
+        .arg("file.txt")
+        .output()
+        .expect("failed to execute");
+
+    assert_exit_error(&output, 1);
+}

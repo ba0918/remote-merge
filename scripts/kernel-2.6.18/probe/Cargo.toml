@@ -1,0 +1,13 @@
+[package]
+name = "probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# エージェントへの要求を作り、答えを読む道具。製品のワークスペースには入れない
+[dependencies]
+remote-merge-protocol = { path = "../../../crates/remote-merge-protocol" }
+remote-merge-core = { path = "../../../crates/remote-merge-core" }
+anyhow = "1"
+
+[workspace]

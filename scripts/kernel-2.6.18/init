@@ -1,0 +1,27 @@
+#!/bin/busybox sh
+/bin/busybox --install -s /bin
+export PATH=/bin
+# initramfs の根は作った手元のディレクトリの持ち主とモード（775）を引き継ぐので、普通の / と同じ
+# root の持ち物の 755 にする（配置先の検査は祖先の持ち主が root か本人かを見る）
+ls -ld / ; chown 0:0 / ; chmod 755 /
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs -o size=1500m tmpfs /tmp
+mkdir -p /etc; echo "root:x:0:0::/:/bin/sh" > /etc/passwd; echo "rm:x:1000:1000::/tmp:/bin/sh" >> /etc/passwd; printf "root:x:0:\nrm:x:1000:\n" > /etc/group
+echo "=== K2618 BOOT OK: $(uname -a)"
+cat /proc/cpuinfo | grep -m1 'model name'
+free
+WORK=/tmp/w
+if [ -e /payload/use_ext3 ]; then
+  insmod /payload/kmod/jbd.ko && insmod /payload/kmod/ext3.ko
+  mknod /dev/hda b 3 0
+  mkdir -p /mnt && mount -t ext3 /dev/hda /mnt && WORK=/mnt/w
+  echo "=== K2618 MOUNT"; mount | grep /mnt; dmesg | grep -i -E "ext3|kjournald|hda" | tail -5
+fi
+INVM=1 sh /payload/run.sh /payload $WORK /tmp/out
+echo "=== K2618 RUN FINISHED"
+cd /tmp && tar czf out.tgz out && echo "=== K2618 B64 BEGIN" && base64 out.tgz && echo "=== K2618 B64 END"
+dmesg | tail -40
+echo "=== K2618 POWEROFF"
+sync
+reboot -f
