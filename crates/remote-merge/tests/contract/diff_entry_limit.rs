@@ -101,6 +101,30 @@ fn req_cli_084_a_directory_is_not_counted_toward_the_limit_when_a_named_director
     }
 }
 
+// 名前で指定したディレクトリと、その下のファイルを一緒に指定しても、そのファイルを下の走査と
+// 起点そのものの走査で二度数えず、上限を超えていない比較の差分を落とさない
+// @kotowari[REQ-cli-021, REQ-cli-084]
+#[test]
+fn req_cli_021_a_file_named_under_a_named_directory_is_counted_once() {
+    let fixture = Fixture::new("");
+    for (root, content) in [(fixture.left(), "left\n"), (fixture.right(), "right\n")] {
+        for file in ["dir/a.txt", "dir/b.txt", "dir/c.txt"] {
+            place_files(root, &[(file, content)]);
+        }
+    }
+
+    let run = fixture.diff(&strings(&["dir", "dir/a.txt"]), Some(3));
+
+    assert!(run.json.get("errors").is_none(), "{}", run.json);
+    assert_eq!(
+        run.paths(),
+        vec!["dir/a.txt", "dir/b.txt", "dir/c.txt"],
+        "{}",
+        run.json
+    );
+    assert_eq!(run.code, exit_code::DIFF_FOUND, "{}", run.json);
+}
+
 /// 右の root_dir に置く、件数の上限 5 を超える 10 件のファイル
 fn over_the_limit() -> Vec<(String, &'static str)> {
     (0..10)

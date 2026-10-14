@@ -3,7 +3,7 @@
 //! 切りと循環と読めない名前は一覧に残し、数えた件数を足す（docs/ir/cli/symlink-diff.md の
 //! REQ-cli-021、diff-strategy.md の REQ-cli-084）
 
-use remote_merge_core::scan::outcome::{Listing, ScanScope, Start};
+use remote_merge_core::scan::outcome::{LinkPoint, ListedKind, Listing, ScanScope, Start};
 
 use super::compare_starts::{is_blocked, normalized};
 use super::core::CoreRuntime;
@@ -14,7 +14,10 @@ impl CoreRuntime {
     /// 項目に置き換える（ディレクトリへの symlink の起点は symlink として載る）。外した起点 `blocked`
     /// は集めない。すべての起点を一度の走査で集める。ディレクトリの下の走査に起点そのものを足して
     /// 一度にしないのは、同じパスの起点は下を集める起点にまとめられ（`start_paths`）、器を起点の
-    /// 状態として載せるディレクトリの下の走査の形（TBL-scan-001）は古いコマンドも使うため
+    /// 状態として載せるディレクトリの下の走査の形（TBL-scan-001）は古いコマンドも使うため。
+    /// 下の一覧に葉として載った起点（ファイル・symlink・その他）は、その項目をそのまま使う。起点
+    /// そのものを集める走査も同じ項目を作るので、集め直すと同じパスに上限を二度当てることになる
+    /// （REQ-cli-021・REQ-scan-010）
     pub(super) fn with_starts_themselves(
         &mut self,
         side: &Side,
@@ -23,26 +26,36 @@ impl CoreRuntime {
         mut listing: Listing,
         max_entries: usize,
     ) -> anyhow::Result<Listing> {
-        let starts: Vec<Start> = dirs
+        let listed: Vec<&str> = listing
+            .entries
+            .iter()
+            .filter(|entry| !matches!(entry.kind, ListedKind::Directory))
+            .map(|entry| entry.path.as_str())
+            .collect();
+        let scan: Vec<String> = dirs
             .iter()
             .filter(|dir| !is_blocked(dir, &blocked))
-            .map(|dir| Start::itself(normalized(dir), 0))
+            .filter(|dir| !listed.contains(&normalized(dir)))
+            .map(|dir| normalized(dir).to_string())
             .collect();
-        if starts.is_empty() {
+        if scan.is_empty() {
             return Ok(listing);
         }
+        let starts: Vec<Start> = scan
+            .iter()
+            .map(|path| Start::itself(path.clone(), 0))
+            .collect();
         let (themselves, _, _) =
             self.scan_named(side, ScanScope::Starts(starts), max_entries, dirs, blocked)?;
         listing
             .entries
-            .retain(|entry| !dirs.iter().any(|dir| normalized(dir) == entry.path));
+            .retain(|entry| !scan.iter().any(|path| path == &entry.path));
         Ok(joined(listing, themselves))
     }
 }
 
 /// 一覧の symlink のうち、辿った先がある（リンク切れでも辿れないものでもない）もの
 pub(super) fn listed_links(listing: &Listing) -> impl Iterator<Item = &str> {
-    use remote_merge_core::scan::outcome::{LinkPoint, ListedKind};
     listing
         .entries
         .iter()
