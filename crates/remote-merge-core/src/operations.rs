@@ -1,8 +1,5 @@
 //! 権限の値の規則（付けてよい値の上限と、ディレクトリの権限を変えた後の値）
 
-/// 権限の変更で付けてよい値の上限。setuid・setgid・sticky は付けない
-pub const MAX_PERMISSION_MODE: u32 = 0o777;
-
 /// 今の権限 `current` のものを `requested` に変えた後の権限。ディレクトリはすでに付いている
 /// setuid・setgid を残し、0o777 の範囲のビットと sticky を `requested` にする（SSH の経路の
 /// coreutils の chmod と同じ）。ファイルは `requested` そのものにする

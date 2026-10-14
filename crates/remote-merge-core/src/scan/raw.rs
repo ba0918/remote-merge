@@ -172,8 +172,3 @@ impl From<anyhow::Error> for CollectError {
         Self::Failed(error)
     }
 }
-
-/// 相対パス `base` の下の `name`（`base` が空なら `name` そのもの）
-pub fn join_relative(base: &[u8], name: &[u8]) -> Vec<u8> {
-    super::parts::join(base, name)
-}

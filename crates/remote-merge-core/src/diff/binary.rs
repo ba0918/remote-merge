@@ -25,15 +25,6 @@ impl BinaryInfo {
     pub fn is_same_content(&self, other: &Self) -> bool {
         self.sha256 == other.sha256
     }
-
-    /// SHA-256ハッシュを短縮表示する（UI用）
-    pub fn short_hash(&self) -> String {
-        if self.sha256.len() > 16 {
-            format!("{}...", &self.sha256[..16])
-        } else {
-            self.sha256.clone()
-        }
-    }
 }
 
 /// バイナリファイルの比較結果

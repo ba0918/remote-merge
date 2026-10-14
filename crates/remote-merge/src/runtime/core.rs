@@ -91,11 +91,6 @@ impl CoreRuntime {
         }
     }
 
-    /// PassphraseProvider を設定する
-    pub fn set_passphrase_provider(&mut self, provider: Arc<dyn PassphraseProvider>) {
-        self.passphrase_provider = Some(provider);
-    }
-
     /// テスト用: SSH 接続なしの最小ランタイムを作成する
     #[cfg(test)]
     pub fn new_for_test() -> Self {

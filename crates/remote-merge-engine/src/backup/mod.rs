@@ -95,11 +95,6 @@ fn lexically_normalized(root_dir: &Path) -> PathBuf {
     }
 }
 
-/// 現在時刻からバックアップ用タイムスタンプ（= セッションID）を生成する。
-pub fn backup_timestamp() -> String {
-    Utc::now().format("%Y%m%d-%H%M%S").to_string()
-}
-
 /// 次のセッション ID を決められない理由（同じ日時の連番が使える最大値に達した）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionSequenceExhausted;
