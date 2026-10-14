@@ -2,7 +2,7 @@
 
 ## What this is
 
-SSH 経由でローカルと複数のリモートサーバのファイルを比較・マージする Rust の CLI ツール。非対話で動き、JSON 出力に対応する。正規化した仕様は `docs/ir/` に置く。
+SSH 経由でローカルと複数のリモートサーバのファイルを比較・マージする Rust の CLI ツール。非対話で動き、JSON 出力に対応する。正規化した仕様は `docs/ir/` に置く。文書の入口は `docs/README.md`。
 
 ## Stack and layout
 
