@@ -48,6 +48,10 @@ pub(crate) const LOGIN_SHELLS: [&str; 4] = ["sh", "bash", "dash", "fish"];
 /// `REMOTE_MERGE_TEST_REQUIRE_FISH` が空でなければ、fish がないことを失敗にする（CI は fish を
 /// 入れてこの変数を置き、fish での確認が黙って抜けないようにする）。
 #[cfg(test)]
+#[expect(
+    clippy::print_stderr,
+    reason = "テストで確認を飛ばしたことを知らせる（ライブラリには含まれない）"
+)]
 pub(crate) fn skip_missing_shell(shell: &str) {
     let fish_required =
         std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_FISH").is_some_and(|value| !value.is_empty());

@@ -743,14 +743,15 @@ fn load_secret_key_with_passphrase(
                             MAX_PASSPHRASE_RETRIES,
                             expanded_path
                         );
-                        eprintln!(
-                            "Incorrect passphrase (attempt {}/{}). Try again.",
-                            attempt, MAX_PASSPHRASE_RETRIES
+                        tracing::warn!(
+                            target: "remote_merge::warning",
+                            "Incorrect passphrase (attempt {attempt}/{MAX_PASSPHRASE_RETRIES}). \
+                             Try again.",
                         );
                     } else {
-                        eprintln!(
-                            "Authentication failed after {} attempts.",
-                            MAX_PASSPHRASE_RETRIES
+                        tracing::warn!(
+                            target: "remote_merge::warning",
+                            "Authentication failed after {MAX_PASSPHRASE_RETRIES} attempts.",
                         );
                     }
                 }

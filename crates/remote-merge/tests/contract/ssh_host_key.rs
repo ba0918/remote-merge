@@ -212,6 +212,7 @@ fn rejecting_an_unknown_host_key_stops_cli_approval() {
         22,
         "ssh-ed25519",
         "SHA256:example",
-        &mut answer
+        &mut answer,
+        &mut std::io::sink()
     ));
 }

@@ -68,7 +68,10 @@ impl PassphraseProvider for CliPassphraseProvider {
             Ok(_) => None,
             Err(e) => {
                 tracing::debug!(target: "remote_merge::ssh::passphrase_provider", "Failed to read passphrase from terminal: {}", e);
-                eprintln!("Error: Could not read passphrase from terminal.");
+                tracing::warn!(
+                    target: "remote_merge::warning",
+                    "Could not read the passphrase from the terminal."
+                );
                 None
             }
         }

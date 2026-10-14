@@ -1,4 +1,5 @@
 #![warn(clippy::unwrap_used)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 pub mod client;
 pub mod hint;
 pub mod host_key_verifier;
