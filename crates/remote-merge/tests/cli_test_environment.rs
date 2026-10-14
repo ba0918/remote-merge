@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 mod common;
 
 use common::{CliEnv, remote_merge_cmd};
@@ -39,6 +43,7 @@ fn the_isolated_homes_of_a_command_without_config_are_removed_with_the_command()
 #[test]
 fn a_command_whose_isolated_homes_cannot_be_removed_says_so() {
     use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
     if unsafe { libc::geteuid() } == 0 {
         return;
     }

@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 //! 書き込みと symlink の作成が親を作るときの失敗の種類（docs/ir/paths/operations.md の REQ-paths-020）
 use std::fs;
 use std::io::Write;
@@ -71,6 +75,7 @@ fn nothing_is_made_when_the_root_dir_is_gone() {
 #[test]
 fn a_root_dir_under_an_unsearchable_directory_is_permission_denied() {
     use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
     if unsafe { libc::geteuid() == 0 } {
         return;
     }

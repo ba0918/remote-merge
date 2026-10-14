@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 use std::path::PathBuf;
 
 /// サーバ接続設定

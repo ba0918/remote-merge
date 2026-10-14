@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
@@ -16,6 +20,7 @@ fn mode_of(path: &Path) -> u32 {
 
 /// root でないときだけ、権限で読めない状態を作れる
 fn is_root() -> bool {
+    // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
     unsafe { libc::geteuid() == 0 }
 }
 

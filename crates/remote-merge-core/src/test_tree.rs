@@ -108,6 +108,10 @@ impl Drop for TestTree {
 
 /// 戻せなかったことと消せなかったことを知らせる。試験がもう panic しているなら、二重の panic で
 /// 中断させずに標準エラーに出す
+#[expect(
+    clippy::print_stderr,
+    reason = "二重の panic を避けるため、試験がもう panic しているときだけ標準エラーに出す"
+)]
 fn report(problems: Vec<String>) {
     if problems.is_empty() {
         return;

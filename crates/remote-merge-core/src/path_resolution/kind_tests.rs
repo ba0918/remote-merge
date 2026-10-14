@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 //! 確認の結果の「存在する」と「末尾の symlink」が、存在するものの種類を持つこと
 //! （docs/ir/paths/resolution.md の REQ-paths-002、docs/decision/records/2026-10-12-foundation.md の A2）
 
@@ -19,6 +23,7 @@ fn an_existing_entry_carries_whether_it_is_a_file_a_directory_or_something_else(
     fs::write(root.join("file"), "x").unwrap();
     fs::create_dir(root.join("dir")).unwrap();
     let fifo = std::ffi::CString::new(root.join("fifo").to_str().unwrap()).unwrap();
+    // SAFETY: 一時ディレクトリの下の名前の CString と、通常のモードを渡す
     assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
 
     for (rel, kind) in [

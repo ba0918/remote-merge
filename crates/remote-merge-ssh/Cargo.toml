@@ -32,3 +32,6 @@ test-utils = []
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
 serial_test = "3"
 tempfile = "3"
+
+[lints]
+workspace = true

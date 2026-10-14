@@ -53,3 +53,6 @@ required-features = ["test-utils"]
 [[test]]
 name = "agent_ssh_deploy"
 required-features = ["test-utils"]
+
+[lints]
+workspace = true

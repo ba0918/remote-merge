@@ -75,7 +75,10 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     #[serde(deny_unknown_fields)]
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "serde で読む受け皿の欄で、値を直接読むのは説明の対象だけ"
+    )]
     struct Server {
         user: Option<String>,
         password: Option<String>,
@@ -85,7 +88,7 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     #[serde(deny_unknown_fields)]
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "serde で読む受け皿の欄で、値は直接読まない")]
     struct Config {
         server: Server,
     }

@@ -230,7 +230,10 @@ impl SshClient {
     }
 
     /// 未知ホスト検出時の verifier 確認 → known_hosts 追加 → リトライ接続
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "接続のやり直しの引き回しを一続きで読ませるため、一つの関数に保つ"
+    )]
     async fn handle_unknown_host_verification(
         info: &super::host_key_verifier::UnknownHostInfo,
         verifier: &dyn HostKeyVerifier,
@@ -803,6 +806,11 @@ fn resolve_password(
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        unsafe_code,
+        reason = "テスト専用の名前の環境変数を、serial 実行の下で置き換える"
+    )]
+
     use super::*;
 
     #[test]
@@ -894,6 +902,7 @@ mod tests {
     #[serial_test::serial]
     fn test_resolve_password_env_var_takes_priority() {
         let env_key = "REMOTE_MERGE_PASSWORD_TESTSERVER";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "env-pass") };
 
         let result = resolve_password("testserver", Some("config-pass"));
@@ -901,6 +910,7 @@ mod tests {
         assert_eq!(pass.as_str(), "env-pass");
         assert_eq!(source, PasswordSource::EnvVar);
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -908,6 +918,7 @@ mod tests {
     #[serial_test::serial]
     fn test_resolve_password_falls_back_to_config() {
         let env_key = "REMOTE_MERGE_PASSWORD_FALLBACKTEST";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
 
         let result = resolve_password("fallbacktest", Some("config-pass"));
@@ -920,6 +931,7 @@ mod tests {
     #[serial_test::serial]
     fn test_resolve_password_empty_env_var_falls_back_to_config() {
         let env_key = "REMOTE_MERGE_PASSWORD_EMPTYENVTEST";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "") };
 
         let result = resolve_password("emptyenvtest", Some("config-pass"));
@@ -927,6 +939,7 @@ mod tests {
         assert_eq!(pass.as_str(), "config-pass");
         assert_eq!(source, PasswordSource::Config);
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -934,6 +947,7 @@ mod tests {
     #[serial_test::serial]
     fn test_resolve_password_no_source_returns_none() {
         let env_key = "REMOTE_MERGE_PASSWORD_NOSOURCE";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
 
         let result = resolve_password("nosource", None);
@@ -944,6 +958,7 @@ mod tests {
     #[serial_test::serial]
     fn test_resolve_password_server_name_uppercased() {
         let env_key = "REMOTE_MERGE_PASSWORD_MY-SERVER";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "found") };
 
         let result = resolve_password("my-server", None);
@@ -951,6 +966,7 @@ mod tests {
         assert_eq!(pass.as_str(), "found");
         assert_eq!(source, PasswordSource::EnvVar);
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -959,6 +975,7 @@ mod tests {
     fn test_resolve_password_returns_zeroizing_env_var() {
         // Zeroizing<String> が返ることのコンパイル時検証 + ランタイムテスト
         let env_key = "REMOTE_MERGE_PASSWORD_ZEROIZETEST";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "zeroize-me") };
 
         let result: Option<(Zeroizing<String>, PasswordSource)> =
@@ -967,6 +984,7 @@ mod tests {
         assert_eq!(pass.as_str(), "zeroize-me");
         assert_eq!(source, PasswordSource::EnvVar);
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -975,6 +993,7 @@ mod tests {
     fn test_resolve_password_returns_zeroizing_config() {
         // config パスで Zeroizing<String> が返ることを確認
         let env_key = "REMOTE_MERGE_PASSWORD_ZEROCONFIGTEST";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
 
         let result: Option<(Zeroizing<String>, PasswordSource)> =

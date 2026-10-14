@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 #![cfg(unix)]
 //! インプロセス SSH サーバーを使った結合テスト
 //!
@@ -71,7 +75,7 @@ struct TestServerHandle {
     port: u16,
     registry: CommandRegistry,
     received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
     exec_commands: Arc<Mutex<HashMap<ChannelId, String>>>,
 }
 
@@ -102,7 +106,7 @@ impl server::Server for TestServer {
 }
 
 struct TestHandler {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
     id: usize,
     registry: CommandRegistry,
     password: Option<String>,
@@ -359,6 +363,7 @@ async fn test_ssh_password_auth() {
 
     // 環境変数でパスワードを設定。edition 2024 では環境の書き換えは unsafe。
     // この名前はこのテスト専用で、ほかのテストは自分の名前の変数だけを読む。
+    // SAFETY: このテスト専用の名前の環境変数で、ほかのテストはこの名前を読まない
     unsafe { std::env::set_var("REMOTE_MERGE_PASSWORD_TEST", "secret123") };
 
     let server_config = make_server_config(handle.port, AuthMethod::Password, None);
@@ -374,6 +379,7 @@ async fn test_ssh_password_auth() {
     client.disconnect().await.expect("切断に失敗");
 
     // クリーンアップ
+    // SAFETY: このテスト専用の名前の環境変数で、ほかのテストはこの名前を読まない
     unsafe { std::env::remove_var("REMOTE_MERGE_PASSWORD_TEST") };
 }
 

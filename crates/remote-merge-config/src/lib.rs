@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 use remote_merge_core::{error, filter};
 
 mod parse_error;

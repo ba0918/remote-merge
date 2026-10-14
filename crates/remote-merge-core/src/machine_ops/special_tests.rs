@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 //! 通常ファイルでないもの（ディレクトリ・FIFO）の中身とハッシュを、開いて待たずに失敗にすること
 //! （docs/ir/paths/operations.md の REQ-paths-021）
 use std::fs;
@@ -18,6 +22,7 @@ fn not_regular<T>() -> Result<T, OpFailure> {
 
 fn fifo(path: &Path) {
     let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: 一時ディレクトリの下の名前の CString と、通常のモードを渡す
     assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o644) }, 0);
 }
 

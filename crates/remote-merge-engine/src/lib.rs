@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 pub mod backup;
 pub mod backup_store;
 pub mod child_listing;

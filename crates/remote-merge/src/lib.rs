@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 pub mod agent;
 pub mod backup;
 pub mod cli;

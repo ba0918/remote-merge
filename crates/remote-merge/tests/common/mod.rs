@@ -2,7 +2,10 @@
 //!
 //! CLI E2E テストで共有するヘルパー関数・構造体を集約する。
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "テストの共通部品は、使うテストバイナリと使わないものがある"
+)]
 
 use std::fs;
 use std::os::unix::fs as unix_fs;

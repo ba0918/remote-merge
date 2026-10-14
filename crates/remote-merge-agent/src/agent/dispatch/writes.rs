@@ -120,6 +120,7 @@ fn owner_to_set(config: &MetadataConfig) -> bool {
     is_root() && (config.default_uid.is_some() || config.default_gid.is_some())
 }
 
+#[expect(unsafe_code, reason = "実効 uid の確認は libc::geteuid を使う")]
 fn is_root() -> bool {
     // SAFETY: geteuid は引数を取らず、いつも成功して呼び出したプロセスの実効 uid を返す
     unsafe { libc::geteuid() == 0 }

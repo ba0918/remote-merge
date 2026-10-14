@@ -98,6 +98,11 @@ pub fn build_default_provider() -> CliPassphraseProvider {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        unsafe_code,
+        reason = "テスト専用の名前の環境変数を、serial 実行の下で置き換える"
+    )]
+
     use super::*;
 
     // ── passphrase_env_key テスト ──
@@ -179,6 +184,7 @@ mod tests {
             Some(Zeroizing::new("test-passphrase".to_string()))
         );
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -194,11 +200,13 @@ mod tests {
     fn test_env_provider_returns_none_when_empty() {
         // W3: 空文字列の環境変数は None として扱う
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_EMPTYTEST";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "") };
 
         let provider = EnvPassphraseProvider::new("emptytest");
         assert_eq!(provider.get_passphrase("/any/key"), None);
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 
@@ -206,6 +214,7 @@ mod tests {
     #[serial_test::serial]
     fn test_env_provider_normalizes_server_name() {
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER";
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::set_var(env_key, "secret") };
 
         let provider = EnvPassphraseProvider::new("my-server");
@@ -214,6 +223,7 @@ mod tests {
             Some(Zeroizing::new("secret".to_string()))
         );
 
+        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
         unsafe { std::env::remove_var(env_key) };
     }
 }

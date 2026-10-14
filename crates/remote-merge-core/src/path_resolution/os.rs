@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "実効 uid での X_OK の確認は libc::faccessat(AT_EACCESS) を使う"
+)]
 //! このマシンのファイルシステムを調べる基本操作。ローカルの経路とエージェントの経路が同じものを使う。
 //! Unix では標準ライブラリと libc で調べる。Unix 以外では標準ライブラリだけで調べ、検索権限の
 //! ビットがないので、OS が権限のエラーを返したときだけ "permission denied" にする。
@@ -38,6 +42,7 @@ impl PathOps for OsPathOps {
         let path = std::ffi::CString::new(directory).map_err(|_| ResolveError::CannotRead)?;
         // access(2) は実 uid で判定するので、sudo などで実効 uid が違うと答えが割れる。
         // 実効 uid で判定する AT_EACCESS を使う
+        // SAFETY: faccessat はパスのポインタと整数だけを取り、path は有効な CString
         let status =
             unsafe { libc::faccessat(libc::AT_FDCWD, path.as_ptr(), libc::X_OK, libc::AT_EACCESS) };
         if status == 0 {

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 use anyhow::Result;
 
 pub use remote_merge_core::relative_path::RelPathError;

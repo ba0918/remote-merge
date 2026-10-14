@@ -92,7 +92,7 @@ impl server::Server for ProcessAgentServer {
 }
 
 struct ProcessAgentHandler {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
     id: usize,
     /// ChannelId (u32) → StdinTx
     stdin_channels: ChannelStdinMap,

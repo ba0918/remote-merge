@@ -7,5 +7,16 @@ resolver = "3"
 edition = "2024"
 rust-version = "1.88"
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+allow_attributes_without_reason = "warn"
+undocumented_unsafe_blocks = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+
 [profile.release]
 strip = true

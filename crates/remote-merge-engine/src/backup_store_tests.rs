@@ -57,6 +57,10 @@ fn an_expired_session_another_run_removed_first_is_not_an_error() {
 // @kotowari[REQ-backup-025]
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "root で走っているために前提を作れなかったことを知らせる"
+)]
 fn sessions_that_cannot_be_read_are_an_error_and_not_zero_removed() {
     use std::os::unix::fs::PermissionsExt;
     let temp = tempfile::tempdir().unwrap();

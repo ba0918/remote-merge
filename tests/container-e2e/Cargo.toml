@@ -12,3 +12,17 @@ serde_json = "1"
 toml = "0.8"
 tempfile = "3"
 serial_test = "3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+allow_attributes_without_reason = "warn"
+undocumented_unsafe_blocks = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+
+[lints]
+workspace = true

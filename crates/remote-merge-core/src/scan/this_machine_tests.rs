@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
@@ -44,11 +48,16 @@ fn set_mtime(path: &Path, secs: i64, micros: i64) {
     };
     let times = [time, time];
     let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: CString のパスと、2 要素の times の配列はどちらも有効なポインタ
     let result = unsafe { libc::utimes(path.as_ptr(), times.as_ptr()) };
     assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
 }
 
 /// `dir` のファイルシステムが秒より細かい更新時刻を持てるか（ext3 などは秒の精度しか持たない）
+#[expect(
+    clippy::print_stderr,
+    reason = "端末で走らせたときに、秒の精度しか持たないファイルシステムだと知らせる"
+)]
 fn keeps_fractions_of_a_second(dir: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let probe = dir.join(".fraction-probe");
@@ -256,6 +265,10 @@ fn a_time_without_a_fraction_of_a_second_is_read_with_seconds_precision() {
 
 // @kotowari[REQ-config-044, REQ-scan-014]
 #[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "root で走っているために前提を作れなかったことを知らせる"
+)]
 fn an_entry_that_cannot_be_stat_ed_is_answered_with_its_own_path() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();

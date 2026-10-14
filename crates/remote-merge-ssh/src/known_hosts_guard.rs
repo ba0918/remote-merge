@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "アカウントのホームは getpwnam と CStr を扱う libc の呼び出しでしか引けない"
+)]
 //! テスト用の組み立てで、テストが利用者本人の known_hosts を使うことを止める見張り
 //! （docs/decision/records/2026-10-12-foundation-1.md の B9）。
 //!
@@ -24,7 +28,13 @@ enum Lookup {
 
 /// `path` が利用者本人の known_hosts なら止める。確かめられないときも止める
 // テスト用の機能を使わない単体テストの組み立てでは、見張りの部品だけを確かめる
-#[cfg_attr(not(feature = "test-utils"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "test-utils"),
+    allow(
+        dead_code,
+        reason = "テストの見張り専用で、テスト支援を使わないビルドでは使われない"
+    )
+)]
 pub(crate) fn refuse_the_users_file(path: &Path) {
     if let Err(reason) = check_not_users_file(path, users_home()) {
         panic!("tests must not use the user's known_hosts: {reason}");
@@ -83,7 +93,13 @@ fn lexical(path: &Path) -> PathBuf {
 }
 
 /// アカウントのホームディレクトリ（環境変数 HOME によらない）
-#[cfg_attr(not(feature = "test-utils"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "test-utils"),
+    allow(
+        dead_code,
+        reason = "テストの見張り専用で、テスト支援を使わないビルドでは使われない"
+    )
+)]
 fn users_home() -> Result<PathBuf, String> {
     home_from_lookup(lookup_with_buffer)
 }
@@ -111,7 +127,13 @@ fn home_from_lookup(mut lookup: impl FnMut(usize) -> Lookup) -> Result<PathBuf, 
 }
 
 /// 大きさ `size` のバッファで、実行している利用者のアカウントを一度引く
-#[cfg_attr(not(feature = "test-utils"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "test-utils"),
+    allow(
+        dead_code,
+        reason = "テストの見張り専用で、テスト支援を使わないビルドでは使われない"
+    )
+)]
 fn lookup_with_buffer(size: usize) -> Lookup {
     use std::ffi::CStr;
     use std::os::unix::ffi::OsStrExt;

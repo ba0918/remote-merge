@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 #![cfg(unix)]
 //! merge が新しく作るファイルとディレクトリが、どの経路でも書いた利用者の持ち物になること
 //! （docs/ir/merge/permissions.md の REQ-merge-042）の契約テスト。sudo=true のサーバの場合は
@@ -31,6 +35,7 @@ fn merge_new(fixture: &AgentFixture, target_root: &Path, sides: &[&str]) -> (u32
 // @kotowari[REQ-merge-042, EX-merge-063]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_merge_063_a_new_file_and_its_new_directory_belong_to_the_writer_on_both_routes() {
+    // SAFETY: geteuid は引数を取らず、常に成功する
     let me = unsafe { libc::geteuid() };
 
     let local = AgentFixture::new(Setup::default(), Faults::default()).await;

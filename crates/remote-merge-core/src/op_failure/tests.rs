@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 use std::io;
 
 use super::*;
@@ -29,6 +33,7 @@ fn an_os_error_becomes_one_kind() {
 
 /// C ライブラリの文言（glibc と musl で違う）
 fn strerror(code: i32) -> String {
+    // SAFETY: strerror は静的な文字列を返し、NULL にならない
     let text = unsafe { std::ffi::CStr::from_ptr(libc::strerror(code)) };
     text.to_string_lossy().into_owned()
 }

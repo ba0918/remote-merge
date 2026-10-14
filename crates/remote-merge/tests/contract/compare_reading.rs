@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 #![cfg(unix)]
 //! 比べる流れが、読み込みの失敗をどの種類も判定できないとし、ないことを状態からだけ決め、ハッシュに
 //! 大きさの上限を当てず中身の読み込みにだけ当て、その他の種類を読まないこと（docs/ir/compare/flow.md の
@@ -21,6 +25,7 @@ fn test_name(name: &str) -> String {
 
 /// root でないときだけ、権限で読めない状態を作れる
 fn is_root() -> bool {
+    // SAFETY: geteuid は引数を取らず、常に成功する
     unsafe { libc::geteuid() == 0 }
 }
 

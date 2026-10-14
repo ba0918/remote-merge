@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -5,6 +9,7 @@ use std::path::PathBuf;
 use super::*;
 
 fn root_ignores_permissions() -> bool {
+    // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
     unsafe { libc::geteuid() == 0 }
 }
 

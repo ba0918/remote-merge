@@ -1,3 +1,7 @@
+#![expect(
+    unsafe_code,
+    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
+)]
 #![cfg(unix)]
 //! ローカルとエージェントのパスの確認が同じ結果を返すこと（docs/ir/paths/routes.md）の契約テスト。
 //!
@@ -407,6 +411,7 @@ fn generated_link_states_give_the_same_answer_on_both_routes() {
 #[test]
 fn ex_paths_043_below_a_directory_without_search_permission_every_route_answers_permission_denied()
 {
+    // SAFETY: geteuid は引数を取らず、常に成功する
     if unsafe { libc::geteuid() } == 0 {
         return;
     }
