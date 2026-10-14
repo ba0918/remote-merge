@@ -11,8 +11,5 @@ serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
 remote-merge-core = { path = "../remote-merge-core" }
 
-[dev-dependencies]
-serde_json = "1.0.149"
-
 [lints]
 workspace = true

@@ -19,7 +19,6 @@ remote-merge-settings = { path = "../remote-merge-settings" }
 rpassword = "7"
 zeroize = "1"
 remote-merge-core = { path = "../remote-merge-core" }
-chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 
 [target."cfg(unix)".dependencies]

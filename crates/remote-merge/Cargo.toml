@@ -10,30 +10,20 @@ remote-merge-engine = { path = "../remote-merge-engine" }
 remote-merge-agent = { path = "../remote-merge-agent" }
 remote-merge-config = { path = "../remote-merge-config" }
 remote-merge-ssh = { path = "../remote-merge-ssh" }
-remote-merge-settings = { path = "../remote-merge-settings" }
 remote-merge-protocol = { path = "../remote-merge-protocol" }
 remote-merge-core = { path = "../remote-merge-core" }
-russh = "0.57"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 anyhow = "1"
-thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
-glob-match = "0.2"
 base64 = "0.22"
-hmac = "0.12"
-sha1 = "0.10"
-walkdir = "2"
 sha2 = "0.10"
 serde_json = "1.0.149"
-rmp-serde = "1"
-rpassword = "7"
-zeroize = "1"
 
 [features]
 ## テスト用ユーティリティを公開する（インテグレーションテスト向け）
@@ -41,9 +31,10 @@ test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
+russh = "0.57"
+walkdir = "2"
 libc = "0.2"
 tempfile = "3"
-serial_test = "3"
 proptest = "1.11.0"
 
 [[test]]

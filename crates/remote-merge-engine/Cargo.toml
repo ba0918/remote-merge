@@ -8,22 +8,15 @@ publish = false
 [dependencies]
 remote-merge-core = { path = "../remote-merge-core" }
 remote-merge-config = { path = "../remote-merge-config" }
-remote-merge-protocol = { path = "../remote-merge-protocol" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
-walkdir = "2"
 serde = { version = "1", features = ["derive"] }
-glob-match = "0.2"
 sha2 = "0.10"
 serde_json = "1.0.149"
 
 [dev-dependencies]
 tempfile = "3"
-serial_test = "3"
-
-[target."cfg(unix)".dependencies]
-libc = "0.2"
 
 [lints]
 workspace = true
