@@ -95,3 +95,35 @@ fn req_cli_021_an_excluded_named_file_counts_with_the_whole_scan() {
 
     assert_truncated_at(&run, 2);
 }
+
+// エージェントの経路でも、下の走査が数えた件数を一覧の counted として受け取り、名前で指定した
+// 起点そのものを集める走査には残りだけを当てる（右だけが上限ちょうどまで数え、残りが 0 なら
+// 起点そのものを集める走査は打ち切る）
+// @kotowari[REQ-cli-021, REQ-cli-084]
+#[tokio::test(flavor = "multi_thread")]
+async fn req_cli_021_a_remote_named_directory_and_file_share_one_entry_limit_via_the_agent() {
+    use super::agent_support::{AgentFixture, Setup};
+    let fixture =
+        AgentFixture::new(Setup::default(), super::server_faults::Faults::default()).await;
+    std::fs::create_dir_all(fixture.local()).unwrap();
+    for path in ["dir/a.txt", "dir/b.txt", "f1.txt"] {
+        fixture.put(path, Some("left\n"), Some("right\n"));
+    }
+    // 右にだけ 1 件足し、右の下の走査だけが上限ちょうどまで数えるようにする
+    fixture.put("dir/c.txt", None, Some("right\n"));
+
+    let output = fixture.run(&["diff", "dir", "f1.txt", "--max-entries", "3"]);
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    let errors = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{json}"));
+    assert!(
+        errors.iter().any(|error| error["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("Tree scan truncated at 3 entries."))),
+        "{json}"
+    );
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+}
