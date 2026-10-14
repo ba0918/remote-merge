@@ -16,9 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install the pinned toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -28,7 +27,7 @@ jobs:
           cargo fmt --manifest-path tests/container-e2e/Cargo.toml --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Install pinned kotowari
         run: cargo install --git https://github.com/ba0918/kotowari.git --rev 5fe0f2998273e8f831e1ba4a5724bc34e57e4816 --locked kotowari
@@ -42,7 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the pinned toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -57,7 +57,7 @@ jobs:
           test_home=$(mktemp -d)
           trap 'rm -rf -- "$test_home"' EXIT
           mkdir -p "$test_home/config" "$test_home/data"
-          HOME="$test_home" XDG_CONFIG_HOME="$test_home/config" XDG_DATA_HOME="$test_home/data" cargo test --all-features
+          HOME="$test_home" XDG_CONFIG_HOME="$test_home/config" XDG_DATA_HOME="$test_home/data" cargo test --workspace --all-features --locked
 
   container-e2e:
     name: OpenSSH and sudo (required)
@@ -65,9 +65,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - name: Add the musl target
+        run: rustup target add x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@v2
 
@@ -83,9 +85,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - name: Add the musl target
+        run: rustup target add x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -103,9 +107,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - name: Add the coverage component
+        run: rustup component add llvm-tools-preview
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 
@@ -119,3 +125,19 @@ jobs:
         with:
           name: coverage-report
           path: lcov.info
+
+  msrv:
+    name: MSRV (1.88.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the MSRV toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-1.88.0
+
+      - name: Check with the MSRV toolchain
+        run: cargo +1.88.0 check --workspace --locked

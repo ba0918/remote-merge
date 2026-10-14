@@ -8,8 +8,8 @@ pre-commit:
 pre-push:
   commands:
     clippy:
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
     normal-tests:
-      run: cargo test --all-features
+      run: cargo test --workspace --all-features --locked
     specification:
       run: kotowari check --format json
