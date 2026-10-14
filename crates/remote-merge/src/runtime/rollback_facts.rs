@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use remote_merge_core::compare::{state_table, Follow, Method, Role, SideState};
+use remote_merge_core::compare::{Follow, Method, Role, SideState, state_table};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::path_resolution::ResolveError;
 use remote_merge_core::relative_path::{EntryPath, RelPath};

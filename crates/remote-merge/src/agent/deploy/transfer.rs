@@ -110,9 +110,10 @@ mod tests {
             cmds.verify_cmd,
             "'/var/tmp/remote-merge-user/remote-merge.tmp' --version"
         );
-        assert!(cmds
-            .checksum_cmd
-            .contains("sha256sum '/var/tmp/remote-merge-user/remote-merge.tmp'"));
+        assert!(
+            cmds.checksum_cmd
+                .contains("sha256sum '/var/tmp/remote-merge-user/remote-merge.tmp'")
+        );
         assert_eq!(cmds.tmp_path, "/var/tmp/remote-merge-user/remote-merge.tmp");
         assert_eq!(
             cmds.mv_cmd,
@@ -215,21 +216,25 @@ mod tests {
         let path = PathBuf::from("/var/tmp/my dir/remote merge");
         let cmds = build_deploy_commands(&path, false);
         assert_eq!(cmds.tmp_path, "/var/tmp/my dir/remote merge.tmp");
-        assert!(cmds
-            .chmod_cmd
-            .contains("'/var/tmp/my dir/remote merge.tmp'"));
-        assert!(cmds
-            .verify_cmd
-            .contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(
+            cmds.chmod_cmd
+                .contains("'/var/tmp/my dir/remote merge.tmp'")
+        );
+        assert!(
+            cmds.verify_cmd
+                .contains("'/var/tmp/my dir/remote merge.tmp'")
+        );
         assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge.tmp'"));
         assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge'"));
-        assert!(cmds
-            .rm_tmp_cmd
-            .contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(
+            cmds.rm_tmp_cmd
+                .contains("'/var/tmp/my dir/remote merge.tmp'")
+        );
         assert!(cmds.mkdir_cmd.contains("'/var/tmp/my dir'"));
-        assert!(cmds
-            .symlink_check_cmd
-            .contains("'/var/tmp/my dir/remote merge'"));
+        assert!(
+            cmds.symlink_check_cmd
+                .contains("'/var/tmp/my dir/remote merge'")
+        );
     }
 
     // --- build_pre_write_command ---

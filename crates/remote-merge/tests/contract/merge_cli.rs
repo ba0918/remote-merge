@@ -5,7 +5,7 @@
 
 use std::process::Output;
 
-use super::merge_support::{fixture, Fixture};
+use super::merge_support::{Fixture, fixture};
 
 /// local の file.txt を develop に書き込める構成。参照先の staging にも file.txt がある
 fn one_file_to_merge() -> Fixture {

@@ -115,10 +115,12 @@ fn an_unreadable_ref_is_an_error_for_unchanged_files_and_files_beyond_the_limit(
         .map(|error| error.path.as_str())
         .collect();
     assert_eq!(errors, ["a", "b", "same"]);
-    assert!(output
-        .errors
-        .iter()
-        .all(|error| error.reason == "read failed: ref: permission denied"));
+    assert!(
+        output
+            .errors
+            .iter()
+            .all(|error| error.reason == "read failed: ref: permission denied")
+    );
 }
 
 // 参照先の側だけが root_dir の外を通って状態を集めなかったか、外へ解決されるパスも、左右の側と同じく

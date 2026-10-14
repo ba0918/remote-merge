@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use remote_merge::service::types::FileStatusKind;
 use remote_merge_core::compare::{
-    judge_hashes, judge_states, ContentJudgement, Judgement, Method, Role, SideState, Verdict,
+    ContentJudgement, Judgement, Method, Role, SideState, Verdict, judge_hashes, judge_states,
 };
 
 use super::status_support::{args, fixture, symlink, write_at};

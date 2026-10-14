@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use super::common::{gen_config, strip_ansi, TestDirs};
+use super::common::{TestDirs, gen_config, strip_ansi};
 
 /// `gen_config` の [filter] の exclude の行を `include_line` に置き換えた設定
 pub(super) fn with_include(config: &str, include_line: &str) -> String {

@@ -2,9 +2,9 @@
 //! rollback の書き戻し方（docs/ir/backup/rollback-path.md）の契約テスト。
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 
-use remote_merge::cli::rollback::{execute_rollback, RollbackCommandOutput};
+use remote_merge::cli::rollback::{RollbackCommandOutput, execute_rollback};
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
 use tempfile::TempDir;
@@ -354,13 +354,15 @@ fn a_recorded_symlink_is_not_restored_with_or_without_force() {
         assert_eq!(output.skipped[0].reason, "symlink restore not supported");
     }
     assert_eq!(read(&develop, "link.txt"), "replacement\n");
-    assert!(!develop
-        .path()
-        .join("link.txt")
-        .symlink_metadata()
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        !develop
+            .path()
+            .join("link.txt")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 fn assert_single_skip(output: &remote_merge::service::types::RollbackOutput, reason: &str) {

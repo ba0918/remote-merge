@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use super::{
-    EntryKind, ExistingKind, PathOps, ResolveError, ResolvedPath, NAME_LENGTH_LIMIT,
-    PATH_LENGTH_LIMIT, SYMLINK_LIMIT,
+    EntryKind, ExistingKind, NAME_LENGTH_LIMIT, PATH_LENGTH_LIMIT, PathOps, ResolveError,
+    ResolvedPath, SYMLINK_LIMIT,
 };
 
 /// まだ辿っていない一つの要素

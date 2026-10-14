@@ -3,7 +3,7 @@
 //! symlink を置き換えるために古いリンクを消した後に作れなかった）しかないとき、そのファイルを failed に
 //! 出し、書き込み先の status を "partial" にすること（docs/ir/cli/sync.md の TBL-cli-007）の契約テスト
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 async fn refusing(request: &'static str) -> AgentFixture {

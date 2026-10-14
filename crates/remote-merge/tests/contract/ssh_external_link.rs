@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::{symlink, DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use super::ssh_server::TestServer;
 
 fn verify_local_external_link() {
-    use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+    use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
     use remote_merge::config::load_config_from_paths;
     use remote_merge::runtime::RuntimeTargets;
 

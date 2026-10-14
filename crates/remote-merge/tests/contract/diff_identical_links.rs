@@ -6,7 +6,7 @@
 use std::fs;
 
 use super::common::place_files;
-use super::diff_strategy_support::{strings, Fixture};
+use super::diff_strategy_support::{Fixture, strings};
 
 // ── REQ-cli-083: 同じ symlink は項目に出さない ──
 

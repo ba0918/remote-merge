@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::common::{gen_config, place_files, place_symlink, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, statuses_by_path, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files, place_symlink};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server, statuses_by_path};
 
 /// 名前に TAB・改行・"\" を含むファイル
 const SPECIAL_NAMES: [&str; 3] = ["x\ty.txt", "p\nq.txt", "b\\c.txt"];
@@ -80,8 +80,8 @@ fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_read_on_t
 
 // @kotowari[REQ-scan-006, EX-scan-016]
 #[test]
-fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_on_the_remote_server(
-) {
+fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_on_the_remote_server()
+ {
     let mut dirs = TestDirs::new_2way(&[], &[]);
     place_special_links(&dirs.local_dir.clone(), &dirs.remote_dir.clone());
     assert_eq!(
@@ -102,8 +102,8 @@ async fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_rea
 
 // @kotowari[REQ-scan-006, EX-scan-016]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_via_the_agent(
-) {
+async fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_via_the_agent()
+ {
     let fixture = AgentFixture::new().await;
     assert_eq!(
         listed_via_agent(&fixture, place_special_links),

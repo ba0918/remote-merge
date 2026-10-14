@@ -7,13 +7,13 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 
 use remote_merge_core::scan::outcome::{LinkPoint, ListedKind, Listing};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::path_operations_agree::{set_mtime, Routes, MAX_ENTRIES};
+use super::path_operations_agree::{MAX_ENTRIES, Routes, set_mtime};
 
 const EXCLUDE: [&str; 2] = ["loopdir", "cache"];
 const STAMP: &str = "@1700000000.123456789";

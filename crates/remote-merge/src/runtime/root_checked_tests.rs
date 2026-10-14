@@ -1,6 +1,6 @@
 //! root_dir を先頭に足したまとめた問いと、変更の前に root_dir がなくなったと分かったときの error の
 //! 割り当て（REQ-merge-044・REQ-scan-015）の単体テスト
-use remote_merge_core::op_failure::{failure_of, OpFailure};
+use remote_merge_core::op_failure::{OpFailure, failure_of};
 
 use super::*;
 
@@ -59,9 +59,11 @@ fn the_root_gone_error_goes_only_to_the_first_file_of_the_batch() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("gone");
     let mut runtime = runtime_on(&root);
-    assert!(runtime
-        .root_gone_before_changes(&Side::Local, &["a", "b"], "b", "")
-        .is_none());
+    assert!(
+        runtime
+            .root_gone_before_changes(&Side::Local, &["a", "b"], "b", "")
+            .is_none()
+    );
     runtime
         .inspect_under_root(&Side::Local, &deep(), RootAbsent::GoneAfterScan)
         .err()

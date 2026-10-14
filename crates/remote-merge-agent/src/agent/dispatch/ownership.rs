@@ -8,7 +8,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use remote_merge_core::op_failure::{from_io_error, os_reason, OpFailure};
+use remote_merge_core::op_failure::{OpFailure, from_io_error, os_reason};
 
 /// 作ったものへの所有者の操作と、消す操作
 pub(super) trait OwnerOps {

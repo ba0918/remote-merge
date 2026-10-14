@@ -1,9 +1,9 @@
 use std::fs;
 
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::status::{execute_status, StatusArgs};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::status::{StatusArgs, execute_status};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
@@ -124,10 +124,12 @@ fn excluded_file_is_absent_from_status_and_unmodified_by_merge() {
     let MergeCommandOutput::Files(output) = merge.output else {
         panic!("expected merge output")
     };
-    assert!(output
-        .merged
-        .iter()
-        .all(|file| file.path != "selected/ignored.log"));
+    assert!(
+        output
+            .merged
+            .iter()
+            .all(|file| file.path != "selected/ignored.log")
+    );
     assert_eq!(
         fs::read_to_string(fixture.destination.path().join("selected/ignored.log")).unwrap(),
         "old\n"

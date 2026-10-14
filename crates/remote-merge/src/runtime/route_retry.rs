@@ -4,7 +4,7 @@
 //! （REQ-ssh-003・REQ-ssh-023）。変更はやり直さずに止め、書き込み先の確かめは `confirm` が行う
 //! （REQ-ssh-004・REQ-ssh-022）。どちらも別の経路には切り替えない。
 
-use super::connection::{classify, is_stopped, retry_failed, ProcessingStopped, StopCause};
+use super::connection::{ProcessingStopped, StopCause, classify, is_stopped, retry_failed};
 use super::core::CoreRuntime;
 use crate::side::Side;
 

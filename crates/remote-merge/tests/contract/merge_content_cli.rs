@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use super::common::CliEnv;
 use super::diff_flow_cli::set_mtime;
-use super::merge_flow_cli::{error_of, json, merge, paths_in, LOCAL_TO_DEVELOP};
+use super::merge_flow_cli::{LOCAL_TO_DEVELOP, error_of, json, merge, paths_in};
 
 // 名前で指定したファイルは、root_dir 全体を走査するときも中身で比べ、指定したディレクトリの下の
 // ファイルは大きさと更新時刻で比べる（TBL-compare-003）

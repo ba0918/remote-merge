@@ -47,13 +47,15 @@ async fn a_legacy_server_setting_applies_to_its_connection_only() {
             .await
             .unwrap();
     assert_eq!(other.exec("readiness").await.unwrap(), "ready\n");
-    assert!(SshClient::connect_insecure(
-        "legacy-no-override",
-        &config(legacy.port(), false),
-        &ssh_config()
-    )
-    .await
-    .is_err());
+    assert!(
+        SshClient::connect_insecure(
+            "legacy-no-override",
+            &config(legacy.port(), false),
+            &ssh_config()
+        )
+        .await
+        .is_err()
+    );
 }
 
 // @kotowari[EX-ssh-013]

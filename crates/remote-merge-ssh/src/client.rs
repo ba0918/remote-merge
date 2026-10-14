@@ -5,14 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use russh::keys::load_secret_key;
 use russh::keys::PrivateKeyWithHashAlg;
-use russh::{client, ChannelMsg, Disconnect};
+use russh::keys::load_secret_key;
+use russh::{ChannelMsg, Disconnect, client};
 
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
-use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
+use super::passphrase_provider::{MAX_PASSPHRASE_RETRIES, PassphraseProvider};
 use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
 use crate::login_shell::wrap_for_login_shell;
@@ -175,20 +175,20 @@ impl SshClient {
             }
             Err(e) => {
                 // 接続失敗 → 未知ホストが原因かチェック
-                if let (Some(mut rx), Some(verifier)) = (rx, verifier) {
-                    if let Ok(info) = rx.try_recv() {
-                        return Self::handle_unknown_host_verification(
-                            &info,
-                            verifier,
-                            server_name,
-                            server_config,
-                            ssh_config,
-                            &config,
-                            addr,
-                            passphrase_provider,
-                        )
-                        .await;
-                    }
+                if let (Some(mut rx), Some(verifier)) = (rx, verifier)
+                    && let Ok(info) = rx.try_recv()
+                {
+                    return Self::handle_unknown_host_verification(
+                        &info,
+                        verifier,
+                        server_name,
+                        server_config,
+                        ssh_config,
+                        &config,
+                        addr,
+                        passphrase_provider,
+                    )
+                    .await;
                 }
 
                 // 通常のエラー処理
@@ -793,10 +793,10 @@ fn resolve_password(
     config_password: Option<&str>,
 ) -> Option<(Zeroizing<String>, PasswordSource)> {
     let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
-    if let Ok(val) = std::env::var(&env_key) {
-        if !val.is_empty() {
-            return Some((Zeroizing::new(val), PasswordSource::EnvVar));
-        }
+    if let Ok(val) = std::env::var(&env_key)
+        && !val.is_empty()
+    {
+        return Some((Zeroizing::new(val), PasswordSource::EnvVar));
     }
     config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
 }

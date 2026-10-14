@@ -2,7 +2,7 @@
 
 use super::merge::{MergeCommandOutput, MergeCommandResult};
 use crate::service::output::NO_CHANGES;
-use crate::service::types::{exit_code, MergeFailure, MergeFileResult, MergeOutput};
+use crate::service::types::{MergeFailure, MergeFileResult, MergeOutput, exit_code};
 
 /// 書いたか書く予定のファイル。書き込み先への処理を止めていたら（`stopped`）、済んだファイルが
 /// あっても終了コード 2 にする（docs/ir/ssh/reconnect.md の REQ-ssh-022）

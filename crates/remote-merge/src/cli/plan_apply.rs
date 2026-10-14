@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use remote_merge_core::compare::PathComparison;
 use remote_merge_engine::treat::merge::{MergeEntry, SkipReason};
 use remote_merge_engine::treat::merge_result::Outcome;
-use remote_merge_engine::treat::status::{ref_mark, RefMark};
+use remote_merge_engine::treat::status::{RefMark, ref_mark};
 
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CoreRuntime, PlannedChange};
 use crate::side::Side;

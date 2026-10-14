@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use super::common::{gen_config, TestDirs};
+use super::common::{TestDirs, gen_config};
 
 const NOT_FOUND: &str = "specified path(s) not found on either side";
 

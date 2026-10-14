@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::MultiDiffOutput;

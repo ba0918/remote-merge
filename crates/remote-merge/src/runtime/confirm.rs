@@ -9,7 +9,7 @@ use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::scan::children::ChildListing;
 
 use super::change_check::{
-    describe, describe_unconfirmed, judge, mode_in_listing, Change, Observed, Outcome,
+    Change, Observed, Outcome, describe, describe_unconfirmed, judge, mode_in_listing,
 };
 use super::connection::{classify, is_stopped};
 use super::core::CoreRuntime;

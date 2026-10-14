@@ -3,8 +3,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use chrono::{TimeZone, Utc};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
@@ -179,13 +179,15 @@ fn merge_through_a_symlink_cycle_stops_before_writing() {
         error.to_string().contains("Cannot follow symbolic link"),
         "{error:#}"
     );
-    assert!(develop
-        .path()
-        .join("cycle")
-        .symlink_metadata()
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        develop
+            .path()
+            .join("cycle")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 #[cfg(unix)]
@@ -242,13 +244,15 @@ fn merging_a_regular_file_does_not_replace_a_terminal_symlink() {
     assert!(output.merged.is_empty());
     assert_eq!(output.skipped.len(), 1);
     assert_eq!(output.skipped[0].path, "link.txt");
-    assert!(develop
-        .path()
-        .join("link.txt")
-        .symlink_metadata()
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        develop
+            .path()
+            .join("link.txt")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(
         fs::read_to_string(develop.path().join("link.txt")).unwrap(),
         "linked content\n"
@@ -301,10 +305,12 @@ fn delete_stores_backup_in_aggregate_store() {
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected files")
     };
-    assert!(output.deleted[0]
-        .backup
-        .as_deref()
-        .is_some_and(|value| value.ends_with("/obsolete.txt")));
+    assert!(
+        output.deleted[0]
+            .backup
+            .as_deref()
+            .is_some_and(|value| value.ends_with("/obsolete.txt"))
+    );
     let remaining = fs::read_dir(develop.path())
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
@@ -332,10 +338,12 @@ fn hunk_merge_stores_backup_in_aggregate_store() {
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected files")
     };
-    assert!(output.merged[0]
-        .backup
-        .as_deref()
-        .is_some_and(|value| value.ends_with("/file.txt")));
+    assert!(
+        output.merged[0]
+            .backup
+            .as_deref()
+            .is_some_and(|value| value.ends_with("/file.txt"))
+    );
     assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
 }
 

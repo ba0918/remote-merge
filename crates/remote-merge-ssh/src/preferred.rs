@@ -6,7 +6,7 @@
 use std::borrow::Cow;
 
 use russh::keys::Algorithm;
-use russh::{cipher, kex, mac, Preferred};
+use russh::{Preferred, cipher, kex, mac};
 use tracing::warn;
 
 use crate::config::SshOptions;
@@ -19,28 +19,28 @@ use crate::config::SshOptions;
 pub fn build_preferred(opts: &SshOptions) -> Preferred {
     let mut preferred = Preferred::default();
 
-    if let Some(ref kex_list) = opts.kex_algorithms {
-        if let Some(names) = resolve_kex_names(kex_list) {
-            preferred.kex = Cow::Owned(names);
-        }
+    if let Some(ref kex_list) = opts.kex_algorithms
+        && let Some(names) = resolve_kex_names(kex_list)
+    {
+        preferred.kex = Cow::Owned(names);
     }
 
-    if let Some(ref cipher_list) = opts.ciphers {
-        if let Some(names) = resolve_cipher_names(cipher_list) {
-            preferred.cipher = Cow::Owned(names);
-        }
+    if let Some(ref cipher_list) = opts.ciphers
+        && let Some(names) = resolve_cipher_names(cipher_list)
+    {
+        preferred.cipher = Cow::Owned(names);
     }
 
-    if let Some(ref mac_list) = opts.mac_algorithms {
-        if let Some(names) = resolve_mac_names(mac_list) {
-            preferred.mac = Cow::Owned(names);
-        }
+    if let Some(ref mac_list) = opts.mac_algorithms
+        && let Some(names) = resolve_mac_names(mac_list)
+    {
+        preferred.mac = Cow::Owned(names);
     }
 
-    if let Some(ref key_list) = opts.host_key_algorithms {
-        if let Some(names) = resolve_key_names(key_list) {
-            preferred.key = Cow::Owned(names);
-        }
+    if let Some(ref key_list) = opts.host_key_algorithms
+        && let Some(names) = resolve_key_names(key_list)
+    {
+        preferred.key = Cow::Owned(names);
     }
 
     preferred

@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tracing::{info, warn};
 
 use super::remote_target::current_target;

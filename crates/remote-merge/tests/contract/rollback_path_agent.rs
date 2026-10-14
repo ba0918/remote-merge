@@ -122,8 +122,8 @@ async fn assert_skipped_after_an_ancestor_is_replaced_via_the_agent(
 
 // @kotowari[EX-backup-029]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_via_the_agent(
-) {
+async fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_via_the_agent()
+ {
     let fixture = AgentFixture::new().await;
     let remote_root = assert_skipped_after_an_ancestor_is_replaced_via_the_agent(
         &fixture,
@@ -142,8 +142,8 @@ async fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_
 
 // @kotowari[EX-backup-030]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_via_the_agent(
-) {
+async fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_via_the_agent()
+ {
     let fixture = AgentFixture::new().await;
     let remote_root =
         assert_skipped_after_an_ancestor_is_replaced_via_the_agent(&fixture, "dir/a.txt", |root| {

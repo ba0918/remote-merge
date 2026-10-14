@@ -44,7 +44,7 @@ use std::time::Duration;
 use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{server, ChannelId, CryptoVec};
+use russh::{ChannelId, CryptoVec, server};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

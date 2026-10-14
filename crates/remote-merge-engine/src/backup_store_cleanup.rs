@@ -7,7 +7,7 @@ use std::path::Path;
 
 use remote_merge_config::AppConfig;
 
-use super::{configured_target_keys, unless_not_found, unreadable_store, BackupStore};
+use super::{BackupStore, configured_target_keys, unless_not_found, unreadable_store};
 
 impl BackupStore {
     /// 期限切れのセッションのうち、設定にある書き込み先の領域を消し、消した領域の数を返す

@@ -2,7 +2,7 @@
 
 use super::support::*;
 use crate::agent::protocol::{FileReadResult, WireFailure};
-use remote_merge_core::op_failure::{failure_of, Disconnection};
+use remote_merge_core::op_failure::{Disconnection, failure_of};
 
 /// 挨拶の後に `frame` をそのまま返すエージェントにつないだクライアント
 fn answering_bytes(frame: &[u8]) -> AgentClient<std::io::Cursor<Vec<u8>>, Vec<u8>> {

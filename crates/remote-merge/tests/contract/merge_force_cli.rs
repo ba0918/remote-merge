@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_success, CliEnv};
+use super::common::{CliEnv, assert_exit_success};
 
 fn merge(env: &CliEnv, args: &[&str]) -> Output {
     env.cmd_with("merge")

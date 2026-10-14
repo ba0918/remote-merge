@@ -2,7 +2,7 @@
 //! エージェントの応答を読めないことを `接続断` として扱い、同じ経路で一度だけやり直すこと
 //! （docs/ir/CONTEXT.md の `接続断`、docs/ir/ssh/reconnect.md）の契約テスト。
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 fn garbled(request: &'static str, repeat: Repeat) -> Faults {

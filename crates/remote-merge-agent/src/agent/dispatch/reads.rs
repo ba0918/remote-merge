@@ -84,7 +84,7 @@ fn read_one(
             return vec![FileReadResult::Failed {
                 path,
                 failure: wire(&failure),
-            }]
+            }];
         }
     };
     let size = if chunk_size_limit == 0 {

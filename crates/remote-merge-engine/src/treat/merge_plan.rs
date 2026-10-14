@@ -5,12 +5,12 @@
 use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{
-    read_outcome, PathComparison, ReadOutcome, Role, SideFailure, SideState, Undecidable, Verdict,
+    PathComparison, ReadOutcome, Role, SideFailure, SideState, Undecidable, Verdict, read_outcome,
 };
 use remote_merge_core::scan::outcome::LinkPoint;
 
-use super::merge::{merge_entry, without_skipped_subtrees, MergeEntry, MergeOptions, SkipReason};
-use super::merge_reference::{reference_check, ReferenceCheck};
+use super::merge::{MergeEntry, MergeOptions, SkipReason, merge_entry, without_skipped_subtrees};
+use super::merge_reference::{ReferenceCheck, reference_check};
 use super::merge_scope::{MergeScope, MergeTargets};
 
 /// 書き込み先の symlink のリンク先が UTF-8 として読めないか置換文字を含むときの error（REQ-merge-033。

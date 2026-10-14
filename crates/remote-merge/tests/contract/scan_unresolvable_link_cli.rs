@@ -11,8 +11,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{gen_config, place_files, place_symlink, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files, place_symlink};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 辿れない symlink の置き方の名前と、それを `root` に置く関数と、置いたリンクのパス
 type Placement = (&'static str, fn(&Path), &'static [&'static str]);

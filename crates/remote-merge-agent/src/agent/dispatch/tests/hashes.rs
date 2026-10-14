@@ -169,9 +169,11 @@ fn hash_contents_follows_a_link_to_the_content_of_its_target() {
 
     let expected = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
     match &resps[..] {
-        [AgentResponse::FileHashes {
-            results, is_last, ..
-        }] => {
+        [
+            AgentResponse::FileHashes {
+                results, is_last, ..
+            },
+        ] => {
             assert!(*is_last);
             assert_eq!(
                 results,

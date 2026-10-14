@@ -10,7 +10,7 @@ use remote_merge::cli::merge::MergeArgs;
 
 use serde_json::json;
 
-use super::merge_support::{args, fixture, fixture_with_backup, Fixture};
+use super::merge_support::{Fixture, args, fixture, fixture_with_backup};
 
 const PATH: &str = "file.txt";
 
@@ -152,10 +152,12 @@ fn hunks_on_a_destination_symlink_stops_without_writing() {
 
     assert_eq!(error.to_string(), SYMLINK_ERROR);
     let link = fixture.root("develop").join(PATH);
-    assert!(fs::symlink_metadata(&link)
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fixture.read("develop", "target.txt"), "linked contents\n");
 }
 

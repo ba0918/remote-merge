@@ -4,16 +4,16 @@
 //! engine の treat の表で書き込み・スキップ・failed に訳し、書き込み先を変更の直前にもう一度判定して
 //! から変える。ファイル全体の merge は merge_files、--hunks は merge_hunks が行う。
 
-use remote_merge_engine::treat::sides::{merge_sides, reference_side, Reference};
+use remote_merge_engine::treat::sides::{Reference, merge_sides, reference_side};
 
-use crate::config::{resolve_max_entries, AppConfig};
+use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{
-    format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
-    OutputFormat,
+    OutputFormat, format_json, format_merge_outcome_json, format_merge_outcome_text,
+    format_merge_text,
 };
 use crate::service::path_resolver::parse_path_arguments;
-use crate::service::types::{exit_code, MergeOutcome, MergeOutput};
+use crate::service::types::{MergeOutcome, MergeOutput, exit_code};
 use crate::side::Side;
 use remote_merge_core::relative_path::RelPath;
 
@@ -82,7 +82,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     Ok(result.exit_code)
 }
 
-pub use super::merge_files::{apply_merge, plan_merge, PlannedMerge};
+pub use super::merge_files::{PlannedMerge, apply_merge, plan_merge};
 
 /// merge の読み込み元・書き込み先・参照先
 pub struct MergeSides {

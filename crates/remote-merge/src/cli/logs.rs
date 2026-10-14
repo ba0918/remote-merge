@@ -6,7 +6,7 @@
 use crate::service::output::OutputFormat;
 use crate::telemetry::diagnostic_log::DIAGNOSTIC_LOG_FILE;
 use crate::telemetry::log_dir::default_log_dir;
-use crate::telemetry::log_reader::{self, format_log_text, LogFilter};
+use crate::telemetry::log_reader::{self, LogFilter, format_log_text};
 
 /// logs サブコマンドの引数
 pub struct LogsArgs {
@@ -23,13 +23,13 @@ pub struct LogsArgs {
 /// logs サブコマンドを実行する
 pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
-    if let Some(level) = &args.level {
-        if log_reader::level_rank(level).is_none() {
-            anyhow::bail!(
-                "unknown log level: {level} (expected one of: {})",
-                log_reader::LEVELS.join(", ")
-            );
-        }
+    if let Some(level) = &args.level
+        && log_reader::level_rank(level).is_none()
+    {
+        anyhow::bail!(
+            "unknown log level: {level} (expected one of: {})",
+            log_reader::LEVELS.join(", ")
+        );
     }
 
     let since = match &args.since {

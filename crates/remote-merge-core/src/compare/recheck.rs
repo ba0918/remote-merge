@@ -1,6 +1,6 @@
 //! 変更の直前に書き込み先をもう一度判定する規則（docs/ir/compare/reading.md の REQ-compare-015）
 
-use super::contents::{read_outcome, ReadOutcome};
+use super::contents::{ReadOutcome, read_outcome};
 use super::verdict::{SideFailure, Undecidable};
 use crate::op_failure::OpFailure;
 

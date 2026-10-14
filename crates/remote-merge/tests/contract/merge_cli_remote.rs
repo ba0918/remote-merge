@@ -8,7 +8,7 @@
 use std::fs;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_success, place_symlink, CliEnv};
+use super::common::{CliEnv, assert_exit_success, place_symlink};
 
 /// local の file.txt を develop に書き込める構成
 fn one_file_to_merge() -> CliEnv {

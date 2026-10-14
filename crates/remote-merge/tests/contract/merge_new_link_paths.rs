@@ -5,7 +5,7 @@
 //!
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 
-use super::merge_support::{args, fixture, sync_args, Fixture};
+use super::merge_support::{Fixture, args, fixture, sync_args};
 use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 

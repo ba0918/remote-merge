@@ -7,8 +7,8 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use remote_merge::cli::status::{execute_status, StatusArgs, StatusCommandResult};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::status::{StatusArgs, StatusCommandResult, execute_status};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::FileStatusKind;
 use tempfile::TempDir;

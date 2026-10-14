@@ -9,7 +9,7 @@ use std::path::Path;
 
 use remote_merge::agent::protocol::FileHashResult;
 use remote_merge_core::machine_ops::{self, PermissionMode};
-use remote_merge_core::op_failure::{failure_of, OpFailure, SizeLimit, MAX_FILE_SIZE};
+use remote_merge_core::op_failure::{MAX_FILE_SIZE, OpFailure, SizeLimit, failure_of};
 use remote_merge_core::relative_path::EntryPath;
 
 use super::path_operations_agree::{RouteDir, Routes};

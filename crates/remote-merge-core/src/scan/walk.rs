@@ -7,7 +7,7 @@ use super::exclude::Exclude;
 use super::outcome::{ListedEntry, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
 use super::parts::{
-    changed, in_path_order, join, parent_ids, parent_of, shown, unreadable_directory, Item,
+    Item, changed, in_path_order, join, parent_ids, parent_of, shown, unreadable_directory,
 };
 use super::raw::{DirId, RawKind, ReadCause, Subtree};
 
@@ -119,7 +119,7 @@ impl<'a> Walk<'a> {
                 // 情報を読めなかった項目は、それを入れているディレクトリを読めなかったものに
                 // する（REQ-scan-014）
                 Item::Unread(cause) => {
-                    return Err(unreadable_directory(&join(base, parent_of(rel)), cause).into())
+                    return Err(unreadable_directory(&join(base, parent_of(rel)), cause).into());
                 }
             };
             if entry.path.is_empty() || self.exclude.excludes(&path) {

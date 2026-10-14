@@ -13,7 +13,7 @@ use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 use tempfile::TempDir;
 
-use super::merge_support::{args, fixture, fixture_with_backup, sync_args, Fixture};
+use super::merge_support::{Fixture, args, fixture, fixture_with_backup, sync_args};
 
 const INCOMING: &str = "incoming contents\n";
 const EXISTING: &str = "existing\n";
@@ -183,9 +183,11 @@ fn ex_merge_060_a_source_directory_link_is_compared_with_a_destination_directory
 
     assert_children_merged(&json);
     assert_eq!(fixture.read("develop", "linked/file.txt"), INCOMING);
-    assert!(fs::symlink_metadata(fixture.root("develop").join("linked"))
-        .unwrap()
-        .is_dir());
+    assert!(
+        fs::symlink_metadata(fixture.root("develop").join("linked"))
+            .unwrap()
+            .is_dir()
+    );
 }
 
 // @kotowari[REQ-merge-001, EX-merge-060]

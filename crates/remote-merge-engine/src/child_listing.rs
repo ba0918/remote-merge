@@ -1,7 +1,7 @@
 //! 子の一覧の走査の結果を、子の一覧の結果にする。三つの経路が同じ関数を通る
 
 use remote_merge_core::scan::children::{
-    children_in, listing_failure, ChildListing, ListingFailure,
+    ChildListing, ListingFailure, children_in, listing_failure,
 };
 use remote_merge_core::scan::outcome::{Listing, ScanError};
 

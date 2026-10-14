@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::common::{gen_config, TestDirs};
+use super::common::{TestDirs, gen_config};
 
 /// 設定を置く場所とカレントディレクトリをテストごとに選べる、隔離した実行環境。
 ///
@@ -403,7 +403,9 @@ fn a_relative_config_path_whose_real_path_cannot_be_resolved_stops_with_its_abso
     let wanted_cwd = 4200 - relative.len() - 1;
     let base_len = workspace.root().as_os_str().len();
     if base_len + 300 > wanted_cwd {
-        eprintln!("skipped: the temporary directory ({base_len} bytes) is too deep to nest a working directory of {wanted_cwd} bytes");
+        eprintln!(
+            "skipped: the temporary directory ({base_len} bytes) is too deep to nest a working directory of {wanted_cwd} bytes"
+        );
         return;
     }
     let mut cwd_relative = Vec::new();

@@ -9,7 +9,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::Output;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 /// 自分自身を指す、名前が 0xff の symlink

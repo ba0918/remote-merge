@@ -5,7 +5,7 @@
 //! 状態は別の経路で決まるため、どの場合も書き込む予定のある書き込み先を同じ実行に含める。
 //! 読めないファイルは読み込み元と大きさを変え、中身の読み比べではなく書き込み先の読み直しで失敗させる。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::{SyncOutput, SyncTargetResult, SyncTargetStatus};

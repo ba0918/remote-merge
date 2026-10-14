@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use remote_merge_core::compare::SideState;
 use remote_merge_core::relative_path::EntryPath;
-use remote_merge_engine::treat::rollback::{rollback_plan, RestoreEntry, TargetFacts};
+use remote_merge_engine::treat::rollback::{RestoreEntry, TargetFacts, rollback_plan};
 
 use super::backup_store::BackupRecord;
 use super::change_check::Before;

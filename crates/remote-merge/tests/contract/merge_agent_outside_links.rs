@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 const SOURCE_TO_LOCAL: [&str; 4] = ["--left", "fixture", "--right", "local"];
@@ -89,10 +89,12 @@ async fn the_agent_writes_through_an_intermediate_link_outside_the_root_like_the
             "new\n",
             "{output:?}"
         );
-        assert!(fs::symlink_metadata(fixture.remote().join("shared"))
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            fs::symlink_metadata(fixture.remote().join("shared"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_written_by_the_agent(&fixture, "WriteFile");
         outcome(&output)
     };

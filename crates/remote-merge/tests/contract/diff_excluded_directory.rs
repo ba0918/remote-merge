@@ -9,8 +9,8 @@
 use std::fs;
 
 use super::agent_support::{self, AgentFixture, Setup};
-use super::common::{place_files, CliEnv};
-use super::diff_strategy_support::{strings, Fixture};
+use super::common::{CliEnv, place_files};
+use super::diff_strategy_support::{Fixture, strings};
 use super::server_faults::Faults;
 
 // ── REQ-cli-082: 子がすべて除外されるディレクトリは差分なしとする ──

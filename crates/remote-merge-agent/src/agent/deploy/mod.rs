@@ -73,14 +73,14 @@ pub struct DeployCommands {
 
 // --- re-exports ---
 
-pub use deploy_dir::{build_deploy_dir_check_command, judge_deploy_dir, DeployDir};
+pub use deploy_dir::{DeployDir, build_deploy_dir_check_command, judge_deploy_dir};
 pub use remote_target::{
-    current_target, detect_remote_target_command, parse_remote_target, parse_uname_and_version,
-    TARGET_DARWIN_AARCH64, TARGET_DARWIN_X86_64, TARGET_LINUX_X86_64_MUSL,
+    TARGET_DARWIN_AARCH64, TARGET_DARWIN_X86_64, TARGET_LINUX_X86_64_MUSL, current_target,
+    detect_remote_target_command, parse_remote_target, parse_uname_and_version,
 };
 pub use resolve::{
-    agent_dir_candidates, local_binary_path, resolve_agent_binary, resolve_binary_path,
-    validate_agent_binary, ResolutionSource, ResolvedBinary,
+    ResolutionSource, ResolvedBinary, agent_dir_candidates, local_binary_path,
+    resolve_agent_binary, resolve_binary_path, validate_agent_binary,
 };
 pub use sudo::{build_id_command, build_sudo_check_command, parse_id_output};
 pub use transfer::{
@@ -88,8 +88,8 @@ pub use transfer::{
     check_version_command, expected_version_line, installed_checksum_command, remote_binary_path,
 };
 pub use verify::{
-    is_debug_binary, judge_installed_binary, parse_checksum_output, parse_version_output,
-    sha256_of_bytes, verify_checksum, InstalledBinary,
+    InstalledBinary, is_debug_binary, judge_installed_binary, parse_checksum_output,
+    parse_version_output, sha256_of_bytes, verify_checksum,
 };
 
 #[cfg(test)]

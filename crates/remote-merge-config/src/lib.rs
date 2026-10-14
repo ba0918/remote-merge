@@ -13,7 +13,7 @@ pub use remote_merge_settings::{
 };
 
 use crate::error::AppError;
-use crate::filter::{normalize_include_paths, IncludeValues};
+use crate::filter::{IncludeValues, normalize_include_paths};
 
 // ── 設定ファイル構造体 ──
 
@@ -473,11 +473,11 @@ fn merge_configs(
 
     // servers: プロジェクトで上書き
     let mut servers_raw = global.servers.unwrap_or_default();
-    if let Some(ref mut proj) = project {
-        if let Some(proj_servers) = proj.servers.take() {
-            for (name, server) in proj_servers {
-                servers_raw.insert(name, server);
-            }
+    if let Some(ref mut proj) = project
+        && let Some(proj_servers) = proj.servers.take()
+    {
+        for (name, server) in proj_servers {
+            servers_raw.insert(name, server);
         }
     }
 
@@ -522,20 +522,20 @@ fn merge_configs(
             }
         }
     }
-    if let Some(ref mut proj) = project {
-        if let Some(pf) = proj.filter.take() {
-            if let Some(exc) = pf.exclude {
-                for e in exc {
-                    if !filter.exclude.contains(&e) {
-                        filter.exclude.push(e);
-                    }
+    if let Some(ref mut proj) = project
+        && let Some(pf) = proj.filter.take()
+    {
+        if let Some(exc) = pf.exclude {
+            for e in exc {
+                if !filter.exclude.contains(&e) {
+                    filter.exclude.push(e);
                 }
             }
-            if let Some(inc) = pf.include {
-                for i in inc {
-                    if !filter.include.contains(&i) {
-                        filter.include.push(i);
-                    }
+        }
+        if let Some(inc) = pf.include {
+            for i in inc {
+                if !filter.include.contains(&i) {
+                    filter.include.push(i);
                 }
             }
         }
@@ -832,10 +832,10 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
 
 /// `~` をホームディレクトリに展開する
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
+    if let Some(stripped) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(stripped);
     }
     PathBuf::from(path)
 }

@@ -1,6 +1,6 @@
 mod common;
 
-use common::{remote_merge_cmd, CliEnv};
+use common::{CliEnv, remote_merge_cmd};
 
 fn xdg_data_home(command: &std::process::Command) -> Option<std::path::PathBuf> {
     command

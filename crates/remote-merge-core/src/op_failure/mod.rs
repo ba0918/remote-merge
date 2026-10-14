@@ -6,8 +6,8 @@
 mod message;
 mod size_limit;
 
-pub use message::{failure_of, op_error_of, OpError, Operation, Prefixed};
-pub use size_limit::{check_size, SizeLimit, MAX_FILE_SIZE};
+pub use message::{OpError, Operation, Prefixed, failure_of, op_error_of};
+pub use size_limit::{MAX_FILE_SIZE, SizeLimit, check_size};
 
 /// 一つのパスの結果（結果のキーにするパスと、値か失敗の種類）
 pub type PathResult<T> = (String, Result<T, OpFailure>);

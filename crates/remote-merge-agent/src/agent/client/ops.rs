@@ -6,9 +6,9 @@ use std::io::{Read, Write};
 
 use anyhow::Result;
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
-use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
+use remote_merge_core::relative_path::{EntryPath, RelPath, entries_as_typed};
 
-use super::{mismatch, unexpected, AgentClient, AgentRefused, WRITE_CHUNK_SIZE};
+use super::{AgentClient, AgentRefused, WRITE_CHUNK_SIZE, mismatch, unexpected};
 use crate::agent::protocol::{
     AgentEntryLink, AgentPathCheck, AgentPathInspection, AgentRequest, AgentResponse, RelPathError,
     WireFailure,

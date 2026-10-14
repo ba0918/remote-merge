@@ -18,7 +18,10 @@ fn ex_merge_056_a_source_mode_of_0_read_under_sudo_is_copied_to_the_destination(
     fs::create_dir_all(local.parent().unwrap()).unwrap();
     fs::write(&local, "destination\n").unwrap();
     fs::set_permissions(&local, fs::Permissions::from_mode(0o644)).unwrap();
-    let setup = docker(&container, "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/zero-mode && mkdir -p /data/zero-mode && printf 'source\\n' > /data/zero-mode/a.txt && chown root:root /data/zero-mode/a.txt && chmod 000 /data/zero-mode/a.txt");
+    let setup = docker(
+        &container,
+        "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/zero-mode && mkdir -p /data/zero-mode && printf 'source\\n' > /data/zero-mode/a.txt && chown root:root /data/zero-mode/a.txt && chmod 000 /data/zero-mode/a.txt",
+    );
     assert!(setup.status.success(), "{setup:?}");
 
     let output = run_with_sides(

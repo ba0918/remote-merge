@@ -5,7 +5,7 @@
 use remote_merge::service::types::exit_code;
 
 use super::common::place_files;
-use super::diff_strategy_support::{strings, Fixture};
+use super::diff_strategy_support::{Fixture, strings};
 
 // 名前で指定したディレクトリがいくつあっても、件数の上限は指定した比較全体に一度だけ当てる
 // （REQ-cli-021。ディレクトリごとに当てるのは merge・sync の TBL-scan-001）

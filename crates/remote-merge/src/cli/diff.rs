@@ -3,23 +3,23 @@
 //! 左右（と参照先）を比べる流れ（docs/ir/compare/flow.md）で、パスの指定の仕方によらず中身で比べ、
 //! 判定を engine の treat の表で files・errors・summary に訳し、出力の型に詰めて書き出す。
 
-use remote_merge_core::compare::{choose_method, Command, Follow, Incomplete, Role, Selection};
+use remote_merge_core::compare::{Command, Follow, Incomplete, Role, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_engine::treat::diff::exit_code;
 use remote_merge_engine::treat::diff_file::Sources;
-use remote_merge_engine::treat::diff_listing::{diff_listing, Coverage, Limits};
-use remote_merge_engine::treat::diff_names::{diff_scope, missing_names_of_complete, DiffScope};
+use remote_merge_engine::treat::diff_listing::{Coverage, Limits, diff_listing};
+use remote_merge_engine::treat::diff_names::{DiffScope, diff_scope, missing_names_of_complete};
 use remote_merge_engine::treat::incomplete::incomplete_errors;
-use remote_merge_engine::treat::sides::{compared_sides, reference_side, Reference};
+use remote_merge_engine::treat::sides::{Reference, compared_sides, reference_side};
 use remote_merge_engine::treat::uses::DiffUses;
 
 use super::diff_compare::compare_scope;
-use crate::config::{resolve_max_entries, AppConfig};
+use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{
     CompareRequest, CompareScope, CompareSides, CoreRuntime, EntryLimit, ExternalLinks,
     LostDestination, RuntimeTargets, UnfollowableLinks,
 };
-use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
+use crate::service::output::{OutputFormat, format_json, format_multi_diff_text};
 use crate::service::path_resolver::{parse_path_arguments, paths_not_found};
 use crate::service::types::MultiDiffOutput;
 use crate::side::Side;

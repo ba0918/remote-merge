@@ -75,7 +75,7 @@ pub fn regex_lite_strip(s: &str) -> String {
             // ESC [ ... (letter) をスキップ
             if chars.peek() == Some(&'[') {
                 chars.next(); // '['
-                              // パラメータバイトと中間バイトを読み飛ばし
+                // パラメータバイトと中間バイトを読み飛ばし
                 while let Some(&next) = chars.peek() {
                     if next.is_ascii_alphabetic() || next == '~' {
                         chars.next(); // 終端文字

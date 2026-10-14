@@ -11,8 +11,8 @@ use remote_merge_core::compare::{Follow, Method, Role};
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::test_tree::PermissionLocks;
 
-use super::compare_support::{request, DestinationHashed};
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::compare_support::{DestinationHashed, request};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
 const THIS_TEST: &str = "compare_recheck::ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_all_three_routes";
 
@@ -64,8 +64,8 @@ fn answer(mut child: Child) {
 
 // @kotowari[REQ-compare-015, EX-compare-017, EX-compare-018]
 #[test]
-fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_all_three_routes(
-) {
+fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_all_three_routes()
+ {
     if let Some(child) = child() {
         return answer(child);
     }
@@ -117,8 +117,8 @@ fn answer_locked(mut child: Child) {
 
 // @kotowari[REQ-compare-015, REQ-compare-013]
 #[test]
-fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes(
-) {
+fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes()
+ {
     if let Some(child) = child() {
         return answer(child);
     }

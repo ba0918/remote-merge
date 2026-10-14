@@ -17,7 +17,7 @@ pub fn scan(
         ScanScope::Whole => (true, Vec::new()),
         ScanScope::Starts(starts) => start_paths(starts, exclude),
         ScanScope::Children(path) => {
-            return super::children::scan_children(collector, exclude, path, request.max_entries)
+            return super::children::scan_children(collector, exclude, path, request.max_entries);
         }
     };
     let counters = starts.iter().map(|s| s.group + 1).max().unwrap_or(1);

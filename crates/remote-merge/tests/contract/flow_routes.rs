@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::flow_support::{Roots, Route, CONFIG, HOME, REQUEST, RESULT, ROUTE, ROUTES};
+use super::flow_support::{CONFIG, HOME, REQUEST, RESULT, ROUTE, ROUTES, Roots, Route};
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 

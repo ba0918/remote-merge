@@ -10,7 +10,7 @@ pub use ops::PathContent;
 
 use std::io::{self, Read, Write};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 
 use super::framing;

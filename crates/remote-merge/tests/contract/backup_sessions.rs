@@ -10,7 +10,7 @@ use proptest::test_runner::FileFailurePersistence;
 use remote_merge::backup::{compare_session_ids, next_session_id};
 use remote_merge::cli::merge::execute_merge;
 use remote_merge::cli::rollback::execute_rollback;
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::AppConfig;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_backup_list_text, format_json};

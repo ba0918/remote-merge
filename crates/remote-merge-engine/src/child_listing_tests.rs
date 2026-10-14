@@ -5,7 +5,7 @@ use remote_merge_core::scan::outcome::{
     ListedEntry, ListedKind, Listing, ReadCause, ScanError, ScanFailure,
 };
 
-use super::{into_child_listing, ChildrenTruncated};
+use super::{ChildrenTruncated, into_child_listing};
 
 fn entry(path: &str, kind: ListedKind) -> ListedEntry {
     ListedEntry {

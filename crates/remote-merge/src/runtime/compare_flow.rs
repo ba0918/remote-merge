@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{state_table, Incomplete, PathComparison, PathStates, Role, Uses};
+use remote_merge_core::compare::{Incomplete, PathComparison, PathStates, Role, Uses, state_table};
 use remote_merge_core::scan::outcome::{ScanScope, Start};
 use remote_merge_core::scan::starts::scope_for;
 

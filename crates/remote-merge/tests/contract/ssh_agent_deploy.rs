@@ -51,8 +51,8 @@ async fn nothing_in_a_deploy_directory_under_a_parent_writable_by_everyone_is_ru
 
 // @kotowari[REQ-ssh-017, EX-ssh-032]
 #[tokio::test(flavor = "multi_thread")]
-async fn nothing_in_a_deploy_directory_reached_through_a_link_placed_where_everyone_can_write_is_run(
-) {
+async fn nothing_in_a_deploy_directory_reached_through_a_link_placed_where_everyone_can_write_is_run()
+ {
     let fixture = DeployFixture::new().await;
     let home = fixture.home.path();
     // agent -> between/link2 -> ../good と辿り、途中のリンクだけが誰でも書き込める場所にある

@@ -1,5 +1,5 @@
 use std::fs;
-use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
 
 use super::*;
@@ -93,10 +93,12 @@ fn a_write_onto_a_symlink_or_a_directory_fails_and_changes_nothing() {
     assert!(write(root, &entry("link"), b"x").is_err());
     assert!(write(root, &entry("dir"), b"x").is_err());
     assert_eq!(fs::read(root.join("target")).unwrap(), b"kept");
-    assert!(fs::symlink_metadata(root.join("link"))
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        fs::symlink_metadata(root.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 #[test]

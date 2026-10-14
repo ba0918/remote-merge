@@ -11,8 +11,8 @@ use remote_merge::runtime::CompareScope;
 use remote_merge_core::compare::{Follow, Method};
 use remote_merge_core::op_failure::SizeLimit;
 
-use super::compare_support::{comparison_text, request, DiffUses};
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::compare_support::{DiffUses, comparison_text, request};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
 fn test_name(name: &str) -> String {

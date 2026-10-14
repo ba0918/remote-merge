@@ -17,7 +17,7 @@ use remote_merge::agent::client::AgentClient;
 use remote_merge::agent::dispatch::Dispatcher;
 use remote_merge::agent::inspection::resolved_from_agent;
 use remote_merge::agent::protocol::{
-    deserialize_response, serialize_response, AgentRequest, AgentResponse,
+    AgentRequest, AgentResponse, deserialize_response, serialize_response,
 };
 use remote_merge::agent::server::MetadataConfig;
 use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};

@@ -16,19 +16,19 @@ mod state;
 mod table;
 mod verdict;
 
-pub use comparison::{has_content, Incomplete, NotObserved, PathComparison, Uses};
+pub use comparison::{Incomplete, NotObserved, PathComparison, Uses, has_content};
 pub use contents::{
-    judge_hashes, read_failure_handling, read_outcome, ContentJudgement, FailureHandling,
-    ReadOutcome,
+    ContentJudgement, FailureHandling, ReadOutcome, judge_hashes, read_failure_handling,
+    read_outcome,
 };
 pub use judge::judge_states;
-pub use method::{choose_method, combine_link_pair, Command, Method, Selection};
-pub use pairs::{hash_roles, judge_pairs, Follow, Pair, PairJudgement};
-pub use recheck::{check_before_change, ChangeCheck, Observed};
-pub use settle::{apply_reads, settle_pairs, PairVerdict};
+pub use method::{Command, Method, Selection, choose_method, combine_link_pair};
+pub use pairs::{Follow, Pair, PairJudgement, hash_roles, judge_pairs};
+pub use recheck::{ChangeCheck, Observed, check_before_change};
+pub use settle::{PairVerdict, apply_reads, settle_pairs};
 pub use starts::{blocked_starts, links_outside, outside_on_the_way, paths_to_check};
-pub use state::{followed_state, Mtime, SideState};
-pub use table::{state_table, PathStates};
+pub use state::{Mtime, SideState, followed_state};
+pub use table::{PathStates, state_table};
 pub use verdict::{Judgement, Present, Role, SideFailure, Undecidable, Verdict};
 
 #[cfg(test)]

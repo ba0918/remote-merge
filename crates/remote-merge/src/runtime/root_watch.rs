@@ -2,7 +2,7 @@
 //! 確かめ直し、なくなっていればその側への処理を止める比較先（docs/decision/records/2026-10-12-foundation-3.md
 //! の D47・D48）。三つの経路の比較先を `for_side` がこれで包むので、確かめ直しはここ一か所にある。
 
-use remote_merge_core::op_failure::{op_error_of, OpError, OpFailure, Operation, PathResult};
+use remote_merge_core::op_failure::{OpError, OpFailure, Operation, PathResult, op_error_of};
 use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 

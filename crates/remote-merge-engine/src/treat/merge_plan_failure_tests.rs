@@ -5,7 +5,7 @@ use remote_merge_core::scan::outcome::LinkPoint;
 
 use super::super::merge::MergeEntry;
 use super::super::test_support::file;
-use super::tests::{paths, plan_for, two, PLAIN};
+use super::tests::{PLAIN, paths, plan_for, two};
 use super::*;
 
 // 書き換えるか消す書き込み先のハッシュを読めなければ、読み込みの失敗として書かず消さない

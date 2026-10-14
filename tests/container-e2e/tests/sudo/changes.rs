@@ -19,7 +19,10 @@ fn permitted_sudo_preserves_root_owner_mode_and_original_backup() {
         "incoming privileged\n",
     )
     .unwrap();
-    let setup = docker(&container, "mkdir -p /data /tmp/agent/remote-merge-testuser && printf 'old root-only\\n' > /data/example.txt && chown root:root /data/example.txt && chmod 600 /data/example.txt");
+    let setup = docker(
+        &container,
+        "mkdir -p /data /tmp/agent/remote-merge-testuser && printf 'old root-only\\n' > /data/example.txt && chown root:root /data/example.txt && chmod 600 /data/example.txt",
+    );
     assert!(setup.status.success(), "{setup:?}");
 
     let output = merge(&home, &port);
@@ -63,7 +66,10 @@ fn a_root_owned_file_only_on_the_target_is_deleted_through_the_agent_under_sudo(
     let home = TempDir::new().unwrap();
     fs::create_dir_all(home.path().join("local/delete-only")).unwrap();
     // 消せるのは root だけ（ディレクトリもファイルも root の持ち物で、利用者は書き込めない）
-    let setup = docker(&container, "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/delete-only && mkdir -p /data/delete-only && printf 'old\\n' > /data/delete-only/old.txt && chown -R root:root /data/delete-only && chmod 755 /data/delete-only && chmod 600 /data/delete-only/old.txt");
+    let setup = docker(
+        &container,
+        "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/delete-only && mkdir -p /data/delete-only && printf 'old\\n' > /data/delete-only/old.txt && chown -R root:root /data/delete-only && chmod 755 /data/delete-only && chmod 600 /data/delete-only/old.txt",
+    );
     assert!(setup.status.success(), "{setup:?}");
 
     let output = run_with(
@@ -90,7 +96,10 @@ fn denied_sudo_never_falls_back_to_an_unprivileged_write() {
     let home = TempDir::new().unwrap();
     fs::create_dir_all(home.path().join("local")).unwrap();
     fs::write(home.path().join("local/example.txt"), "incoming\n").unwrap();
-    let setup = docker(&container, "mkdir -p /data && printf 'original\\n' > /data/example.txt && chown -R testuser:testuser /data");
+    let setup = docker(
+        &container,
+        "mkdir -p /data && printf 'original\\n' > /data/example.txt && chown -R testuser:testuser /data",
+    );
     assert!(setup.status.success(), "{setup:?}");
     let output = merge(&home, &port);
     assert!(!output.status.success(), "{output:?}");

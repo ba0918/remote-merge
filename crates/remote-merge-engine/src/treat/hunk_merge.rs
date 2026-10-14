@@ -6,8 +6,8 @@ use std::collections::HashSet;
 
 use remote_merge_core::diff::conflict::detect_conflicts;
 use remote_merge_core::diff::engine::{
-    apply_selected_hunks_single_pass, compute_diff, merge_hunks_in_display_hunks, DiffHunk,
-    DiffLine, DiffResult, DiffTag, HunkDirection,
+    DiffHunk, DiffLine, DiffResult, DiffTag, HunkDirection, apply_selected_hunks_single_pass,
+    compute_diff, merge_hunks_in_display_hunks,
 };
 
 /// 当てた結果

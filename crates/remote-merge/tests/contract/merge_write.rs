@@ -6,7 +6,7 @@
 use std::os::unix::fs::MetadataExt;
 use std::time::Duration;
 
-use super::merge_support::{args, fixture, sync_args, Fixture};
+use super::merge_support::{Fixture, args, fixture, sync_args};
 
 /// 読めない側を指定したファイルを三つ作る。
 /// source-locked.txt は local、destination-locked.txt は develop、both-locked.txt は両側が読めない。

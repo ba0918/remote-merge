@@ -5,7 +5,7 @@ use std::fs;
 
 use remote_merge::cli::merge::execute_merge;
 use remote_merge::cli::rollback::execute_rollback;
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;

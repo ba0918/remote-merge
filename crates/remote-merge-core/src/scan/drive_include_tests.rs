@@ -90,10 +90,12 @@ fn an_include_value_inside_a_named_directory_is_listed_with_itself_in_that_direc
     ]);
     let listing = run(&mut fake, &exclude(&[]), &scope_request(scope, 2)).unwrap();
     assert_eq!(listed(&listing), ["a/f.txt", "b/x", "b/y"]);
-    assert!(listing
-        .entries
-        .iter()
-        .any(|e| e.path == "b" && e.kind == ListedKind::Directory));
+    assert!(
+        listing
+            .entries
+            .iter()
+            .any(|e| e.path == "b" && e.kind == ListedKind::Directory)
+    );
     assert!(!listing.truncated);
     assert_eq!(fake.asked_paths(), ["", "a/f.txt", "b"]);
 }
@@ -141,10 +143,11 @@ fn a_directory_only_checked_is_listed_without_reading_below_it() {
     );
     let listing = run(&mut fake, &exclude(&[]), &request).unwrap();
     assert_eq!(listed(&listing), ["docs/in/a"]);
-    assert!(fake
-        .asked
-        .iter()
-        .any(|q| q.path == b"docs" && q.depth == Depth::Itself));
+    assert!(
+        fake.asked
+            .iter()
+            .any(|q| q.path == b"docs" && q.depth == Depth::Itself)
+    );
 }
 
 // @kotowari[REQ-config-044, REQ-cli-082]

@@ -10,8 +10,8 @@
 use std::path::Path;
 
 use super::common::{place_files, place_symlink};
-use super::scan_listing_cli::{statuses_by_path, AgentFixture};
-use super::scan_routes_agree::{all_equal, RemoteFixture};
+use super::scan_listing_cli::{AgentFixture, statuses_by_path};
+use super::scan_routes_agree::{RemoteFixture, all_equal};
 
 /// 辿れない symlink の置き方の名前、それを `root` に置く関数、それを除く exclude の行
 pub(super) type Placement = (&'static str, fn(&Path), &'static str);

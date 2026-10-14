@@ -67,7 +67,7 @@ impl CoreRuntime {
             deploy::DeployDir::Unsafe => {
                 return Err(AgentState::UnsafeLocation {
                     location: deploy_dir_display.to_string(),
-                })
+                });
             }
             // 利用者に向けた警告は、記録の細かさによらず標準エラーに出す（F51）
             deploy::DeployDir::Repaired => tracing::warn!(

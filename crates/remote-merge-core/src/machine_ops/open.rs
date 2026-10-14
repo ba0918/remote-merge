@@ -48,7 +48,7 @@ pub fn open_for_write_with(
                         new_dirs: Vec::new(),
                         created: false,
                     })
-                    .map_err(failed)
+                    .map_err(failed);
             }
         }
     }

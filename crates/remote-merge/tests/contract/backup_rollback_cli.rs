@@ -3,9 +3,9 @@
 //! 関数呼び出しで確かめるもの。
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 
-use remote_merge::cli::rollback::{execute_rollback, RollbackCommandOutput};
+use remote_merge::cli::rollback::{RollbackCommandOutput, execute_rollback};
 use remote_merge::service::output::{
     format_backup_list_text, format_json, format_rollback_dry_run_text, format_rollback_text,
 };
@@ -143,10 +143,12 @@ fn rollback_json_has_the_result_fields() {
         "parent directory no longer exists"
     );
     assert_eq!(json["failed"][0]["path"], "failed.txt");
-    assert!(json["failed"][0]["error"]
-        .as_str()
-        .unwrap()
-        .starts_with("backup failed: "));
+    assert!(
+        json["failed"][0]["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("backup failed: ")
+    );
 }
 
 // @kotowari[REQ-backup-038]
@@ -331,13 +333,15 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
         "path now resolves to a different location"
     );
     assert_eq!(result.exit_code, 0);
-    assert!(develop
-        .path()
-        .join("file.txt")
-        .symlink_metadata()
-        .unwrap()
-        .file_type()
-        .is_symlink());
+    assert!(
+        develop
+            .path()
+            .join("file.txt")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 /// 書き戻す先の親ディレクトリを辿れなくして、そのファイルの確かめを失敗させた

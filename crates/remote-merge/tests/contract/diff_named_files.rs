@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 use remote_merge::service::types::exit_code;
 
 use super::common::place_files;
-use super::diff_strategy_support::{set_mtime, strings, Fixture};
+use super::diff_strategy_support::{Fixture, set_mtime, strings};
 
 // ── REQ-cli-080: 名前で指定したファイルは中身で比べる ──
 

@@ -17,7 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use serde_json::Value;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 const NOT_WRITTEN: &str = "not written";

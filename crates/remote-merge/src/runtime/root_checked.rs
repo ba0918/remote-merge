@@ -62,7 +62,7 @@ impl CoreRuntime {
                 return Err(match absent {
                     RootAbsent::GoneAfterScan => self.root_gone_after_scan(side),
                     RootAbsent::MissingAtStart => root_missing(side, self),
-                })
+                });
             }
         };
         let answers: Vec<_> = answers.collect();

@@ -4,7 +4,7 @@
 //! （docs/ir/paths/operations.md の REQ-paths-013・REQ-paths-020）の契約テスト。
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 
 use remote_merge_core::machine_ops::{self, EntryLink};

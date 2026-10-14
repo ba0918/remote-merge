@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_error, assert_exit_success, CliEnv};
+use super::common::{CliEnv, assert_exit_error, assert_exit_success};
 
 fn merge(env: &CliEnv, paths: &[&str]) {
     let output = env

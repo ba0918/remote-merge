@@ -4,9 +4,9 @@ use std::fs;
 use std::os::unix::fs::symlink;
 
 use chrono::{TimeZone, Utc};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
@@ -297,10 +297,11 @@ fn expired_backup_is_not_restored_without_force() {
     let RollbackCommandOutput::List(list) = listed.output else {
         panic!("expected session list")
     };
-    assert!(list
-        .sessions
-        .iter()
-        .any(|entry| entry.session_id == session && entry.expired));
+    assert!(
+        list.sessions
+            .iter()
+            .any(|entry| entry.session_id == session && entry.expired)
+    );
     let result = execute_rollback(
         RollbackArgs {
             target: Some("develop".into()),
@@ -313,11 +314,13 @@ fn expired_backup_is_not_restored_without_force() {
         config,
         targets,
     );
-    assert!(result
-        .err()
-        .expect("expired session must be rejected")
-        .to_string()
-        .contains("expired"));
+    assert!(
+        result
+            .err()
+            .expect("expired session must be rejected")
+            .to_string()
+            .contains("expired")
+    );
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "after\n"
@@ -388,11 +391,13 @@ fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
         config,
         targets,
     );
-    assert!(result
-        .err()
-        .expect("cleaned session must not be restorable")
-        .to_string()
-        .contains("No backup sessions found"));
+    assert!(
+        result
+            .err()
+            .expect("cleaned session must not be restorable")
+            .to_string()
+            .contains("No backup sessions found")
+    );
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "after\n"
@@ -564,10 +569,11 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
     };
     assert_eq!(list.sessions.len(), 2, "{list:?}");
     assert_ne!(list.sessions[0].session_id, list.sessions[1].session_id);
-    assert!(list
-        .sessions
-        .iter()
-        .all(|session| session.files.len() == 1 && session.files[0].path == "file.txt"));
+    assert!(
+        list.sessions
+            .iter()
+            .all(|session| session.files.len() == 1 && session.files[0].path == "file.txt")
+    );
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "second\n"

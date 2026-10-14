@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{gen_config, place_files, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, statuses_by_path, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server, statuses_by_path};
 
 /// 上限を超える場合の上限と、右に置くファイルの数
 const SMALL_LIMIT: &str = "3";

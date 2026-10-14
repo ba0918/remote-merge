@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::SystemTime;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_json, format_merge_text};
 use tempfile::TempDir;

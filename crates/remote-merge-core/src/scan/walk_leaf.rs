@@ -1,6 +1,6 @@
 //! ファイル・symlink・そのほかの項目を一覧に載せる規則（件数・UTF-8 でない名前・その他の種類）
 use super::outcome::{LinkPoint, ListedKind, ScanError, ScanFailure};
-use super::parts::{listed_entry, shown, Listed, PendingLink};
+use super::parts::{Listed, PendingLink, listed_entry, shown};
 use super::raw::{DirId, RawEntry, RawKind};
 use super::walk::Walk;
 
@@ -32,7 +32,7 @@ impl Walk<'_> {
         let counter = counter.unwrap_or(0);
         let target = match &entry.kind {
             RawKind::Symlink { target: None } => {
-                return Err(ScanFailure::UnreadableLinkTarget { path: shown(path) }.into())
+                return Err(ScanFailure::UnreadableLinkTarget { path: shown(path) }.into());
             }
             RawKind::Symlink {
                 target: Some(target),

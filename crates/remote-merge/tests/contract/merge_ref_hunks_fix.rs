@@ -7,7 +7,7 @@ use serde_json::json;
 
 use remote_merge::cli::merge::MergeArgs;
 
-use super::merge_support::{args, fixture, Fixture};
+use super::merge_support::{Fixture, args, fixture};
 
 const PATH: &str = "file.txt";
 

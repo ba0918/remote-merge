@@ -4,8 +4,8 @@
 use crate::config::AppConfig;
 use crate::runtime::{CoreRuntime, RestoreOutcome, RuntimeTargets};
 use crate::service::output::{
-    format_backup_list_text, format_json, format_rollback_dry_run_text, format_rollback_text,
-    OutputFormat,
+    OutputFormat, format_backup_list_text, format_json, format_rollback_dry_run_text,
+    format_rollback_text,
 };
 use crate::service::types::{
     BackupListOutput, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
@@ -13,7 +13,7 @@ use crate::service::types::{
 };
 use crate::side::Side;
 use remote_merge_engine::treat::rollback_session::{
-    choose_session, rollback_exit_code, with_expiry, RollbackCounts,
+    RollbackCounts, choose_session, rollback_exit_code, with_expiry,
 };
 
 /// rollback サブコマンドの引数

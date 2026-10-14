@@ -13,16 +13,16 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::Output;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use serde_json::Value;
 use tempfile::TempDir;
 
-use super::common::{gen_config, place_files, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// UTF-8 として読めない名前（"bad" と 0xff と ".txt"）
 const BAD_NAME: &[u8] = b"bad\xff.txt";
@@ -134,8 +134,8 @@ fn req_scan_012_status_reports_files_below_a_local_directory_link_whose_name_is_
 
 // @kotowari[REQ-scan-012]
 #[test]
-fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_on_the_remote_server(
-) {
+fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_on_the_remote_server()
+ {
     assert_link_and_files_below_reported(&status_on_the_remote_server_with_bad_directory_link(
         false,
     ));
@@ -143,8 +143,8 @@ fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is
 
 // @kotowari[REQ-scan-012]
 #[tokio::test(flavor = "multi_thread")]
-async fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_via_the_agent(
-) {
+async fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_via_the_agent()
+ {
     let fixture = AgentFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &LINKED);

@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use remote_merge_core::compare::{PathComparison, Role, SideState, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
-use super::diff::{diff_entry, DiffEntry};
-use super::diff_file::{diff_file, Sources};
+use super::diff::{DiffEntry, diff_entry};
+use super::diff_file::{Sources, diff_file};
 use crate::service::types::{DiffError, MultiDiffOutput, MultiDiffSummary};
 
 /// root_dir の外へ解決される symlink を --follow-external-links なしで比べたときの理由

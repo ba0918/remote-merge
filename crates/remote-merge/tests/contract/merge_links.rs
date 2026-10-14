@@ -8,7 +8,7 @@ use std::path::Path;
 
 use remote_merge::cli::merge::MergeArgs;
 
-use super::merge_support::{args, fixture, fixture_with_backup, sync_args, Fixture};
+use super::merge_support::{Fixture, args, fixture, fixture_with_backup, sync_args};
 
 const RIGHT_ONLY_REASON: &str = "right-only file (use --delete to remove)";
 

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use super::engine::{compute_diff, DiffResult, DiffTag};
+use super::engine::{DiffResult, DiffTag, compute_diff};
 
 /// コンフリクト領域（ref を基準に left/right 両方が変更した行範囲）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

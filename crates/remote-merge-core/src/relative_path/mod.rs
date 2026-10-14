@@ -56,11 +56,7 @@ impl RelPath {
     /// パスの確認に渡す値。末尾の "/" はディレクトリを求める意味を持つので残し（REQ-paths-005）、
     /// root_dir 全体は空のパスにする
     pub fn path_to_resolve(&self) -> &str {
-        if self.is_root() {
-            ""
-        } else {
-            &self.typed
-        }
+        if self.is_root() { "" } else { &self.typed }
     }
 
     /// 親（root_dir 直下なら root_dir 全体）と最後の名前。末尾の "/" は除いて分ける
@@ -113,7 +109,7 @@ pub fn as_typed_all(paths: &[RelPath]) -> Vec<String> {
 }
 
 mod entry;
-pub use entry::{entries_as_typed, EntryPath};
+pub use entry::{EntryPath, entries_as_typed};
 
 #[cfg(test)]
 mod tests;

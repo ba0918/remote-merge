@@ -2,7 +2,7 @@
 //! 削除・権限の変更・子の一覧をエージェントで行うこと（docs/ir/ssh/fallback.md の REQ-ssh-010）の
 //! 契約テスト。
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 // @kotowari[REQ-ssh-010]

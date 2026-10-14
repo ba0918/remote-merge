@@ -17,7 +17,7 @@ use std::time::Duration;
 use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{server, Channel, ChannelId, CryptoVec};
+use russh::{Channel, ChannelId, CryptoVec, server};
 use tempfile::NamedTempFile;
 use tokio::net::TcpListener;
 
@@ -357,8 +357,9 @@ async fn test_ssh_password_auth() {
     let handle = start_test_server_with_password(Some("secret123".to_string())).await;
     handle.registry.register("whoami", "testuser\n", 0);
 
-    // 環境変数でパスワードを設定
-    std::env::set_var("REMOTE_MERGE_PASSWORD_TEST", "secret123");
+    // 環境変数でパスワードを設定。edition 2024 では環境の書き換えは unsafe。
+    // この名前はこのテスト専用で、ほかのテストは自分の名前の変数だけを読む。
+    unsafe { std::env::set_var("REMOTE_MERGE_PASSWORD_TEST", "secret123") };
 
     let server_config = make_server_config(handle.port, AuthMethod::Password, None);
     let ssh_config = make_ssh_config();
@@ -373,7 +374,7 @@ async fn test_ssh_password_auth() {
     client.disconnect().await.expect("切断に失敗");
 
     // クリーンアップ
-    std::env::remove_var("REMOTE_MERGE_PASSWORD_TEST");
+    unsafe { std::env::remove_var("REMOTE_MERGE_PASSWORD_TEST") };
 }
 
 #[tokio::test]

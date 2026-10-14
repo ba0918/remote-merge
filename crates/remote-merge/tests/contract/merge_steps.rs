@@ -2,7 +2,7 @@
 //! 変更の直前の判定（docs/ir/compare/reading.md の REQ-compare-015）を確かめるのに使う
 
 use remote_merge::cli::merge::{
-    apply_merge, plan_merge, MergeArgs, MergeCommandOutput, MergeSides,
+    MergeArgs, MergeCommandOutput, MergeSides, apply_merge, plan_merge,
 };
 use remote_merge::runtime::CoreRuntime;
 use remote_merge::service::types::{MergeOutcome, MergeOutput};

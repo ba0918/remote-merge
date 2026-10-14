@@ -5,11 +5,11 @@ use std::io::{Read, Write};
 
 use anyhow::Result;
 use remote_merge_core::op_failure::OpFailure;
-use remote_merge_core::relative_path::{entries_as_typed, EntryPath};
+use remote_merge_core::relative_path::{EntryPath, entries_as_typed};
 use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest};
 
-use super::ops::{check_answered, check_refused, PathContent};
-use super::{mismatch, unexpected, AgentClient, AgentRefused};
+use super::ops::{PathContent, check_answered, check_refused};
+use super::{AgentClient, AgentRefused, mismatch, unexpected};
 use crate::agent::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
 
 impl<R: Read, W: Write> AgentClient<R, W> {

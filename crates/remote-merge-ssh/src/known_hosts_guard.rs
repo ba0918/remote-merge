@@ -98,13 +98,13 @@ fn home_from_lookup(mut lookup: impl FnMut(usize) -> Lookup) -> Result<PathBuf, 
             Lookup::TooSmall => {
                 return Err(format!(
                     "the account entry does not fit in {MAX_BUFFER} bytes"
-                ))
+                ));
             }
             Lookup::NoEntry => return Err("the account has no entry".into()),
             Lookup::Failed(errno) => {
                 return Err(format!(
                     "the account could not be looked up (errno {errno})"
-                ))
+                ));
             }
         }
     }

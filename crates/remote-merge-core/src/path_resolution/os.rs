@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use super::{resolve_path, EntryKind, PathOps, ResolveError, ResolvedPath};
+use super::{EntryKind, PathOps, ResolveError, ResolvedPath, resolve_path};
 
 /// このマシンのファイルシステムの基本操作
 pub struct OsPathOps;

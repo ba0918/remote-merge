@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::contents::{judge_hashes, read_outcome, ContentJudgement, ReadOutcome};
+use super::contents::{ContentJudgement, ReadOutcome, judge_hashes, read_outcome};
 use super::method::combine_link_pair;
 use super::pairs::{Pair, PairJudgement};
 use super::verdict::{Judgement, Role, SideFailure, Verdict};

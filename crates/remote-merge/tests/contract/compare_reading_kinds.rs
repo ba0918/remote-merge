@@ -4,13 +4,13 @@
 //! REQ-compare-009）の契約テスト。左はローカル、右は調べる経路。
 
 use super::compare_reading::{answer, write_both};
-use super::flow_support::{child, FlowRoutes, ROUTES};
+use super::flow_support::{FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
 // @kotowari[REQ-compare-010, REQ-compare-011, EX-compare-012, EX-compare-013]
 #[test]
-fn ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_all_three_routes(
-) {
+fn ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_all_three_routes()
+ {
     let name = "ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);

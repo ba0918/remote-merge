@@ -17,12 +17,11 @@ impl CoreRuntime {
 
     /// Agent を切断する
     pub fn disconnect_agent(&mut self, server_name: &str) {
-        if let Some(client_arc) = self.agent_clients.remove(server_name) {
-            if let Ok(mut client) = client_arc.lock() {
-                if let Err(e) = client.shutdown() {
-                    tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
-                }
-            }
+        if let Some(client_arc) = self.agent_clients.remove(server_name)
+            && let Ok(mut client) = client_arc.lock()
+            && let Err(e) = client.shutdown()
+        {
+            tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
         }
         // TransportGuard を drop してブリッジスレッドをシャットダウン
         #[cfg(unix)]

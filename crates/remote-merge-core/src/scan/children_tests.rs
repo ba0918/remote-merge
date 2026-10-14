@@ -3,7 +3,7 @@
 use super::super::outcome::{ListedKind, ScanFailure, ScanScope};
 use super::super::raw::{Depth, LinkTarget, RawKind, RawTime, Unreached};
 use super::super::test_support::*;
-use super::{children_in, listing_failure, ChildListing, ListingFailure};
+use super::{ChildListing, ListingFailure, children_in, listing_failure};
 
 fn children(path: &str) -> super::super::outcome::ScanRequest {
     scope(ScanScope::Children(path.to_string()), 9)

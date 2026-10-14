@@ -6,7 +6,7 @@ use std::fs;
 
 use remote_merge_core::test_tree::PermissionLocks;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 /// 読めないようにしたディレクトリ。テストが途中で失敗しても、一時ディレクトリを消す前に戻す

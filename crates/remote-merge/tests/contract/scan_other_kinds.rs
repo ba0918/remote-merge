@@ -8,10 +8,9 @@ use std::process::Command;
 
 use remote_merge_core::scan::outcome::{ListedKind, Listing, ScanRequest, ScanScope};
 
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
-const THIS_TEST: &str =
-    "scan_other_kinds::ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes";
+const THIS_TEST: &str = "scan_other_kinds::ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes";
 
 /// 一覧の項目を "パス 種類" の行にする
 pub(super) fn listing_text(listing: anyhow::Result<Listing>) -> String {

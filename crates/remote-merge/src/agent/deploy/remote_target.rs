@@ -1,6 +1,6 @@
 pub use remote_merge_agent::agent::deploy::remote_target::{
-    current_target, detect_remote_target_command, parse_remote_target, TARGET_DARWIN_AARCH64,
-    TARGET_DARWIN_X86_64, TARGET_LINUX_X86_64_MUSL,
+    TARGET_DARWIN_AARCH64, TARGET_DARWIN_X86_64, TARGET_LINUX_X86_64_MUSL, current_target,
+    detect_remote_target_command, parse_remote_target,
 };
 
 /// uname + version check の統合出力をパースする。
@@ -30,7 +30,7 @@ pub fn parse_uname_and_version(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::deploy::{expected_version_line, VersionCheck};
+    use crate::agent::deploy::{VersionCheck, expected_version_line};
 
     #[test]
     fn parse_linux_x86_64() {
@@ -76,10 +76,12 @@ mod tests {
     fn error_on_empty_input() {
         let result = parse_remote_target("");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Empty uname output"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Empty uname output")
+        );
     }
 
     #[test]

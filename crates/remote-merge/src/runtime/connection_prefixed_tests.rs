@@ -1,5 +1,5 @@
 //! 文言を前に足した失敗が、操作の失敗の種類と接続の扱いを保つこと
-use remote_merge_core::op_failure::{failure_of, Disconnection, OpError, OpFailure, Operation};
+use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation, failure_of};
 
 use super::*;
 

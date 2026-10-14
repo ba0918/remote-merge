@@ -12,8 +12,8 @@ use std::os::unix::fs::symlink;
 use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
 
-use super::compare_support::{comparison_text, request, DiffUses, NothingUsed};
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::compare_support::{DiffUses, NothingUsed, comparison_text, request};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
 fn test_name(name: &str) -> String {
     format!("compare_links::{name}")
@@ -48,8 +48,8 @@ fn answer(mut child: Child) {
 
 // @kotowari[REQ-compare-008, REQ-compare-006]
 #[test]
-fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_all_three_routes(
-) {
+fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_all_three_routes()
+ {
     let name = "req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);
@@ -154,8 +154,8 @@ fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_thr
 
 // @kotowari[REQ-compare-009, REQ-compare-008]
 #[test]
-fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes(
-) {
+fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes()
+ {
     let name = "req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);

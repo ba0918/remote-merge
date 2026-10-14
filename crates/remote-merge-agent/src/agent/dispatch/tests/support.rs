@@ -78,8 +78,10 @@ pub(super) fn collect_file_contents(responses: Vec<AgentResponse>) -> Vec<FileRe
     }
     assert!(found_last, "no is_last=true chunk found");
     // 最後のレスポンスだけ is_last=true
-    assert!(responses
-        .last()
-        .is_some_and(|r| matches!(r, AgentResponse::FileContents { is_last: true, .. })));
+    assert!(
+        responses
+            .last()
+            .is_some_and(|r| matches!(r, AgentResponse::FileContents { is_last: true, .. }))
+    );
     all_results
 }

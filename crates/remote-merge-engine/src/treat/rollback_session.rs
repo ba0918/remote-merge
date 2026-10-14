@@ -5,7 +5,7 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 
-use crate::service::types::{exit_code, BackupSession};
+use crate::service::types::{BackupSession, exit_code};
 
 /// セッションを選べない理由
 #[derive(Debug, Clone, PartialEq, Eq)]

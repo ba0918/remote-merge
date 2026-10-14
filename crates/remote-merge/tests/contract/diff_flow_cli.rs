@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
 
-use super::common::{place_files, place_symlink, CliEnv};
+use super::common::{CliEnv, place_files, place_symlink};
 
 pub(super) fn run(env: &CliEnv, command: &str, args: &[&str]) -> Output {
     env.cmd_with(command)

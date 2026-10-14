@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::open::open_for_write;
 use super::parents::{create_parents, remove_dir, undo_parents};
-use super::{failed, full_path, PermissionMode};
+use super::{PermissionMode, failed, full_path};
 use crate::op_failure::OpFailure;
 use crate::relative_path::EntryPath;
 

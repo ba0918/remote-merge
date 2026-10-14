@@ -3,11 +3,11 @@
 //! 変わる
 use std::io::Write;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use super::{writer_relay_loop, RELAY_READ_TIMEOUT_MS};
+use super::{RELAY_READ_TIMEOUT_MS, writer_relay_loop};
 
 /// 警告以上の記録を数える記録先
 struct CountWarnings(Arc<AtomicUsize>);

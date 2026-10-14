@@ -1,7 +1,7 @@
 use std::fs;
 
-use remote_merge::cli::status::{execute_status, StatusArgs};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::status::{StatusArgs, execute_status};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::FileStatusKind;
 use tempfile::TempDir;
@@ -64,12 +64,16 @@ fn default_status_lists_changes_and_one_sided_files_but_omits_equal_files() {
         .output;
     let files = output.files.unwrap();
     assert_eq!(files.len(), 2, "{files:?}");
-    assert!(files
-        .iter()
-        .any(|file| file.path == "modified.txt" && file.status == FileStatusKind::Modified));
-    assert!(files
-        .iter()
-        .any(|file| file.path == "left.txt" && file.status == FileStatusKind::LeftOnly));
+    assert!(
+        files
+            .iter()
+            .any(|file| file.path == "modified.txt" && file.status == FileStatusKind::Modified)
+    );
+    assert!(
+        files
+            .iter()
+            .any(|file| file.path == "left.txt" && file.status == FileStatusKind::LeftOnly)
+    );
     assert!(!files.iter().any(|file| file.path == "equal.txt"));
 }
 

@@ -2,7 +2,7 @@
 
 use remote_merge::cli::sync::SyncArgs;
 
-use super::sync_support::{args, fixture, labels, Fixture};
+use super::sync_support::{Fixture, args, fixture, labels};
 
 /// local に "incoming\n"、develop と staging に別の古い中身の file.txt を置いた構成
 fn file_on_every_side() -> Fixture {

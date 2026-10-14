@@ -15,7 +15,10 @@ fn a_missing_deploy_directory_is_created_by_root_and_the_agent_runs_from_it_unde
     let home = TempDir::new().unwrap();
     fs::create_dir_all(home.path().join("local")).unwrap();
     fs::write(home.path().join("local/example.txt"), "fresh deploy\n").unwrap();
-    let setup = docker(&container, "rm -rf /tmp/agent/remote-merge-testuser && mkdir -p /data && printf 'old\\n' > /data/example.txt && chown root:root /data/example.txt && chmod 600 /data/example.txt");
+    let setup = docker(
+        &container,
+        "rm -rf /tmp/agent/remote-merge-testuser && mkdir -p /data && printf 'old\\n' > /data/example.txt && chown root:root /data/example.txt && chmod 600 /data/example.txt",
+    );
     assert!(setup.status.success(), "{setup:?}");
 
     let output = merge(&home, &port);

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{
-    settle_pairs, PairJudgement, PairVerdict, Role, SideFailure, Undecidable, Verdict,
+    PairJudgement, PairVerdict, Role, SideFailure, Undecidable, Verdict, settle_pairs,
 };
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation, PathResult};
 use remote_merge_core::relative_path::EntryPath;

@@ -3,7 +3,7 @@
 
 use remote_merge::agent::protocol::PROTOCOL_VERSION;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 /// 止まったとき、何も読み書きしていないことを確かめる

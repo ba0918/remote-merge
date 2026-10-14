@@ -87,10 +87,10 @@ impl TargetIo for RootWatch {
         request: &ScanRequest,
     ) -> anyhow::Result<remote_merge_core::scan::outcome::Listing> {
         let scanned = self.inner.scan_listing(rt, request);
-        if let Err(error) = &scanned {
-            if scan_failure_of(error) == Some(&ScanFailure::RootChanged) {
-                rt.stop_for_root_gone(self.key.clone(), error);
-            }
+        if let Err(error) = &scanned
+            && scan_failure_of(error) == Some(&ScanFailure::RootChanged)
+        {
+            rt.stop_for_root_gone(self.key.clone(), error);
         }
         scanned
     }

@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{gen_config, place_files, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, statuses_by_path, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server, statuses_by_path};
 use super::scan_routes_agree::{all_equal, with_exclude};
 
 /// ディレクトリ 1 件とその中のファイル 2 件。上限 2 はファイルの数と同じ

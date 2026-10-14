@@ -8,7 +8,7 @@ use remote_merge_core::compare::{Incomplete, PathComparison, Role};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::MergeEntry;
-use remote_merge_engine::treat::merge_plan::{merge_plan, PlanOptions, NOT_FOUND};
+use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, merge_plan};
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::MergeUses;
 

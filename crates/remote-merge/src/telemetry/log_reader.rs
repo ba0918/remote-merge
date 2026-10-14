@@ -67,22 +67,21 @@ pub fn filter_log_lines(content: &str, filter: &LogFilter) -> Vec<LogEntry> {
                 }
             }
             // 時刻フィルタ
-            if let Some(since) = filter.since {
-                if let Ok(ts) = entry.timestamp.parse::<DateTime<Utc>>() {
-                    if ts < since {
-                        return false;
-                    }
-                }
+            if let Some(since) = filter.since
+                && let Ok(ts) = entry.timestamp.parse::<DateTime<Utc>>()
+                && ts < since
+            {
+                return false;
             }
             true
         })
         .collect();
 
     // tail フィルタ
-    if let Some(n) = filter.tail {
-        if entries.len() > n {
-            entries = entries.split_off(entries.len() - n);
-        }
+    if let Some(n) = filter.tail
+        && entries.len() > n
+    {
+        entries = entries.split_off(entries.len() - n);
     }
 
     entries

@@ -7,7 +7,7 @@
 //! - エージェント: エージェントのプロセスを起動し、通信の形式で要求する
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
@@ -18,7 +18,7 @@ use remote_merge_core::scan::exclude::Exclude;
 use remote_merge_core::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
 use remote_merge_core::scan::outcome::{ScanError, ScanFailure, ScanRequest, ScanScope};
 
-use super::listing_support::{agent_children, UnreadableLink};
+use super::listing_support::{UnreadableLink, agent_children};
 use remote_merge_core::machine_ops::PermissionMode;
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
@@ -293,8 +293,8 @@ async fn removing_a_directory_fails_and_keeps_it_on_both_routes() {
 
 // @kotowari[EX-paths-028]
 #[tokio::test(flavor = "multi_thread")]
-async fn changing_permissions_through_an_intermediate_symlink_outside_the_root_succeeds_on_both_routes(
-) {
+async fn changing_permissions_through_an_intermediate_symlink_outside_the_root_succeeds_on_both_routes()
+ {
     let routes = Routes::new(|root, outside| {
         fs::write(outside.join("a.txt"), "shared\n").unwrap();
         fs::set_permissions(outside.join("a.txt"), fs::Permissions::from_mode(0o644)).unwrap();
@@ -442,8 +442,8 @@ async fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_both_rout
 
 // @kotowari[REQ-paths-017, EX-paths-037]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_same_names_on_both_routes(
-) {
+async fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_same_names_on_both_routes()
+ {
     let routes = Routes::new(|root, _| {
         fs::create_dir(root.join("a")).unwrap();
         for name in ["x\ty.txt", "p\nq.txt"] {

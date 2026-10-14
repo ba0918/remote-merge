@@ -104,7 +104,7 @@ pub fn rollback_plan(paths: Vec<(String, Recorded, TargetFacts)>) -> Vec<(String
 fn judge(recorded: &Recorded, facts: &TargetFacts) -> Judged {
     let (state, entry, parent) = match (recorded, facts) {
         (Recorded::ReplacedLink, _) => {
-            return Judged::Entry(RestoreEntry::Skip(LINK_NOT_SUPPORTED.to_string()))
+            return Judged::Entry(RestoreEntry::Skip(LINK_NOT_SUPPORTED.to_string()));
         }
         (_, TargetFacts::Unresolvable(cause)) => return Judged::Unresolvable(cause.clone()),
         (

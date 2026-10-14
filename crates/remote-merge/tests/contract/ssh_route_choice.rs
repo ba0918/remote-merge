@@ -5,9 +5,9 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use remote_merge_core::route_choice::{choose_route, AgentState, RouteChoice};
+use remote_merge_core::route_choice::{AgentState, RouteChoice, choose_route};
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 fn unusable_states() -> Vec<AgentState> {

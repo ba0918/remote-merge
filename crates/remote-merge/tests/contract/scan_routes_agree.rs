@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::Output;
 
 use super::common::{deploy_agent, gen_config, place_files};
-use super::scan_listing_cli::{launch_status, statuses_by_path, AgentFixture};
+use super::scan_listing_cli::{AgentFixture, launch_status, statuses_by_path};
 use super::ssh_server::TestServer;
 
 /// `gen_config` の [filter] の exclude の行を `exclude_line` に置き換えた設定
@@ -264,8 +264,8 @@ fn status_with_an_unreadable_directory(
 
 // @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_on_the_agent(
-) {
+async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_on_the_agent()
+ {
     let fixture = RemoteFixture::new().await;
     let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", EXCLUDE_A_B);
     assert!(output.status.success(), "{output:?}");
@@ -302,8 +302,8 @@ async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_
 
 // @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan(
-) {
+async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan()
+ {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
         let fixture = RemoteFixture::new().await;
         let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", exclude_line);
@@ -314,8 +314,8 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_patter
 
 // @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan(
-) {
+async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan()
+ {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
         let fixture = RemoteFixture::new().await;
         let output = status_with_an_unreadable_directory(&fixture, "a/b/日本", exclude_line);

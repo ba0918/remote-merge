@@ -17,5 +17,5 @@ pub mod output;
 pub mod path_resolver;
 pub mod types;
 
-pub use output::{format_json, OutputFormat};
+pub use output::{OutputFormat, format_json};
 pub use types::*;

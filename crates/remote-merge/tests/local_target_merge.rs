@@ -1,6 +1,6 @@
 use std::fs;
 
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;

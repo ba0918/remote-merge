@@ -1,7 +1,7 @@
 //! 通常ファイルでないもの（ディレクトリ・FIFO）の中身とハッシュを、開いて待たずに失敗にすること
 //! （docs/ir/paths/operations.md の REQ-paths-021）
 use std::fs;
-use std::os::unix::fs::{symlink, OpenOptionsExt};
+use std::os::unix::fs::{OpenOptionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;

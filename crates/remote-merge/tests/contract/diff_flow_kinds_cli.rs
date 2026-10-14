@@ -9,7 +9,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, SystemTime};
 
-use super::common::{place_binary_file, place_symlink, CliEnv};
+use super::common::{CliEnv, place_binary_file, place_symlink};
 use super::diff_flow_cli::{entry, error_reason, json, run, set_mtime};
 use super::scan_other_kinds::make_fifo;
 

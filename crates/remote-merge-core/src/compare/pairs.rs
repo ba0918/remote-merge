@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use super::judge::judge_states;
 use super::method::Method;
-use super::state::{followed_state, SideState};
+use super::state::{SideState, followed_state};
 use super::table::PathStates;
 use super::verdict::{Judgement, Role};
 

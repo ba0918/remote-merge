@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput, MergeCommandResult};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, execute_merge};
 use remote_merge::cli::rollback::execute_rollback;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge_core::test_tree::PermissionLocks;

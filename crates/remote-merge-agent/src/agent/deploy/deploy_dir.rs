@@ -99,7 +99,7 @@ chk \"$p\" 0 && chk \"$r\" 0 || exit 1;";
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use tempfile::TempDir;

@@ -6,7 +6,7 @@
 
 use std::fs;
 
-use remote_merge::config::{load_config_from_paths, AppConfig, AuthMethod, StrictHostKeyChecking};
+use remote_merge::config::{AppConfig, AuthMethod, StrictHostKeyChecking, load_config_from_paths};
 
 /// どの設定にも書く [local]（[local] がないときの挙動は FLAG-config-002 の範囲のため避ける）
 const LOCAL: &str = "[local]\nroot_dir = \"/srv/local\"\n";

@@ -3,7 +3,7 @@
 use std::io;
 
 use remote_merge_core::op_failure::{
-    check_size, failure_of, from_io_error, Disconnection, OpError, OpFailure, Operation, SizeLimit,
+    Disconnection, OpError, OpFailure, Operation, SizeLimit, check_size, failure_of, from_io_error,
 };
 
 fn os_error(code: i32) -> io::Error {

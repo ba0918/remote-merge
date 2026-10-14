@@ -47,9 +47,11 @@ fn list_tree_basic() {
     }
     // 最後のチャンクだけ is_last=true
     assert_eq!(last_count, 1, "exactly one chunk should have is_last=true");
-    assert!(resps
-        .last()
-        .is_some_and(|r| matches!(r, AgentResponse::TreeChunk { is_last: true, .. })));
+    assert!(
+        resps
+            .last()
+            .is_some_and(|r| matches!(r, AgentResponse::TreeChunk { is_last: true, .. }))
+    );
 
     let paths: Vec<&str> = all_paths.iter().map(|s| s.as_str()).collect();
     assert!(paths.contains(&"a.txt"));

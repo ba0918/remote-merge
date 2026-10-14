@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use remote_merge_core::compare::{PathComparison, Role, SideState, Verdict};
 
 pub use super::status::RefCounts;
-use super::status::{ref_counts, ref_mark, status_entry, RefMark, StatusEntry};
+use super::status::{RefMark, StatusEntry, ref_counts, ref_mark, status_entry};
 use crate::service::types::{FileStatus, UnreadableFile};
 
 /// status の一覧

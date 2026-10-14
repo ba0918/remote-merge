@@ -55,10 +55,10 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
             // ディレクトリ枝刈り: パターンが `dir/**` 形式の場合、
             // path が `dir` 自体ならディレクトリごとマッチ（配下を全て除外）。
             // 例: パターン "vendor/legacy/**" に対して path "vendor/legacy" → マッチ
-            if let Some(prefix) = pattern.strip_suffix("/**") {
-                if path == prefix || glob_match::glob_match(prefix, path) {
-                    return true;
-                }
+            if let Some(prefix) = pattern.strip_suffix("/**")
+                && (path == prefix || glob_match::glob_match(prefix, path))
+            {
+                return true;
             }
         } else {
             // セグメント単位マッチ

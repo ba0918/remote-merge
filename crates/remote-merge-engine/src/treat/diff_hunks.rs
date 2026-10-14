@@ -1,7 +1,7 @@
 //! 二つのテキストの行の差分を出力の hunk にし、--max-lines で打ち切る（docs/ir/cli/diff-output.md の
 //! REQ-cli-054・058）。行の差分は core の diff の関数で求め、行番号はその関数の数え方のまま渡す
 
-use remote_merge_core::diff::engine::{compute_diff, DiffResult, DiffTag};
+use remote_merge_core::diff::engine::{DiffResult, DiffTag, compute_diff};
 
 use crate::service::types::{DiffHunk, DiffLine, DiffLineType};
 

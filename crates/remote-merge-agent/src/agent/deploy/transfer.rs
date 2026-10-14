@@ -22,11 +22,7 @@ pub fn expected_version_line(cli_version: &str) -> String {
 
 /// `sudo` が true なら付ける前置き（sudo=true の配置先は root だけが入れる）
 fn sudo_prefix(sudo: bool) -> &'static str {
-    if sudo {
-        "sudo "
-    } else {
-        ""
-    }
+    if sudo { "sudo " } else { "" }
 }
 
 /// リモートのバージョンチェック用 SSH コマンドを生成する。

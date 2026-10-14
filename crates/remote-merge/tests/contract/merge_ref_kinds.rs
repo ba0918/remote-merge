@@ -4,7 +4,7 @@
 //! 種類のそろわないパスは中身を読まずに扱いを決めるので、ディレクトリの読み込みの失敗で
 //! "three-way comparison incomplete" にならない。
 
-use super::merge_support::{args, fixture, Fixture};
+use super::merge_support::{Fixture, args, fixture};
 
 /// local と develop は中身の違う通常ファイル、参照先 staging だけが同じ名前のディレクトリ
 fn reference_is_a_directory(fixture: &Fixture) {

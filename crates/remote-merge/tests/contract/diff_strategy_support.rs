@@ -15,7 +15,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_json, format_multi_diff_text};

@@ -7,14 +7,14 @@
 
 use std::fs;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
-use remote_merge::cli::merge::{execute_merge, MergeCommandOutput};
-use remote_merge::cli::status::{execute_status, StatusArgs};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::merge::{MergeCommandOutput, execute_merge};
+use remote_merge::cli::status::{StatusArgs, execute_status};
 use remote_merge::service::output::format_json;
 use serde_json::Value;
 
 use super::backup_support::merge_args;
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
 const THIS_TEST: &str = "reference_other_kinds::a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_all_three_routes";
@@ -80,8 +80,8 @@ fn reported_with_reason(json: &Value, key: &str, path: &str) -> bool {
 
 // @kotowari[REQ-compare-009, REQ-compare-004]
 #[test]
-fn a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_all_three_routes(
-) {
+fn a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_all_three_routes()
+ {
     if let Some(child) = child() {
         return answer(child);
     }

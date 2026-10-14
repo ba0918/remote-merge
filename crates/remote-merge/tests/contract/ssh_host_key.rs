@@ -1,5 +1,5 @@
 use remote_merge::config::StrictHostKeyChecking;
-use remote_merge::ssh::host_key_verifier::{verifier_from_policy, CliVerifier};
+use remote_merge::ssh::host_key_verifier::{CliVerifier, verifier_from_policy};
 
 fn accepts_unknown_key(policy: StrictHostKeyChecking, auto_yes: bool) -> bool {
     verifier_from_policy(policy, auto_yes).verify_host_key(

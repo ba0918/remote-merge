@@ -2,7 +2,7 @@
 //! "root_dir changed during the scan: サーバ名:パス" と同じ考え。
 //! docs/decision/records/2026-10-12-foundation-3.md の D47）。止めるのは `root_watch`
 
-use remote_merge_core::op_failure::{op_error_of, OpFailure, Prefixed};
+use remote_merge_core::op_failure::{OpFailure, Prefixed, op_error_of};
 
 use super::connection::{ProcessingStopped, StopCause};
 
@@ -36,7 +36,7 @@ pub(crate) fn with_shown_root(error: anyhow::Error, shown_root: &str) -> anyhow:
 mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
-    use remote_merge_core::op_failure::{failure_of, OpError, Operation};
+    use remote_merge_core::op_failure::{OpError, Operation, failure_of};
 
     // @kotowari[REQ-merge-042]
     #[test]

@@ -13,7 +13,7 @@ use remote_merge_core::relative_path::EntryPath;
 
 use super::core::CoreRuntime;
 use super::merge_change::AfterChange;
-use super::merge_inspect::{backed_up_paths, BackupContent, Inspected};
+use super::merge_inspect::{BackupContent, Inspected, backed_up_paths};
 use crate::side::Side;
 
 /// 書き込み先への変更の種類

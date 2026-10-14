@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use super::common::{gen_config, TestDirs};
+use super::common::{TestDirs, gen_config};
 use super::config_filters_cli::{combined, status, with_include};
 use super::scan_listing_cli::statuses_by_path;
 

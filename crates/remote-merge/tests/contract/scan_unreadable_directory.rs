@@ -13,8 +13,8 @@ use std::process::Output;
 
 use remote_merge_core::test_tree::PermissionLocks;
 
-use super::common::{gen_config, place_files, TestDirs};
-use super::scan_listing_cli::{status_on_the_remote_server, AgentFixture};
+use super::common::{TestDirs, gen_config, place_files};
+use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 読めるファイルと、中にファイルのある読めないディレクトリ "locked"
 const WITH_LOCKED: [(&str, &str); 2] = [("ok.txt", "same\n"), ("locked/secret.txt", "secret\n")];

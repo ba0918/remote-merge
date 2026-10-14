@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use super::failed;
-use crate::op_failure::{os_reason, OpFailure};
+use crate::op_failure::{OpFailure, os_reason};
 
 /// `path` の親のうち、root_dir `root` より下でまだないもの（上から順）
 fn missing_parents(root: &Path, path: &Path) -> Vec<PathBuf> {

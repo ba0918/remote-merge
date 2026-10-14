@@ -9,7 +9,7 @@ use std::fs;
 
 use remote_merge_core::scan::outcome::Listing;
 
-use super::path_operations_agree::{set_mtime, Routes, MAX_ENTRIES};
+use super::path_operations_agree::{MAX_ENTRIES, Routes, set_mtime};
 
 /// 走査で載った項目の root_dir からのパスと更新時刻（秒とナノ秒）
 type Times = BTreeMap<String, Option<(i64, u32)>>;

@@ -3,8 +3,8 @@
 use std::io::Write as _;
 use std::path::Path;
 
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 
 use super::known_hosts::format_host_entry;
 use super::known_hosts_location::known_hosts_location;
@@ -74,17 +74,17 @@ pub(crate) fn append_known_hosts_entry(
     };
 
     // .ssh ディレクトリが存在しない場合は作成
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to create ~/.ssh directory: {}", e);
-                return;
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-            }
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+    {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to create ~/.ssh directory: {}", e);
+            return;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
     }
 

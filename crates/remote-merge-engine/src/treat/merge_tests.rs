@@ -191,11 +191,13 @@ fn the_paths_below_a_kind_mismatch_are_left_out() {
 // @kotowari[REQ-merge-024, REQ-cli-047, TBL-cli-007]
 #[test]
 fn only_a_kind_mismatch_counts_as_a_failure_among_the_skips() {
-    assert!(SkipReason::KindMismatch {
-        source: Kind::File,
-        destination: Kind::Directory
-    }
-    .counts_as_failure());
+    assert!(
+        SkipReason::KindMismatch {
+            source: Kind::File,
+            destination: Kind::Directory
+        }
+        .counts_as_failure()
+    );
     for reason in [
         SkipReason::DestinationOnly,
         SkipReason::LinkNotDeleted,

@@ -12,9 +12,9 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{gen_config, place_files, strip_ansi, TestDirs};
+use super::common::{TestDirs, gen_config, place_files, strip_ansi};
 use super::config_filters_cli::{combined, status, with_include};
-use super::scan_listing_cli::{statuses_by_path, AgentFixture};
+use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
 fn status_on_the_remote_server(dirs: &mut TestDirs, include: &[&str]) -> Output {

@@ -6,9 +6,9 @@
 
 use std::process::Output;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::common::{place_binary_file, place_files, place_symlink, CliEnv};
+use super::common::{CliEnv, place_binary_file, place_files, place_symlink};
 use super::diff_flow_cli::{entry, json as parse};
 
 fn three_way(env: &CliEnv, extra: &[&str]) -> (Output, Value) {

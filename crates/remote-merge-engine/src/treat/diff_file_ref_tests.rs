@@ -3,7 +3,7 @@
 use remote_merge_core::compare::{Role, SideState, Verdict};
 
 use super::super::test_support::{compared_with, file, link, pair};
-use super::tests::{sources, three, two_files, DIFFERS};
+use super::tests::{DIFFERS, sources, three, two_files};
 use super::*;
 use crate::service::types::ConflictArea;
 

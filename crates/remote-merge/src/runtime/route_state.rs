@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use remote_merge_core::route_choice::{choose_route, AgentState, RouteChoice};
+use remote_merge_core::route_choice::{AgentState, RouteChoice, choose_route};
 
 use super::core::CoreRuntime;
 use crate::ssh::client::SshClient;

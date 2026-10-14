@@ -15,10 +15,10 @@ use sha2::{Digest as _, Sha256};
 pub use change::create_symlink_creating;
 pub use change::{chmod, create_symlink, remove, write};
 pub use mode::{ModeTooWide, PermissionMode};
-pub use open::{open_for_write, open_for_write_with, Opened};
+pub use open::{Opened, open_for_write, open_for_write_with};
 pub use parents::{remove_dir as remove_created_dir, undo_parents};
 
-use crate::op_failure::{check_size, from_io_error, OpFailure, SizeLimit};
+use crate::op_failure::{OpFailure, SizeLimit, check_size, from_io_error};
 use crate::relative_path::EntryPath;
 
 /// 項目そのもの（最後の要素のリンクは辿らない）がリンクかどうか

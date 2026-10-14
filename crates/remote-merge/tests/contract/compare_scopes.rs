@@ -11,8 +11,8 @@ use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
 use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 
-use super::compare_support::{comparison_text, request, NothingUsed};
-use super::flow_support::{child, Child, FlowRoutes, Route, ROUTES};
+use super::compare_support::{NothingUsed, comparison_text, request};
+use super::flow_support::{Child, FlowRoutes, ROUTES, Route, child};
 
 fn test_name(name: &str) -> String {
     format!("compare_scopes::{name}")
@@ -105,8 +105,8 @@ fn lines_of<'a>(text: &'a str, path: &str) -> Vec<&'a str> {
 
 // @kotowari[REQ-compare-002, REQ-compare-006]
 #[test]
-fn a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_all_three_routes(
-) {
+fn a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_all_three_routes()
+ {
     let name = "a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);
@@ -252,8 +252,8 @@ fn the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote
 
 // @kotowari[REQ-compare-003]
 #[test]
-fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes(
-) {
+fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes()
+ {
     let name = "named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes";
     if let Some(child) = child() {
         return answer(child);

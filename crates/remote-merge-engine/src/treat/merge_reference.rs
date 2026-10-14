@@ -72,10 +72,10 @@ pub fn reference_check(comparison: &PathComparison) -> ReferenceCheck {
     for verdict in verdicts {
         match verdict {
             Some(Verdict::Undecidable(Undecidable::ReadFailed(_))) | None => {
-                return ReferenceCheck::Fail(ReferenceFailure::Incomplete)
+                return ReferenceCheck::Fail(ReferenceFailure::Incomplete);
             }
             Some(Verdict::Undecidable(why)) => {
-                return ReferenceCheck::Fail(ReferenceFailure::Undecidable(why.to_string()))
+                return ReferenceCheck::Fail(ReferenceFailure::Undecidable(why.to_string()));
             }
             Some(_) => {}
         }

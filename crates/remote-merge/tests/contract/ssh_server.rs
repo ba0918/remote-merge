@@ -17,7 +17,7 @@ use std::time::Duration;
 use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{server, Channel, ChannelId, CryptoVec};
+use russh::{Channel, ChannelId, CryptoVec, server};
 use tokio::net::TcpListener;
 
 use super::server_faults::{self, AgentInbound, FaultState, Faults, SudoAnswer};

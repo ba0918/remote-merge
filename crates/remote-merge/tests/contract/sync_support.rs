@@ -7,8 +7,8 @@
 use std::fs;
 use std::path::Path;
 
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput, SyncCommandResult};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, SyncCommandResult, execute_sync};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;

@@ -2,14 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{choose_method, Command, Follow, PathComparison, Selection};
+use remote_merge_core::compare::{Command, Follow, PathComparison, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
-use remote_merge_engine::treat::merge::{exit_code, MergeEntry};
-use remote_merge_engine::treat::merge_plan::{merge_plan, PlanOptions, NOT_FOUND};
+use remote_merge_engine::treat::merge::{MergeEntry, exit_code};
+use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, merge_plan};
 use remote_merge_engine::treat::merge_result::target_lists;
-use remote_merge_engine::treat::merge_scope::{merge_targets, MergeScope, MergeTargets};
+use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, MergeSides};

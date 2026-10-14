@@ -1,7 +1,7 @@
 //! known_hosts ファイルの解析・検証。
 
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use hmac::{Hmac, Mac};
 use russh::client;
 use sha1::Sha1;

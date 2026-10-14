@@ -6,10 +6,10 @@
 use std::io::Write;
 use std::sync::Mutex;
 
-use tracing::field::{Field, Visit};
 use tracing::Subscriber;
-use tracing_subscriber::layer::Context;
+use tracing::field::{Field, Visit};
 use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
 
 use super::log_reader::LogEntry;
 
@@ -51,11 +51,11 @@ where
             },
         };
 
-        if let Ok(json) = serde_json::to_string(&entry) {
-            if let Ok(mut writer) = self.writer.lock() {
-                let _ = writeln!(writer, "{}", json);
-                let _ = writer.flush();
-            }
+        if let Ok(json) = serde_json::to_string(&entry)
+            && let Ok(mut writer) = self.writer.lock()
+        {
+            let _ = writeln!(writer, "{}", json);
+            let _ = writer.flush();
         }
     }
 }

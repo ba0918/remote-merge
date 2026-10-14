@@ -480,12 +480,16 @@ mod tests {
                 assert!(stats.equal > 0, "同一行が存在するべき");
 
                 // line2 が削除され modified が追加されていること
-                assert!(lines
-                    .iter()
-                    .any(|l| l.tag == DiffTag::Delete && l.value.contains("line2")));
-                assert!(lines
-                    .iter()
-                    .any(|l| l.tag == DiffTag::Insert && l.value.contains("modified")));
+                assert!(
+                    lines
+                        .iter()
+                        .any(|l| l.tag == DiffTag::Delete && l.value.contains("line2"))
+                );
+                assert!(
+                    lines
+                        .iter()
+                        .any(|l| l.tag == DiffTag::Insert && l.value.contains("modified"))
+                );
             }
             other => panic!("Modified を期待したが {:?}", other),
         }
@@ -604,15 +608,19 @@ mod tests {
                 "2つの離れた変更は別々の merge_hunk に"
             );
             // b→X のハンク
-            assert!(merge_hunks[0]
-                .lines(lines)
-                .iter()
-                .any(|l| l.value.contains("X")));
+            assert!(
+                merge_hunks[0]
+                    .lines(lines)
+                    .iter()
+                    .any(|l| l.value.contains("X"))
+            );
             // i→Y のハンク
-            assert!(merge_hunks[1]
-                .lines(lines)
-                .iter()
-                .any(|l| l.value.contains("Y")));
+            assert!(
+                merge_hunks[1]
+                    .lines(lines)
+                    .iter()
+                    .any(|l| l.value.contains("Y"))
+            );
 
             // 表示用は1つに結合されてもよい（コンテキスト次第）
             assert!(hunks.len() <= merge_hunks.len());

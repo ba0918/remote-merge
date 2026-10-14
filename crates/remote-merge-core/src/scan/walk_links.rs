@@ -2,7 +2,7 @@
 //! 載せる規則
 use super::outcome::{LinkPoint, ListedKind, ScanError, ScanFailure};
 use super::parts::listed_entry;
-use super::parts::{changed, shown, Listed, PendingLink};
+use super::parts::{Listed, PendingLink, changed, shown};
 use super::raw::RawEntry;
 use super::raw::{Answer, LinkTarget};
 use super::walk::Walk;
@@ -70,10 +70,10 @@ impl Walk<'_> {
 
     /// 一覧に載せた symlink のリンク先の種類を決める
     fn point(&mut self, link: &PendingLink, point: LinkPoint) {
-        if let Listed::At(index) = link.listed {
-            if let ListedKind::Symlink { points_to, .. } = &mut self.entries[index].kind {
-                *points_to = point;
-            }
+        if let Listed::At(index) = link.listed
+            && let ListedKind::Symlink { points_to, .. } = &mut self.entries[index].kind
+        {
+            *points_to = point;
         }
     }
 

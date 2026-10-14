@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-use super::common::{gen_config, strip_ansi, TestDirs};
+use super::common::{TestDirs, gen_config, strip_ansi};
 
 /// ローカルの側にだけ置くファイル。接続できたときに status の JSON の "files" に出る
 const LOCAL_ONLY: &str = "only-local.txt";

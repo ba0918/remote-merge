@@ -10,10 +10,10 @@ use std::io::Write as _;
 use std::path::Path;
 
 use remote_merge_core::machine_ops;
-use remote_merge_core::op_failure::{from_io_error, OpFailure};
+use remote_merge_core::op_failure::{OpFailure, from_io_error};
 use remote_merge_core::relative_path::EntryPath;
 
-use super::ownership::{own_created, OwnerOps};
+use super::ownership::{OwnerOps, own_created};
 use crate::agent::server::MetadataConfig;
 
 /// 最初の分を書く。書き込み先を開き（ないときは新しいファイルとして O_EXCL で作る）、root で動くとき

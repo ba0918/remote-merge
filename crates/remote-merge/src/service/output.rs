@@ -64,31 +64,29 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
     lines.push(header);
     lines.push(String::new());
 
-    if !summary_only {
-        if let Some(files) = &output.files {
-            for file in files {
-                let prefix = match file.status {
-                    FileStatusKind::Modified => "M ",
-                    FileStatusKind::LeftOnly => "L ",
-                    FileStatusKind::RightOnly => "R ",
-                    FileStatusKind::Equal => "= ",
-                };
-                let hunk_info = file
-                    .hunks
-                    .map(|n| format!(" ({} hunks)", n))
-                    .unwrap_or_default();
-                let ref_badge_str = file
-                    .ref_badge
-                    .as_ref()
-                    .map(|b| ref_badge_display(b))
-                    .unwrap_or("");
-                lines.push(format!(
-                    "{}{}{}{}",
-                    prefix, file.path, hunk_info, ref_badge_str
-                ));
-            }
-            lines.push(String::new());
+    if !summary_only && let Some(files) = &output.files {
+        for file in files {
+            let prefix = match file.status {
+                FileStatusKind::Modified => "M ",
+                FileStatusKind::LeftOnly => "L ",
+                FileStatusKind::RightOnly => "R ",
+                FileStatusKind::Equal => "= ",
+            };
+            let hunk_info = file
+                .hunks
+                .map(|n| format!(" ({} hunks)", n))
+                .unwrap_or_default();
+            let ref_badge_str = file
+                .ref_badge
+                .as_ref()
+                .map(|b| ref_badge_display(b))
+                .unwrap_or("");
+            lines.push(format!(
+                "{}{}{}{}",
+                prefix, file.path, hunk_info, ref_badge_str
+            ));
         }
+        lines.push(String::new());
     }
 
     lines.push(format!(
@@ -211,35 +209,35 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         lines.push(TRUNCATED_MARKER.into());
     }
 
-    if let (Some(ref_info), Some(ref_hunks)) = (&output.ref_, &output.ref_hunks) {
-        if !ref_hunks.is_empty() {
-            lines.push(String::new());
+    if let (Some(ref_info), Some(ref_hunks)) = (&output.ref_, &output.ref_hunks)
+        && !ref_hunks.is_empty()
+    {
+        lines.push(String::new());
+        lines.push(format!(
+            "--- ref:{}:{} (reference diff vs left)",
+            ref_info.label, output.path
+        ));
+        for hunk in ref_hunks {
             lines.push(format!(
-                "--- ref:{}:{} (reference diff vs left)",
-                ref_info.label, output.path
+                "@@ -{},{} +{},{} @@",
+                hunk.left_start,
+                hunk.lines
+                    .iter()
+                    .filter(|l| l.line_type != DiffLineType::Added)
+                    .count(),
+                hunk.right_start,
+                hunk.lines
+                    .iter()
+                    .filter(|l| l.line_type != DiffLineType::Removed)
+                    .count(),
             ));
-            for hunk in ref_hunks {
-                lines.push(format!(
-                    "@@ -{},{} +{},{} @@",
-                    hunk.left_start,
-                    hunk.lines
-                        .iter()
-                        .filter(|l| l.line_type != DiffLineType::Added)
-                        .count(),
-                    hunk.right_start,
-                    hunk.lines
-                        .iter()
-                        .filter(|l| l.line_type != DiffLineType::Removed)
-                        .count(),
-                ));
-                for line in &hunk.lines {
-                    let prefix = match line.line_type {
-                        DiffLineType::Context => " ",
-                        DiffLineType::Added => "+",
-                        DiffLineType::Removed => "-",
-                    };
-                    lines.push(format!("{}{}", prefix, line.content));
-                }
+            for line in &hunk.lines {
+                let prefix = match line.line_type {
+                    DiffLineType::Context => " ",
+                    DiffLineType::Added => "+",
+                    DiffLineType::Removed => "-",
+                };
+                lines.push(format!("{}{}", prefix, line.content));
             }
         }
     }
@@ -279,13 +277,13 @@ pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
         }
         result.push_str(&format_diff_text(diff));
     }
-    if output.truncated {
-        if let Some(total) = output.changed_files_total {
-            result.push_str(&format!(
-                "\n... and {} more files (truncated, use --max-files 0 for all)\n",
-                total - output.summary.files_with_changes
-            ));
-        }
+    if output.truncated
+        && let Some(total) = output.changed_files_total
+    {
+        result.push_str(&format!(
+            "\n... and {} more files (truncated, use --max-files 0 for all)\n",
+            total - output.summary.files_with_changes
+        ));
     }
     // Summary line
     result.push_str(&format!(
@@ -1594,10 +1592,12 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["merged"], serde_json::json!([]));
         assert_eq!(v["failed"][0]["path"], "");
-        assert!(v["failed"][0]["error"]
-            .as_str()
-            .unwrap()
-            .contains("--force"));
+        assert!(
+            v["failed"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("--force")
+        );
     }
 
     #[test]

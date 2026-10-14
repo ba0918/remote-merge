@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use remote_merge::agent::protocol::{
-    deserialize_request, deserialize_response, AgentRequest, AgentResponse,
+    AgentRequest, AgentResponse, deserialize_request, deserialize_response,
 };
 use russh::server::Handle;
 use russh::{ChannelId, CryptoVec, Disconnect};
@@ -248,10 +248,10 @@ impl AgentInbound {
                 continue;
             }
             let mut stdin = self.stdin.lock().await;
-            if let Some(writer) = stdin.as_mut() {
-                if writer.write_all(&frame).await.is_err() {
-                    *stdin = None;
-                }
+            if let Some(writer) = stdin.as_mut()
+                && writer.write_all(&frame).await.is_err()
+            {
+                *stdin = None;
             }
         }
     }

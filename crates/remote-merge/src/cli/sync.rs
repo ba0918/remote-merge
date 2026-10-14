@@ -9,14 +9,14 @@ use std::io::BufRead;
 use remote_merge_engine::treat::sides::sync_sides;
 use remote_merge_engine::treat::sync::exit_code;
 
-use super::sync_plan::{plan_targets, TargetPlan};
+use super::sync_plan::{TargetPlan, plan_targets};
 use super::sync_targets::sync_targets;
-use crate::config::{resolve_max_entries, AppConfig};
+use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{CoreRuntime, RuntimeTargets};
-use crate::service::output::{format_json, format_sync_text, OutputFormat};
+use crate::service::output::{OutputFormat, format_json, format_sync_text};
 use crate::service::path_resolver::parse_path_arguments;
 use crate::service::types::{
-    exit_code as codes, SourceInfo, SyncOutput, SyncSummary, SyncTargetStatus,
+    SourceInfo, SyncOutput, SyncSummary, SyncTargetStatus, exit_code as codes,
 };
 use remote_merge_core::relative_path::RelPath;
 

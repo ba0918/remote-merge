@@ -79,7 +79,7 @@ pub trait Uses {
     fn hashes(&self, path: &str, states: &PathStates, judged: &[PairJudgement]) -> BTreeSet<Role>;
     /// 中身をメモリに持って読む側（diff の差分、merge・sync・rollback の書き込み、バックアップ）
     fn contents(&self, path: &str, states: &PathStates, verdicts: &[PairVerdict])
-        -> BTreeSet<Role>;
+    -> BTreeSet<Role>;
     /// 参照先との組を扱いに使うか。使わないパスでは参照先との組を判定せず、そのハッシュも取らない
     fn judges_reference(&self, _states: &PathStates) -> bool {
         true

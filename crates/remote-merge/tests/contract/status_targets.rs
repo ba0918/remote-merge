@@ -13,7 +13,7 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::FileStatusKind;
 use tempfile::TempDir;
 
-use super::common::{assert_exit_error, CliEnv};
+use super::common::{CliEnv, assert_exit_error};
 use super::status_support::{args, fixture, write_at};
 
 fn sides(left: Option<&str>, right: Option<&str>) -> (String, String) {

@@ -5,7 +5,7 @@
 
 use std::process::Output;
 
-use super::common::{assert_exit_error, CliEnv};
+use super::common::{CliEnv, assert_exit_error};
 use super::status_support::{args, fixture, write_at};
 
 const T0: u64 = 1_700_000_000;

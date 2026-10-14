@@ -53,7 +53,7 @@ pub fn judge_states(
                 (*first_size, *first_time),
                 (*second_size, *second_time),
                 method,
-            )
+            );
         }
         // ここまで来た組は、両側に通常ファイル・ディレクトリ・末尾の symlink のどれかがあり、種類が違う
         (File { .. } | Directory | Symlink { .. }, File { .. } | Directory | Symlink { .. }) => {
@@ -85,10 +85,10 @@ fn same_or_differs(same: bool) -> Verdict {
 type FileFacts = (Option<u64>, Option<Mtime>);
 
 fn judge_files(first: FileFacts, second: FileFacts, method: Method) -> Judgement {
-    if let (Some(a), Some(b)) = (first.0, second.0) {
-        if a != b {
-            return Judgement::Decided(Verdict::Differs);
-        }
+    if let (Some(a), Some(b)) = (first.0, second.0)
+        && a != b
+    {
+        return Judgement::Decided(Verdict::Differs);
     }
     let same_size = matches!((first.0, second.0), (Some(a), Some(b)) if a == b);
     match (method, first.1, second.1) {

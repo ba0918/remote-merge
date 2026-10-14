@@ -6,11 +6,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, TimeZone, Utc};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::rollback::{
-    execute_rollback, RollbackArgs, RollbackCommandOutput, RollbackCommandResult,
+    RollbackArgs, RollbackCommandOutput, RollbackCommandResult, execute_rollback,
 };
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::{BackupSession, MergeOutput, RollbackOutput};
 use tempfile::TempDir;

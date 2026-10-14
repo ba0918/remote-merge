@@ -6,7 +6,7 @@
 use remote_merge::service::types::exit_code;
 
 use super::common::place_files;
-use super::diff_strategy_support::{strings, Fixture};
+use super::diff_strategy_support::{Fixture, strings};
 
 // ── REQ-cli-084: 件数の上限を超えても読めた差分を残す ──
 
@@ -136,8 +136,8 @@ fn assert_kept_with_truncation(output: &std::process::Output, route: &str) {
 // SSH の経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
 // @kotowari[REQ-cli-084]
 #[test]
-fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_on_the_remote_server(
-) {
+fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_on_the_remote_server()
+ {
     let files = over_the_limit();
     let remote: Vec<(&str, &str)> = files
         .iter()
@@ -158,8 +158,8 @@ fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_
 // エージェントの経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
 // @kotowari[REQ-cli-084]
 #[tokio::test(flavor = "multi_thread")]
-async fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_via_the_agent(
-) {
+async fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_via_the_agent()
+ {
     use super::agent_support::{AgentFixture, Setup};
     let fixture =
         AgentFixture::new(Setup::default(), super::server_faults::Faults::default()).await;

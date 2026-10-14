@@ -8,7 +8,7 @@ use std::fs;
 use remote_merge::service::types::exit_code;
 
 use super::common::place_files;
-use super::diff_strategy_support::{strings, Fixture};
+use super::diff_strategy_support::{Fixture, strings};
 
 // @kotowari[REQ-cli-086, EX-cli-070]
 #[test]

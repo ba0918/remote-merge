@@ -25,9 +25,9 @@ mod tests {
     use crate::telemetry::{JsonLogLayer, LogEntry};
     use std::io::Write;
     use std::sync::{Arc, Mutex};
+    use tracing_subscriber::Layer;
     use tracing_subscriber::filter::FilterExt;
     use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::Layer;
 
     struct SharedBuf(Arc<Mutex<Vec<u8>>>);
 

@@ -7,7 +7,7 @@ use remote_merge_core::diff::binary::compute_sha256;
 use remote_merge_core::diff::engine::is_binary;
 
 use super::diff::Change;
-use super::diff_conflicts::{conflicts, Body};
+use super::diff_conflicts::{Body, conflicts};
 use super::diff_hunks::shown_hunks;
 use crate::service::types::{DiffOutput, LinkTargets, SourceInfo};
 

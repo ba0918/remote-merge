@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use remote_merge_core::compare::{Role, SideFailure, SideState, Undecidable, Verdict};
 use remote_merge_core::diff::engine::is_binary;
 use remote_merge_core::relative_path::RelPath;
-use remote_merge_engine::treat::hunk_merge::{merge_selected_hunks, HunkError, HunkMerge};
+use remote_merge_engine::treat::hunk_merge::{HunkError, HunkMerge, merge_selected_hunks};
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::HunkUses;
@@ -162,7 +162,7 @@ pub(super) fn merge_hunks(
         Some(Applied::Done { backup }) => ("merged", backup),
         Some(Applied::Planned) => ("would merge", None),
         Some(Applied::Failed(error) | Applied::FailedAfterChange(error)) => {
-            return Ok(failed(&path, error))
+            return Ok(failed(&path, error));
         }
         None => return Ok(failed(&path, "the change was not attempted".to_string())),
     };

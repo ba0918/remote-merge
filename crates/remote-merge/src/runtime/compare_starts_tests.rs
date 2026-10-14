@@ -1,6 +1,6 @@
 //! 起点の途中の事実をまとめて尋ねるときの、root_dir がないときの扱い（docs/decision/records/
 //! 2026-10-12-foundation-4.md の E41・E42）
-use remote_merge_core::op_failure::{failure_of, OpFailure};
+use remote_merge_core::op_failure::{OpFailure, failure_of};
 
 use super::*;
 

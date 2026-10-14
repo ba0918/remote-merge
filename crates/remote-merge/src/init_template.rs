@@ -12,10 +12,10 @@ pub fn generate_toml(input: &InitInput) -> String {
     toml.push_str("port     = 22\n");
     toml.push_str(&format!("user     = {}\n", quoted(&input.user)));
     toml.push_str(&format!("auth     = {}\n", quoted(&input.auth)));
-    if let Some(ref key) = input.key_path {
-        if !key.is_empty() {
-            toml.push_str(&format!("key      = {}\n", quoted(key)));
-        }
+    if let Some(ref key) = input.key_path
+        && !key.is_empty()
+    {
+        toml.push_str(&format!("key      = {}\n", quoted(key)));
     }
     toml.push_str(&format!("root_dir = {}\n", quoted(&input.remote_root_dir)));
 
@@ -42,11 +42,7 @@ fn table_key(name: &str) -> String {
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    if bare {
-        name.to_string()
-    } else {
-        quoted(name)
-    }
+    if bare { name.to_string() } else { quoted(name) }
 }
 
 /// TOML の基本の文字列（必要な文字はエスケープする）

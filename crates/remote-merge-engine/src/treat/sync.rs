@@ -18,11 +18,7 @@ pub fn exit_code(statuses: &[SyncTargetStatus]) -> i32 {
     let all_succeeded = statuses
         .iter()
         .all(|status| *status == SyncTargetStatus::Success);
-    if all_succeeded {
-        0
-    } else {
-        2
-    }
+    if all_succeeded { 0 } else { 2 }
 }
 
 #[cfg(test)]

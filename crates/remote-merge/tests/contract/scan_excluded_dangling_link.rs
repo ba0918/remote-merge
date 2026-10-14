@@ -9,9 +9,9 @@
 use std::path::Path;
 
 use super::common::place_symlink;
-use super::scan_excluded_unresolvable_link::{roots, Placement};
-use super::scan_listing_cli::{statuses_by_path, AgentFixture};
-use super::scan_routes_agree::{all_equal, RemoteFixture};
+use super::scan_excluded_unresolvable_link::{Placement, roots};
+use super::scan_listing_cli::{AgentFixture, statuses_by_path};
+use super::scan_routes_agree::{RemoteFixture, all_equal};
 
 const EXCLUDED_DANGLING: [Placement; 3] = [
     (

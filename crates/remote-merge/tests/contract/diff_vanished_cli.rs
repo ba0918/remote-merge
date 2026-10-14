@@ -3,7 +3,7 @@
 //! 判定できないパスとして示すこと（docs/ir/compare/flow.md の REQ-compare-003）の CLI の契約テスト。
 //! エージェントの偽サーバが、右のハッシュの問いを受ける前にファイルのあるディレクトリを消す。
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 use super::server_removal::{Removal, When};
 

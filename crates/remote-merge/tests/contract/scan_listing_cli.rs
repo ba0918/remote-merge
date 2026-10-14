@@ -12,13 +12,13 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::{symlink, DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
-use super::common::{gen_config, place_files, place_symlink, TestDirs};
+use super::common::{TestDirs, gen_config, place_files, place_symlink};
 use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
@@ -547,8 +547,8 @@ async fn a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_via_t
 
 // @kotowari[REQ-scan-007]
 #[tokio::test(flavor = "multi_thread")]
-async fn status_lists_the_included_files_below_a_root_dir_that_is_a_directory_symlink_via_the_agent(
-) {
+async fn status_lists_the_included_files_below_a_root_dir_that_is_a_directory_symlink_via_the_agent()
+ {
     let fixture = AgentFixture::new().await;
     let (local_root, remote_root) = linked_roots(fixture.temp.path());
     let only_sub: BTreeMap<String, String> =

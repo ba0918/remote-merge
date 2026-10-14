@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 // 配布しているターゲットトリプル（.github/workflows/release.yml。docs/ir/ssh/fallback.md の
 // REQ-ssh-005。ARM の Linux は配布にない）

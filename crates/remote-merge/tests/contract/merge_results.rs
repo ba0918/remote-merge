@@ -3,7 +3,7 @@
 //! 書き込み先 develop と参照先 staging を一時ディレクトリに差し替えて execute_merge を呼び、
 //! 結果を --format json と同じ整形で JSON にして確かめる。
 
-use super::merge_support::{args, fixture, fixture_with_backup, Fixture};
+use super::merge_support::{Fixture, args, fixture, fixture_with_backup};
 
 fn is_non_empty_string(value: &serde_json::Value) -> bool {
     value.as_str().is_some_and(|text| !text.is_empty())

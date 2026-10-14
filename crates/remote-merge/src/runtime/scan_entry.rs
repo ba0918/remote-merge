@@ -23,10 +23,10 @@ impl CoreRuntime {
     /// （docs/ir/config/include.md の REQ-config-032・033）
     pub(crate) fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
         let basis = (self.root_dir_of(side), self.config.filter.include.clone());
-        if let Some(checked) = self.checked_include.get(side) {
-            if checked.basis == basis {
-                return Ok(checked.values.clone());
-            }
+        if let Some(checked) = self.checked_include.get(side)
+            && checked.basis == basis
+        {
+            return Ok(checked.values.clone());
         }
         let values = self.check_include(side)?;
         self.checked_include.insert(

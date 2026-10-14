@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 use super::server_removal::{Rewrite, RewriteKind};
 
@@ -80,8 +80,8 @@ async fn ex_compare_017_a_destination_rewritten_after_the_comparison_is_not_writ
 
 // @kotowari[REQ-compare-015, REQ-merge-034, EX-compare-018]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_compare_018_a_destination_only_file_rewritten_after_the_comparison_is_not_deleted_by_sync(
-) {
+async fn ex_compare_018_a_destination_only_file_rewritten_after_the_comparison_is_not_deleted_by_sync()
+ {
     let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
     fixture.put("old.txt", None, Some("bravo\n"));
     fixture.put("gone.txt", None, Some("x\n"));

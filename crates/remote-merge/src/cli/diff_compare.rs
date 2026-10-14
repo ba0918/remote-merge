@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{Incomplete, PathComparison};
 use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
-use remote_merge_engine::treat::diff_names::{missing_names, unlistable_name, DiffScope};
+use remote_merge_engine::treat::diff_names::{DiffScope, missing_names, unlistable_name};
 use remote_merge_engine::treat::uses::DiffUses;
 
 use crate::runtime::{CompareRequest, CompareScope, CompareSides, CoreRuntime};
@@ -82,7 +82,7 @@ fn compare_named(
                     incomplete: comparison.incomplete,
                     unlistable,
                     named,
-                })
+                });
             }
             Err(error) => error,
         };

@@ -8,7 +8,7 @@
 
 use serde_json::Value;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 use super::ssh_interrupted_changes::backup_sessions;
 
@@ -88,10 +88,12 @@ async fn only_a_rollback_without_backup_asks_the_agent_for_hashes_once_before_re
     let with_backup = AgentFixture::new(Setup::default(), Faults::default()).await;
     with_backup.put("a.txt", Some("merged a\n"), Some("original a\n"));
     with_backup.put("b.txt", Some("merged b\n"), Some("original b\n"));
-    assert!(with_backup
-        .run(&["merge", "a.txt", "b.txt"])
-        .status
-        .success());
+    assert!(
+        with_backup
+            .run(&["merge", "a.txt", "b.txt"])
+            .status
+            .success()
+    );
     let without_backup = merged_without_backup(Setup::default(), Faults::default()).await;
 
     let mut sequences = Vec::new();
@@ -156,8 +158,8 @@ fn assert_batch_read_failed_and_rest_untouched(fixture: &AgentFixture, result: &
 
 // @kotowari[REQ-ssh-003]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_hash_batch_lost_again_after_restarting_fails_its_files_as_reads_and_leaves_the_rest_untouched(
-) {
+async fn an_agent_hash_batch_lost_again_after_restarting_fails_its_files_as_reads_and_leaves_the_rest_untouched()
+ {
     let fixture = merged_without_backup(Setup::default(), Faults::default()).await;
     std::fs::remove_file(fixture.remote().join("b.txt")).unwrap();
     fixture.server.faults().arm_agent_cut(AgentCut {

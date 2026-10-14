@@ -4,7 +4,7 @@
 use remote_merge_core::op_failure::{Disconnection, OpFailure, PathResult, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
-use super::{with_agent, AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE};
+use super::{AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE, with_agent};
 use crate::agent::protocol::FileHashResult;
 use crate::runtime::core::CoreRuntime;
 

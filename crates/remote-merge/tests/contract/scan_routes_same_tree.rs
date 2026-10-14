@@ -18,7 +18,7 @@ use std::process::Output;
 use remote_merge_core::test_tree::PermissionLocks;
 use serde_json::Value;
 
-use super::scan_missing_root::{Sides, ROUTES};
+use super::scan_missing_root::{ROUTES, Sides};
 
 /// ツリーの中の、件数に数える項目（ファイルと symlink）の数。循環の下と exclude の下を除く
 const COUNTED: usize = 10;

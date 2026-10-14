@@ -2,7 +2,7 @@
 //! symlink（docs/ir/compare/flow.md の REQ-compare-004）と、書き込み先の今の状態
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
-use remote_merge_core::compare::{check_before_change, ChangeCheck, Observed, Role, SideFailure};
+use remote_merge_core::compare::{ChangeCheck, Observed, Role, SideFailure, check_before_change};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::failure_kind::failure_of_scan_error;

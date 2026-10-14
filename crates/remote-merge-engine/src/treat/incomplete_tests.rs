@@ -55,9 +55,11 @@ fn diff_lists_each_incomplete_listing_once_in_errors() {
 
     assert_eq!(errors.len(), 2, "{errors:?}");
     assert_eq!(errors[0].path, ".");
-    assert!(errors[0]
-        .reason
-        .starts_with("Tree scan truncated at 5 entries."));
+    assert!(
+        errors[0]
+            .reason
+            .starts_with("Tree scan truncated at 5 entries.")
+    );
     assert_eq!(errors[1].path, "d/loop");
     assert!(errors[1].reason.contains("cycle at d/loop"), "{errors:?}");
 }

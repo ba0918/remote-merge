@@ -56,7 +56,7 @@ pub fn read_outcome(failures: impl IntoIterator<Item = SideFailure>) -> ReadOutc
     for failed in failures {
         match read_failure_handling(&failed.failure) {
             FailureHandling::ByReconnection | FailureHandling::StopSide => {
-                return ReadOutcome::Stopped(failed)
+                return ReadOutcome::Stopped(failed);
             }
             FailureHandling::Undecidable => undecidable.push(failed),
         }

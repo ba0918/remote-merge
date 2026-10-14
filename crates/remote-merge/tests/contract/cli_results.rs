@@ -1,10 +1,10 @@
 use std::fs;
 use std::process::Command;
 
-use remote_merge::cli::diff::{execute_diff, DiffArgs};
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
-use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::diff::binary::compute_sha256;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::format_json;
@@ -130,9 +130,11 @@ fn link_target_and_resolved_text_have_separate_json_fields() {
     let json: serde_json::Value = serde_json::from_str(&format_json(&result).unwrap()).unwrap();
     assert_eq!(json["files"][0]["link_targets"]["left"], "left.txt");
     assert_eq!(json["files"][0]["link_targets"]["right"], "right.txt");
-    assert!(json["files"][0]["hunks"]
-        .to_string()
-        .contains("left contents"));
+    assert!(
+        json["files"][0]["hunks"]
+            .to_string()
+            .contains("left contents")
+    );
     assert!(!json["files"][0]["hunks"].to_string().contains("left.txt"));
 }
 
@@ -192,14 +194,18 @@ fn directory_link_slash_does_not_discard_link_or_child_diff() {
         format_json(&plain_output).unwrap(),
         format_json(&slash_output).unwrap()
     );
-    assert!(plain_output
-        .files
-        .iter()
-        .any(|file| file.path == "shared" && file.link_targets.is_some()));
-    assert!(plain_output
-        .files
-        .iter()
-        .any(|file| file.path == "shared/child.txt" && !file.hunks.is_empty()));
+    assert!(
+        plain_output
+            .files
+            .iter()
+            .any(|file| file.path == "shared" && file.link_targets.is_some())
+    );
+    assert!(
+        plain_output
+            .files
+            .iter()
+            .any(|file| file.path == "shared/child.txt" && !file.hunks.is_empty())
+    );
 }
 
 // @kotowari[EX-cli-017]

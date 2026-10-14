@@ -7,9 +7,9 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 
@@ -126,9 +126,11 @@ fn a_directory_link_merges_its_children_into_a_destination_directory() {
         fs::read_to_string(destination.path().join("linked/file.txt")).unwrap(),
         "incoming contents\n"
     );
-    assert!(fs::symlink_metadata(destination.path().join("linked"))
-        .unwrap()
-        .is_dir());
+    assert!(
+        fs::symlink_metadata(destination.path().join("linked"))
+            .unwrap()
+            .is_dir()
+    );
 }
 
 // @kotowari[EX-merge-005]

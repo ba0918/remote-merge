@@ -7,8 +7,8 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
+use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::exit_code;

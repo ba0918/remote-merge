@@ -9,7 +9,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_success, CliEnv};
+use super::common::{CliEnv, assert_exit_success};
 
 fn merge(env: &CliEnv, args: &[&str]) {
     let output = env
@@ -130,8 +130,8 @@ fn assert_skipped_after_an_ancestor_is_replaced_on_the_remote_server(
 
 // @kotowari[EX-backup-029]
 #[test]
-fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_on_the_remote_server(
-) {
+fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_on_the_remote_server()
+ {
     let env = assert_skipped_after_an_ancestor_is_replaced_on_the_remote_server(
         "dir/sub/a.txt",
         |develop| {
@@ -144,8 +144,8 @@ fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regula
 
 // @kotowari[EX-backup-030]
 #[test]
-fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_on_the_remote_server(
-) {
+fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_on_the_remote_server()
+ {
     let env =
         assert_skipped_after_an_ancestor_is_replaced_on_the_remote_server("dir/a.txt", |develop| {
             fs::remove_dir_all(develop.join("dir")).unwrap();

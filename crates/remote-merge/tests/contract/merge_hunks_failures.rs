@@ -6,7 +6,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 /// `failed` の一件目の error

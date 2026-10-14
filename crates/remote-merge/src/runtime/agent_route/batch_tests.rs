@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use remote_merge_core::relative_path::RelPath;
 
-use super::{inspect_paths, AGENT_READ_BATCH_SIZE};
+use super::{AGENT_READ_BATCH_SIZE, inspect_paths};
 use crate::agent::protocol::{AgentPathCheck, AgentPathInspection, AgentRequest, AgentResponse};
 use crate::runtime::core::CoreRuntime;
 

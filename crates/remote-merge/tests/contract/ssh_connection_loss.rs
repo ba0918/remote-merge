@@ -2,7 +2,7 @@
 //! 読み取りの `接続断` を同じ経路で一度だけやり直し、変更の `接続断` を繰り返さないこと
 //! （docs/ir/ssh/reconnect.md・docs/ir/ssh/sudo.md）の契約テスト。
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 fn agent_cut(request: &'static str, repeat: Repeat) -> Faults {

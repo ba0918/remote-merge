@@ -10,7 +10,7 @@ use std::process::Output;
 
 use serde_json::Value;
 
-use super::scan_missing_root::{Sides, ROUTES};
+use super::scan_missing_root::{ROUTES, Sides};
 
 fn json(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout)

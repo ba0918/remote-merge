@@ -5,7 +5,7 @@
 
 use std::fs;
 
-use super::agent_support::{json, AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 // @kotowari[REQ-compare-011]

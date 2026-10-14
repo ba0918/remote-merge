@@ -7,5 +7,5 @@ pub mod log_reader;
 pub mod structured_log;
 pub mod truncate;
 
-pub use log_reader::{read_logs, LogEntry, LogFilter};
+pub use log_reader::{LogEntry, LogFilter, read_logs};
 pub use structured_log::JsonLogLayer;

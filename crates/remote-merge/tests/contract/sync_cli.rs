@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_error, assert_exit_success, CliEnv};
+use super::common::{CliEnv, assert_exit_error, assert_exit_success};
 
 /// develop と staging のどちらにも、書き込むファイル一つと --delete で消すファイル一つがある構成
 fn one_merge_and_one_deletion_on_each_target() -> CliEnv {

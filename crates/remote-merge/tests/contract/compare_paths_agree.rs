@@ -8,10 +8,10 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use remote_merge::runtime::CompareScope;
-use remote_merge_core::compare::{choose_method, Command, Follow, Method, Selection};
+use remote_merge_core::compare::{Command, Follow, Method, Selection, choose_method};
 
-use super::compare_support::{comparison_text, request, DiffUses, NothingUsed};
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::compare_support::{DiffUses, NothingUsed, comparison_text, request};
+use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
 const THIS_FILE: &str = "compare_paths_agree::";
 
@@ -90,8 +90,8 @@ fn ex_compare_001_the_same_pair_is_judged_the_same_however_the_path_is_given_on_
 
 // @kotowari[REQ-compare-002, REQ-compare-006, EX-compare-002]
 #[test]
-fn ex_compare_002_a_directory_and_a_link_to_a_directory_differ_in_kind_by_every_method_on_all_three_routes(
-) {
+fn ex_compare_002_a_directory_and_a_link_to_a_directory_differ_in_kind_by_every_method_on_all_three_routes()
+ {
     let name = "ex_compare_002_a_directory_and_a_link_to_a_directory_differ_in_kind_by_every_method_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);
@@ -111,8 +111,8 @@ fn ex_compare_002_a_directory_and_a_link_to_a_directory_differ_in_kind_by_every_
 
 // @kotowari[REQ-compare-006, REQ-compare-001, REQ-compare-007, EX-compare-007]
 #[test]
-fn ex_compare_007_sizes_and_times_decide_without_reading_and_only_the_rest_is_hashed_on_all_three_routes(
-) {
+fn ex_compare_007_sizes_and_times_decide_without_reading_and_only_the_rest_is_hashed_on_all_three_routes()
+ {
     let name = "ex_compare_007_sizes_and_times_decide_without_reading_and_only_the_rest_is_hashed_on_all_three_routes";
     if let Some(child) = child() {
         return answer(child);

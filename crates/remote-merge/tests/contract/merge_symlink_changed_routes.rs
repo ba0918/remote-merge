@@ -342,8 +342,8 @@ const EX_053: &str = "merge_symlink_changed_routes::ex_merge_053_a_destination_s
 
 // @kotowari[REQ-merge-033, EX-merge-053]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_merge_053_a_destination_symlink_replaced_by_a_regular_file_after_comparison_fails_and_the_file_is_kept_on_both_routes(
-) {
+async fn ex_merge_053_a_destination_symlink_replaced_by_a_regular_file_after_comparison_fails_and_the_file_is_kept_on_both_routes()
+ {
     if serve_child() {
         return;
     }
@@ -374,8 +374,8 @@ const EX_054: &str = "merge_symlink_changed_routes::ex_merge_054_a_destination_s
 
 // @kotowari[REQ-merge-033, EX-merge-054]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_merge_054_a_destination_symlink_repointed_after_comparison_fails_and_keeps_its_new_target_on_both_routes(
-) {
+async fn ex_merge_054_a_destination_symlink_repointed_after_comparison_fails_and_keeps_its_new_target_on_both_routes()
+ {
     if serve_child() {
         return;
     }
@@ -441,8 +441,8 @@ const LEADING_SPACE_TEST: &str = "merge_symlink_changed_routes::an_unchanged_des
 
 // @kotowari[REQ-merge-033]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unchanged_destination_symlink_whose_target_has_a_leading_space_is_replaced_on_both_routes(
-) {
+async fn an_unchanged_destination_symlink_whose_target_has_a_leading_space_is_replaced_on_both_routes()
+ {
     if serve_child() {
         return;
     }
@@ -466,8 +466,8 @@ const PARENT_SEARCH_ONLY: &str = "merge_symlink_changed_routes::an_unchanged_des
 
 // @kotowari[REQ-merge-033]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unchanged_destination_symlink_whose_parent_became_search_only_is_replaced_on_both_routes(
-) {
+async fn an_unchanged_destination_symlink_whose_parent_became_search_only_is_replaced_on_both_routes()
+ {
     if serve_child() {
         return;
     }
@@ -534,8 +534,8 @@ const REPOINTED_NON_UTF8: &str = "merge_symlink_changed_routes::ex_merge_055_a_d
 
 // @kotowari[REQ-merge-033, EX-merge-055]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_merge_055_a_destination_symlink_repointed_to_another_non_utf8_target_fails_and_keeps_its_new_target_on_both_routes(
-) {
+async fn ex_merge_055_a_destination_symlink_repointed_to_another_non_utf8_target_fails_and_keeps_its_new_target_on_both_routes()
+ {
     if serve_child() {
         return;
     }
