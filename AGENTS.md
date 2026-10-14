@@ -15,6 +15,7 @@
 | Always | ba0918-design, ba0918-placement, ba0918-readability, ba0918-secrets |
 | design | ba0918-reuse |
 | implement | ba0918-tdd |
+| writing or changing Rust code, or the Cargo manifest, toolchain or lint configuration | ba0918-rust |
 | review | ba0918-verification |
 | commit | ba0918-commit |
 | release | ba0918-release |
