@@ -6,12 +6,12 @@
 
 ### REQ-paths-008: どの経路も同じ結果を返す
 - kind: invariant
-- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D10, docs/decision/records/2026-10-12-foundation.md#A12, docs/decision/records/2026-10-12-foundation-5.md#F23
+- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D10, docs/decision/records/2026-10-12-foundation.md#A12, docs/decision/records/2026-10-12-foundation-5.md#F23, docs/decision/records/2026-10-15-flag-resolution.md#A10
 - verification: property
 
 同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカルとエージェントのどちらの経路でも、パスの確認は同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。
 存在しないこと、"cannot resolve path: permission denied"、"cannot resolve path: cannot read" は、どの経路でも同じ状態で同じものになる。
-経路で違いうるのは、FLAG-paths-004 の OS のパスの長さの上限による違いだけである。
+経路で違いうるのは、確かめる側が macOS のローカルで、OS のパスの長さの上限（PATH_MAX、1024 バイト）が先に当たる場合だけである。
 
 ### REQ-paths-011: 祖先がディレクトリでなければ merge・sync とバックアップの作成はエラーにする
 - kind: state_driven

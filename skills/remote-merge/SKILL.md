@@ -217,7 +217,7 @@ Duration shorthand for `--since`: `30s`, `5m`, `1h`, `2d`.
 ## Configuration
 
 Two config files (project overrides global; `[filter]` sections are merged as union):
-- **Global:** `~/.config/remote-merge/config.toml`
+- **Global:** `remote-merge/config.toml` under the OS config directory (`$XDG_CONFIG_HOME` or `~/.config` on Linux, `~/Library/Application Support` on macOS)
 - **Project:** `.remote-merge.toml`
 
 Use `remote-merge init` to generate a project config interactively.
@@ -246,7 +246,7 @@ max_scan_entries = 50000                # Max files per scan (default: 50000)
 
 # ── Local ──
 [local]
-root_dir = "."                          # Local project root (default: ".")
+root_dir = "."                          # Local project root (required)
 
 # ── Servers ──
 [servers.develop]

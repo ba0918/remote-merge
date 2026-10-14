@@ -124,7 +124,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `ref_hunks`: the diff from the left side to the reference, for text files. An empty array when the left side equals the reference. Omitted when the reference file does not exist, cannot be read (the path and reason are then in `errors`), or is of a different kind.
 - `ref_hash`: the SHA-256 of the reference file, for binary files (instead of `ref_hunks`).
 - `link_targets.ref`: the link string of the reference, for symlinks (`null` when the reference is not a symlink).
-- `conflict_count` / `conflict_regions`: conflicts where both sides changed the same lines differently. A whole-file conflict (binary files, a file missing in the reference that differs on both sides, or a file removed on one side and changed on the other) is one region whose `ref_range` is `{"whole_file": true}` with no line fields.
+- `conflict_count` / `conflict_regions`: conflicts where both sides changed the same lines differently. A whole-file conflict (binary files, a file missing in the reference that differs on both sides, or a file removed on one side and changed on the other) is one region whose `ref_range` is `{"whole_file": true}` with no line fields. A line conflict's element holds exactly `ref_range` (`{"start": N, "end": M}`, 0-based, end exclusive), `left_lines` and `right_lines`.
 - `--max-lines` also applies to `ref_hunks`; the file's `truncated` is true when either diff was cut.
 
 ## merge

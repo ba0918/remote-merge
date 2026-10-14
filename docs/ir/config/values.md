@@ -44,10 +44,11 @@ strict_host_key_checking は大文字と小文字を区別せずに "ask" を as
 
 ### REQ-config-019: 環境変数のパスワードを優先する
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A6
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A6, docs/decision/records/2026-10-15-flag-resolution.md#A9
 - verification: unit
 
 auth が "password" のサーバのパスワードには、サーバ名を大文字にした環境変数 REMOTE_MERGE_PASSWORD_<サーバ名> が空でなく設定されていればそれを設定の password より優先して使い、空の環境変数は設定されていないものとして扱う。
+設定の password の平文は受け付け、その値を使って接続するときは "Server '<サーバ名>': using plaintext password from config. Key authentication is recommended." の警告を標準エラーに出す。接続時にパスワードを尋ねることはない。
 
 ### REQ-config-020: 鍵のパスの既定値と展開
 - kind: state_driven

@@ -20,11 +20,12 @@ diff は、パスの引数に絶対パスか ".." の要素を含むパスがあ
 
 ### REQ-cli-053: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E14
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E14, docs/decision/records/2026-10-15-flag-resolution.md#A4
 - verification: unit
 
 diff の JSON は files と summary を持ち、--max-files で打ち切ったときだけ truncated と changed_files_total を、比べられなかったパスがあるときだけ path と reason を持つ errors を持つ。files の各項目は path、label と root を持つ left と right、truncated、index・left_start・right_start と type が "context"・"added"・"removed" の lines と content を持つ hunks を持ち、binary・left_hash・right_hash・note は該当するときだけ持つ。
 summary の files_with_changes は、compare/judgement.md の判定が違う・片側だけ・種類の違いになったファイル（ハッシュの違うバイナリとリンク文字列か辿った先の違う symlink を含む）の数とする。
+hunks の left_start・right_start は 0 始まりの行番号とする。
 
 ### REQ-cli-054: 変更の行数で打ち切る
 - kind: state_driven
@@ -56,10 +57,11 @@ diff は指定したパスが左右のどちらにもないとき、パスごと
 
 ### REQ-cli-058: テキストの形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A7, docs/decision/records/2026-09-29-adopt-diff-output.md#A26, docs/decision/records/2026-10-12-foundation-4.md#E14
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A7, docs/decision/records/2026-09-29-adopt-diff-output.md#A26, docs/decision/records/2026-10-12-foundation-4.md#E14, docs/decision/records/2026-10-15-flag-resolution.md#A4
 - verification: unit
 
 diff のテキストは、ファイルごとに "--- a/パス (左のラベル)" と "+++ b/パス (右のラベル)" の見出し、"@@" の行、文脈・削除・追加の行を " "・"-"・"+" の接頭辞で出し、最後に "変更のあるファイルの数 file(s) with changes out of 走査したファイルの数 total" を出す。変更のあるファイルの数は、REQ-cli-053 の files_with_changes と同じ数とする。変更の行の前後に 3 行ずつ文脈の行を出し、文脈の範囲が重なるか接する変更は一つの "@@" の塊にまとめ、最初のファイルの見出しから書き始める。
+"@@" の行の行番号は 0 始まりとし、先頭の行の変更は "@@ -0,1 +0,1 @@" になる。
 
 ### REQ-cli-060: 片側にだけあるファイル
 - kind: state_driven

@@ -91,7 +91,7 @@ Options:
 
 | ファイル | パス |
 |--------|------|
-| グローバル | `~/.config/remote-merge/config.toml` |
+| グローバル | OS の設定ディレクトリの下の `remote-merge/config.toml`（Linux は `$XDG_CONFIG_HOME` か `~/.config`、macOS は `~/Library/Application Support`） |
 | プロジェクト | `.remote-merge.toml`（カレントディレクトリ） |
 
 プロジェクト設定はグローバル設定を上書きする（`[filter]` セクションのみ和集合でマージ）。

@@ -6,10 +6,11 @@
 
 ### REQ-cli-018: JSON 指定は失敗時も JSON を返す
 - kind: invariant
-- source: docs/decision/records/2026-09-25-spec-migration.md#A43
+- source: docs/decision/records/2026-09-25-spec-migration.md#A43, docs/decision/records/2026-10-15-flag-resolution.md#A2
 - verification: unit
 
 --format json に対応する CLI コマンドは、成功とエラーのどちらの場合も JSON として解釈できる結果を返す。
+確認を断った取り消しは成功にもエラーにも当たらず、JSON を出さない。
 
 ### REQ-cli-019: 部分成功は完全成功と区別する
 - kind: invariant

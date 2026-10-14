@@ -21,11 +21,12 @@
 
 ### REQ-cli-065: diff に競合の数と場所を出す
 - kind: state_driven
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A4
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A4, docs/decision/records/2026-10-15-flag-resolution.md#A5
 - verification: unit
 
 --ref を指定した diff は、競合があるファイルについて、JSON に "conflict_count"（競合の数）と "conflict_regions" を出し、テキストに "Conflicts: N region(s) where both sides changed the same lines differently" を出す。
 複数のファイルのテキストでは、末尾に "N conflict(s) detected across files" を出す。競合がなければどれも出さない。
+"conflict_regions" の行の競合の要素は "ref_range"・"left_lines"・"right_lines" だけを持ち、"ref_range" は 0 始まりで終端を含まない {"start": 数, "end": 数} の形のオブジェクトとする。
 
 ### REQ-cli-097: 参照先にないファイルと消すと変えるの組はファイル全体で一つの競合にする
 - kind: state_driven

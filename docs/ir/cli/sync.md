@@ -21,10 +21,11 @@ sync は --right に指定した順に書き込み先を一つずつ処理し、
 
 ### REQ-cli-040: 書き込む前にまとめて一度だけ確認する
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A3
+- source: docs/decision/records/2026-09-27-adopt-sync.md#A3, docs/decision/records/2026-10-15-flag-resolution.md#A3
 - verification: unit
 
 --force も --dry-run もなく書き込む予定があるとき、sync は標準エラーに "Sync: 元 -> 先1, 先2" と書き込む予定のある書き込み先ごとの "[先] N files to merge, M files to delete" を出して "Proceed? [y/N] " と一度だけ尋ね、"y" か "Y" なら書き込み、それ以外なら "Sync cancelled." を出して何も書かずに終了コード 0 で終わる。
+確認の行は件数が 0 の部分を出さず、書き込む予定が何もない書き込み先の行を出さない。
 
 ### REQ-cli-041: 書き込み先ごとの状態を判定する
 - kind: ubiquitous

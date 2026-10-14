@@ -6,11 +6,12 @@
 
 ### REQ-config-013: 省いたキーには既定値を使う
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3, docs/decision/records/2026-10-15-flag-resolution.md#A7
 - verification: unit
 - definition: TBL-config-001
 
 設定ファイルで省いたキーには TBL-config-001 の既定値を使う。
+ただし [local] の root_dir には既定値がなく、`グローバル設定` にも `プロジェクト設定` にも [local] の root_dir がない設定はエラーで止まり、終了コード 2 を返す。
 
 ## Decision tables
 

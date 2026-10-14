@@ -11,6 +11,13 @@
 
 --config がないとき、カレントディレクトリの ".remote-merge.toml" だけを `プロジェクト設定` として読み、上の階層のディレクトリは探さない。
 
+### REQ-config-045: グローバル設定の場所
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-15-flag-resolution.md#A6
+- verification: unit
+
+`グローバル設定` は OS の設定ディレクトリの下の "remote-merge/config.toml" から読む。Linux では XDG_CONFIG_HOME があればその下、なければ "~/.config" の下、macOS では "~/Library/Application Support" の下になる。
+
 ### REQ-config-006: --config でプロジェクト設定を指定する
 - kind: event_driven
 - source: docs/decision/records/2026-09-28-adopt-config-loading.md#A2
