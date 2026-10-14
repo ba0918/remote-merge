@@ -59,10 +59,10 @@ pub(super) fn mode_of(path: &std::path::Path) -> u32 {
 }
 
 /// ReadFiles レスポンスから全 FileReadResult を収集する。最後のチャンクのみ `is_last: true`
-pub(super) fn collect_file_contents(responses: Vec<AgentResponse>) -> Vec<FileReadResult> {
+pub(super) fn collect_file_contents(responses: &[AgentResponse]) -> Vec<FileReadResult> {
     let mut all_results = Vec::new();
     let mut found_last = false;
-    for resp in &responses {
+    for resp in responses {
         match resp {
             AgentResponse::FileContents {
                 results, is_last, ..

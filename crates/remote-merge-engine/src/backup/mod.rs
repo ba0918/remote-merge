@@ -21,9 +21,9 @@ pub struct LocalTargetIdentity {
 }
 
 impl LocalTargetIdentity {
-    pub fn new(root_dir: PathBuf) -> Self {
+    pub fn new(root_dir: &Path) -> Self {
         Self {
-            root_dir: lexically_normalized(&root_dir),
+            root_dir: lexically_normalized(root_dir),
         }
     }
 
@@ -69,7 +69,7 @@ fn identity_from_startup_directory(
     } else {
         startup_directory.join(root_dir)
     };
-    LocalTargetIdentity::new(root_dir)
+    LocalTargetIdentity::new(&root_dir)
 }
 
 pub fn remote_target_identity(config: &ServerConfig) -> RemoteTargetIdentity {
@@ -268,7 +268,7 @@ mod tests {
 
         assert_eq!(
             local_target_identity(&config, Path::new("/work")),
-            LocalTargetIdentity::new(PathBuf::from("/work/project"))
+            LocalTargetIdentity::new(&PathBuf::from("/work/project"))
         );
     }
 
@@ -285,7 +285,7 @@ mod tests {
 
         assert_eq!(
             local_target_identity(&config, temp.path()),
-            LocalTargetIdentity::new(temp.path().join("current"))
+            LocalTargetIdentity::new(&temp.path().join("current"))
         );
     }
 

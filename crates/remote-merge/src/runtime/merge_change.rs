@@ -84,7 +84,7 @@ impl CoreRuntime {
                     target,
                     session,
                     change.path,
-                    SymlinkBackup {
+                    &SymlinkBackup {
                         link_target: Path::new(link_target),
                         expected: Some((Path::new(&new_target), Path::new(real_parent))),
                     },

@@ -45,7 +45,7 @@ fn the_relay_ends_without_a_warning_when_the_bridge_closed_first() {
     let subscriber = CountWarnings(Arc::clone(&warnings));
 
     tracing::subscriber::with_default(subscriber, || {
-        writer_relay_loop(relay_read, tx, Arc::new(AtomicBool::new(false)));
+        writer_relay_loop(relay_read, &tx, &Arc::new(AtomicBool::new(false)));
     });
 
     assert_eq!(warnings.load(Ordering::SeqCst), 0);

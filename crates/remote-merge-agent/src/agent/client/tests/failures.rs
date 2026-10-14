@@ -32,7 +32,7 @@ fn an_answer_that_cannot_be_read_is_a_disconnection() {
 
 #[test]
 fn an_answer_of_another_kind_is_a_disconnection() {
-    let error = answering(AgentResponse::Pong)
+    let error = answering(&AgentResponse::Pong)
         .remove(&entry("a"))
         .unwrap_err();
     assert!(is_no_answer(&error), "{error:#}");
@@ -43,7 +43,7 @@ fn an_answer_of_another_kind_is_a_disconnection() {
 // @kotowari[REQ-cli-015]
 #[test]
 fn an_answer_of_another_kind_names_only_its_kind_and_not_its_contents() {
-    let error = answering(AgentResponse::FileContents {
+    let error = answering(&AgentResponse::FileContents {
         results: vec![FileReadResult::Ok {
             path: "a".into(),
             content: b"SECRET".to_vec(),
@@ -62,7 +62,7 @@ fn an_answer_of_another_kind_names_only_its_kind_and_not_its_contents() {
 
 #[test]
 fn an_answer_that_leaves_out_a_path_is_a_disconnection() {
-    let error = answering(AgentResponse::FileContents {
+    let error = answering(&AgentResponse::FileContents {
         results: vec![FileReadResult::Ok {
             path: "a".into(),
             content: b"x".to_vec(),
@@ -89,7 +89,7 @@ fn a_closed_stream_is_a_disconnection() {
 
 #[test]
 fn a_failure_the_agent_answers_is_its_kind_and_not_a_disconnection() {
-    let error = answering(AgentResponse::Changed {
+    let error = answering(&AgentResponse::Changed {
         failure: Some(WireFailure::PermissionDenied),
     })
     .chmod(&entry("a"), 0o644)
@@ -99,7 +99,7 @@ fn a_failure_the_agent_answers_is_its_kind_and_not_a_disconnection() {
 
 /// `results` を一つの最後の応答で返すエージェントから "a" を読む
 fn read_a(results: Vec<FileReadResult>) -> anyhow::Result<Vec<PathContent>> {
-    answering(AgentResponse::FileContents {
+    answering(&AgentResponse::FileContents {
         results,
         is_last: true,
         refused: vec![],

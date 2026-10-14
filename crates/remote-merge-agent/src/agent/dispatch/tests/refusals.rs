@@ -21,7 +21,7 @@ fn read_files_carries_a_refused_path_as_its_own_failure_and_reads_the_others() {
         }
         other => panic!("expected FileContents, got {other:?}"),
     }
-    let results = collect_file_contents(resps);
+    let results = collect_file_contents(&resps);
     assert_eq!(results.len(), 1, "{results:?}");
     assert!(matches!(&results[0], FileReadResult::Ok { path, .. } if path == "ok.txt"));
 }

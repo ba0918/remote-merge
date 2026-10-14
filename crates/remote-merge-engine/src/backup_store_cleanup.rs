@@ -22,7 +22,7 @@ impl BackupStore {
         let target_keys = configured_target_keys(config, &self.startup_directory)?;
         let mut removed = 0;
         for session in sessions {
-            let session = session.map_err(|error| unreadable_store(&sessions_dir, error))?;
+            let session = session.map_err(|error| unreadable_store(&sessions_dir, &error))?;
             let Some(session_id) = session.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
@@ -48,7 +48,7 @@ fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Res
         match fs::remove_dir_all(&area) {
             Ok(()) => removed += 1,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(not_removed(&area, error)),
+            Err(error) => return Err(not_removed(&area, &error)),
         }
     }
     let Some(mut left) = unless_not_found(fs::read_dir(session), session)? else {
@@ -63,13 +63,13 @@ fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Res
                     error.kind(),
                     ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
                 ) => {}
-            Err(error) => return Err(not_removed(session, error)),
+            Err(error) => return Err(not_removed(session, &error)),
         }
     }
     Ok(removed)
 }
 
-fn not_removed(path: &Path, error: std::io::Error) -> anyhow::Error {
+fn not_removed(path: &Path, error: &std::io::Error) -> anyhow::Error {
     anyhow::anyhow!(
         "expired backups could not be removed: {}: {error}",
         path.display()

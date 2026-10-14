@@ -10,10 +10,10 @@ use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 /// 読めないようにしたディレクトリ。テストが途中で失敗しても、一時ディレクトリを消す前に戻す
-fn unreadable(path: std::path::PathBuf) -> PermissionLocks {
-    fs::create_dir_all(&path).unwrap();
+fn unreadable(path: &std::path::Path) -> PermissionLocks {
+    fs::create_dir_all(path).unwrap();
     let locks = PermissionLocks::new();
-    locks.lock(&path, 0o000);
+    locks.lock(path, 0o000);
     locks
 }
 
@@ -28,7 +28,7 @@ async fn an_unreadable_directory_is_reported_in_errors_and_not_compared() {
     for (route, setup) in routes() {
         let fixture = AgentFixture::new(setup, Faults::default()).await;
         fixture.put("secret/a.txt", Some("local\n"), None);
-        let _secret = unreadable(fixture.remote().join("secret"));
+        let _secret = unreadable(&fixture.remote().join("secret"));
 
         let output = fixture.run(&["diff", "secret"]);
 

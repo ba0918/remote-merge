@@ -33,7 +33,7 @@ struct Server<'a> {
 
 /// first と second を同じ一時ディレクトリに差し替え、first へ書いたセッションが
 /// second の一覧に出るかを返す。区別は設定の値だけで決まる。
-fn first_session_is_listed_for_second(first: Server<'_>, second: Server<'_>) -> bool {
+fn first_session_is_listed_for_second(first: &Server<'_>, second: &Server<'_>) -> bool {
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -90,8 +90,8 @@ fn server(
 #[test]
 fn remote_targets_differing_only_in_port_keep_separate_sessions() {
     assert!(!first_session_is_listed_for_second(
-        server("example.invalid", "deploy", 22, "app"),
-        server("example.invalid", "deploy", 2222, "app"),
+        &server("example.invalid", "deploy", 22, "app"),
+        &server("example.invalid", "deploy", 2222, "app"),
     ));
 }
 
@@ -99,8 +99,8 @@ fn remote_targets_differing_only_in_port_keep_separate_sessions() {
 #[test]
 fn remote_targets_differing_only_in_host_keep_separate_sessions() {
     assert!(!first_session_is_listed_for_second(
-        server("app1.example.invalid", "deploy", 22, "app"),
-        server("app2.example.invalid", "deploy", 22, "app"),
+        &server("app1.example.invalid", "deploy", 22, "app"),
+        &server("app2.example.invalid", "deploy", 22, "app"),
     ));
 }
 
@@ -108,8 +108,8 @@ fn remote_targets_differing_only_in_host_keep_separate_sessions() {
 #[test]
 fn aliases_of_one_host_are_separate_write_targets() {
     assert!(!first_session_is_listed_for_second(
-        server("127.0.0.1", "deploy", 22, "app"),
-        server("localhost", "deploy", 22, "app"),
+        &server("127.0.0.1", "deploy", 22, "app"),
+        &server("localhost", "deploy", 22, "app"),
     ));
 }
 
@@ -117,8 +117,8 @@ fn aliases_of_one_host_are_separate_write_targets() {
 #[test]
 fn remote_targets_differing_only_in_root_dir_keep_separate_sessions() {
     assert!(!first_session_is_listed_for_second(
-        server("example.invalid", "deploy", 22, "app"),
-        server("example.invalid", "deploy", 22, "other"),
+        &server("example.invalid", "deploy", 22, "app"),
+        &server("example.invalid", "deploy", 22, "other"),
     ));
 }
 
@@ -126,8 +126,8 @@ fn remote_targets_differing_only_in_root_dir_keep_separate_sessions() {
 #[test]
 fn login_user_does_not_distinguish_remote_targets() {
     assert!(first_session_is_listed_for_second(
-        server("example.invalid", "alice", 22, "app"),
-        server("example.invalid", "bob", 22, "app"),
+        &server("example.invalid", "alice", 22, "app"),
+        &server("example.invalid", "bob", 22, "app"),
     ));
 }
 
@@ -707,7 +707,7 @@ fn rollback_without_session_uses_the_newest_numeric_suffix() {
     );
 }
 
-fn merged_session(output: remote_merge::service::types::MergeOutput) -> String {
+fn merged_session(output: &remote_merge::service::types::MergeOutput) -> String {
     let backup = output.merged[0].backup.clone().unwrap();
     backup.split('/').next().unwrap().to_owned()
 }
@@ -736,7 +736,7 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
         targets(&develop, &store),
     );
 
-    assert_ne!(merged_session(first), merged_session(second));
+    assert_ne!(merged_session(&first), merged_session(&second));
 }
 
 // @kotowari[REQ-backup-023]
@@ -760,7 +760,7 @@ fn concurrent_merges_use_distinct_session_ids() {
         handles.push(std::thread::spawn(move || {
             let _guards = (local, develop);
             barrier.wait();
-            merged_session(merge_files(merge_args("file.txt"), config, targets))
+            merged_session(&merge_files(merge_args("file.txt"), config, targets))
         }));
     }
     let sessions = handles
@@ -792,7 +792,7 @@ fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
             std::thread::spawn(move || {
                 let _guards = (local, develop, store);
                 barrier.wait();
-                merged_session(merge_files(merge_args("file.txt"), config, targets))
+                merged_session(&merge_files(merge_args("file.txt"), config, targets))
             })
         })
         .collect::<Vec<_>>();

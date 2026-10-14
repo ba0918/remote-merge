@@ -115,9 +115,9 @@ impl std::fmt::Display for Labeled {
 impl std::error::Error for Labeled {}
 
 /// 文言の前に `prefix` を付ける。接続の使えない失敗と操作の失敗は種類を残す
-pub fn prefixed(error: anyhow::Error, prefix: &str) -> anyhow::Error {
-    match classify(&error) {
-        Failure::Refused => match remote_merge_core::op_failure::op_error_of(&error) {
+pub fn prefixed(error: &anyhow::Error, prefix: &str) -> anyhow::Error {
+    match classify(error) {
+        Failure::Refused => match remote_merge_core::op_failure::op_error_of(error) {
             Some(op_error) => remote_merge_core::op_failure::Prefixed {
                 message: format!("{prefix}{error:#}"),
                 error: op_error.clone(),

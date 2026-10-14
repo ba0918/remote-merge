@@ -33,26 +33,27 @@ pub(crate) fn full_path(root: &Path, entry: &EntryPath) -> PathBuf {
     root.join(entry.as_str())
 }
 
-fn failed(error: std::io::Error) -> OpFailure {
-    from_io_error(&error)
+fn failed(error: &std::io::Error) -> OpFailure {
+    from_io_error(error)
 }
 
 /// symlink を辿った先のファイルの大きさ
 pub fn size(root: &Path, entry: &EntryPath) -> Result<u64, OpFailure> {
     std::fs::metadata(full_path(root, entry))
         .map(|meta| meta.len())
-        .map_err(failed)
+        .map_err(|error| failed(&error))
 }
 
 /// 中身を読む。開く前に大きさを調べ（読む権限は要らない）、上限を超えるものは読まない
 pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>, OpFailure> {
     let path = full_path(root, entry);
-    let meta = std::fs::metadata(&path).map_err(failed)?;
+    let meta = std::fs::metadata(&path).map_err(|error| failed(&error))?;
     regular_file(&meta)?;
     check_size(meta.len(), limit)?;
     let mut file = open_regular(&path)?;
     let mut content = Vec::new();
-    file.read_to_end(&mut content).map_err(failed)?;
+    file.read_to_end(&mut content)
+        .map_err(|error| failed(&error))?;
     Ok(content)
 }
 
@@ -60,7 +61,7 @@ pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>,
 pub fn hash(root: &Path, entry: &EntryPath) -> Result<String, OpFailure> {
     let mut file = open_regular(&full_path(root, entry))?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(failed)?;
+    std::io::copy(&mut file, &mut hasher).map_err(|error| failed(&error))?;
     Ok(hex(&hasher.finalize()))
 }
 
@@ -87,8 +88,8 @@ fn open_regular(path: &Path) -> Result<std::fs::File, OpFailure> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NONBLOCK);
     }
-    let file = options.open(path).map_err(failed)?;
-    regular_file(&file.metadata().map_err(failed)?)?;
+    let file = options.open(path).map_err(|error| failed(&error))?;
+    regular_file(&file.metadata().map_err(|error| failed(&error))?)?;
     Ok(file)
 }
 
@@ -104,11 +105,11 @@ fn hex(bytes: &[u8]) -> String {
 /// 項目そのものがリンクならリンク文字列を、親を一覧せずに読む
 pub fn entry_link(root: &Path, entry: &EntryPath) -> Result<EntryLink, OpFailure> {
     let path = full_path(root, entry);
-    let meta = std::fs::symlink_metadata(&path).map_err(failed)?;
+    let meta = std::fs::symlink_metadata(&path).map_err(|error| failed(&error))?;
     if !meta.file_type().is_symlink() {
         return Ok(EntryLink::NotALink);
     }
-    let target = std::fs::read_link(&path).map_err(failed)?;
+    let target = std::fs::read_link(&path).map_err(|error| failed(&error))?;
     Ok(EntryLink::Link(target.to_string_lossy().into_owned()))
 }
 

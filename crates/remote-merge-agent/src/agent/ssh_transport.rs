@@ -128,7 +128,7 @@ impl SshAgentTransport {
         let writer_relay_thread = std::thread::Builder::new()
             .name("agent-write-relay".into())
             .spawn(move || {
-                writer_relay_loop(bridge_read, write_tx, shutdown2);
+                writer_relay_loop(bridge_read, &write_tx, &shutdown2);
             })?;
 
         // Bridge: channel を排他所有し、select! で双方向中継
@@ -136,7 +136,7 @@ impl SshAgentTransport {
         let bridge_thread = std::thread::Builder::new()
             .name("agent-bridge".into())
             .spawn(move || {
-                bridge_loop(handle, channel, bridge_write, write_rx, shutdown3);
+                bridge_loop(&handle, channel, bridge_write, write_rx, shutdown3);
             })?;
 
         Ok(Self {
@@ -234,7 +234,7 @@ fn write_all_with_backpressure(writer: &mut impl Write, data: &[u8]) -> io::Resu
 /// SSH 受信データの読み取りと mpsc 経由の書き込みを多重化する。
 #[cfg(unix)]
 fn bridge_loop(
-    handle: tokio::runtime::Handle,
+    handle: &tokio::runtime::Handle,
     mut channel: russh::Channel<russh::client::Msg>,
     mut bridge_write: UnixStream,
     mut write_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
@@ -299,8 +299,8 @@ fn bridge_loop(
 #[cfg(unix)]
 fn writer_relay_loop(
     mut bridge_read: UnixStream,
-    write_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-    shutdown: Arc<AtomicBool>,
+    write_tx: &tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    shutdown: &Arc<AtomicBool>,
 ) {
     let mut buf = vec![0u8; 32 * 1024];
     loop {
@@ -400,7 +400,7 @@ mod tests {
         let handle = std::thread::spawn({
             let shutdown = shutdown.clone();
             move || {
-                writer_relay_loop(relay_read, tx, shutdown);
+                writer_relay_loop(relay_read, &tx, &shutdown);
             }
         });
 
@@ -426,7 +426,7 @@ mod tests {
         let handle = std::thread::spawn({
             let shutdown = shutdown.clone();
             move || {
-                writer_relay_loop(relay_read, tx, shutdown);
+                writer_relay_loop(relay_read, &tx, &shutdown);
             }
         });
 
@@ -453,7 +453,7 @@ mod tests {
         let handle = std::thread::spawn({
             let shutdown = shutdown.clone();
             move || {
-                writer_relay_loop(relay_read, tx, shutdown);
+                writer_relay_loop(relay_read, &tx, &shutdown);
             }
         });
 

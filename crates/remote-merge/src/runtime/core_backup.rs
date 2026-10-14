@@ -78,7 +78,7 @@ impl CoreRuntime {
                 target,
                 session_id,
                 path,
-                super::backup_store::SymlinkBackup {
+                &super::backup_store::SymlinkBackup {
                     link_target: std::path::Path::new(&link_target),
                     expected: None,
                 },

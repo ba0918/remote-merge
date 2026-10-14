@@ -18,14 +18,14 @@ impl CoreRuntime {
     pub fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
         if !self.config.agent.enabled && !self.agent_chosen.contains(server_name) {
             // エージェントを使わないと決まっているので、SSH につなぐ前に止める
-            return self.settle_route(server_name, AgentState::Disabled);
+            return self.settle_route(server_name, &AgentState::Disabled);
         }
         self.connect_ssh(server_name)?;
         if self.agent_chosen.contains(server_name) {
             return self.start_agent(server_name);
         }
         let state = self.agent_state(server_name);
-        self.settle_route(server_name, state)
+        self.settle_route(server_name, &state)
     }
 
     /// エージェントを使うと決めたサーバか。つないでいなければ誤り
@@ -76,8 +76,8 @@ impl CoreRuntime {
     }
 
     /// エージェントを使うと決めて記録する。止めるときは接続を切って接続のエラーにする
-    fn settle_route(&mut self, server_name: &str, state: AgentState) -> anyhow::Result<()> {
-        match choose_route(&state) {
+    fn settle_route(&mut self, server_name: &str, state: &AgentState) -> anyhow::Result<()> {
+        match choose_route(state) {
             RouteChoice::Agent => {
                 self.agent_chosen.insert(server_name.to_string());
                 Ok(())

@@ -44,9 +44,11 @@ pub(super) fn create_pair(tmp: &TempDir) -> AgentClient<UnixStream, UnixStream> 
 }
 
 /// 決まった応答を一つだけ返すエージェントにつないだクライアント
-pub(super) fn answering(response: AgentResponse) -> AgentClient<std::io::Cursor<Vec<u8>>, Vec<u8>> {
+pub(super) fn answering(
+    response: &AgentResponse,
+) -> AgentClient<std::io::Cursor<Vec<u8>>, Vec<u8>> {
     let mut input = format!("{}\n", protocol::format_handshake()).into_bytes();
-    let frame = protocol::serialize_response(&response).unwrap();
+    let frame = protocol::serialize_response(response).unwrap();
     framing::write_frame(&mut input, &frame).unwrap();
     AgentClient::connect(std::io::Cursor::new(input), Vec::new()).unwrap()
 }

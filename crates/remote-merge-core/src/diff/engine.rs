@@ -217,7 +217,7 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
 }
 
 /// 行リストを改行で結合し、trailing newline を制御する。
-fn join_lines<S: AsRef<str>>(lines: Vec<S>, trailing_newline: bool) -> String {
+fn join_lines<S: AsRef<str>>(lines: &[S], trailing_newline: bool) -> String {
     let mut text = lines
         .iter()
         .map(|s| s.as_ref())
@@ -291,7 +291,7 @@ pub fn apply_hunk_to_text(
     }
 
     let trailing_newline = original.ends_with('\n');
-    join_lines(result, trailing_newline)
+    join_lines(&result, trailing_newline)
 }
 
 /// all_lines を1回走査して、選択された hunk のみを適用した最終テキストを構築する。
@@ -358,7 +358,7 @@ pub fn apply_selected_hunks_single_pass(
         }
     }
 
-    join_lines(result, target_trailing_newline)
+    join_lines(&result, target_trailing_newline)
 }
 
 /// 選んだ表示用ハンク（コンテキスト3行）の番号から、その行の範囲に入る操作用ハンク

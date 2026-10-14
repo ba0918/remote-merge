@@ -12,7 +12,7 @@ use remote_merge_core::relative_path::RelPath;
 /// `core` で `args` の左右を比べ、`between` を動かしてから書き込み先を変えた結果
 pub fn merge_with_a_change_between(
     core: &mut CoreRuntime,
-    args: MergeArgs,
+    args: &MergeArgs,
     between: impl FnOnce(),
 ) -> MergeOutput {
     let sides = MergeSides {
@@ -26,9 +26,9 @@ pub fn merge_with_a_change_between(
         .map(|path| RelPath::parse(path).unwrap())
         .collect();
     let max_entries = core.config.max_scan_entries;
-    let planned = plan_merge(core, &args, &sides, &paths, max_entries).unwrap();
+    let planned = plan_merge(core, args, &sides, &paths, max_entries).unwrap();
     between();
-    match apply_merge(core, &args, &sides, planned).unwrap().output {
+    match apply_merge(core, args, &sides, planned).unwrap().output {
         MergeCommandOutput::Files(output) => output,
         MergeCommandOutput::Outcome(MergeOutcome::NoFilesToMerge) => MergeOutput {
             merged: Vec::new(),

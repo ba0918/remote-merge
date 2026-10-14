@@ -10,7 +10,7 @@ fn read(d: &mut Dispatcher, path: &str, size_limit: Option<u64>) -> FileReadResu
             size_limit,
         })
         .unwrap();
-    collect_file_contents(responses).remove(0)
+    collect_file_contents(&responses).remove(0)
 }
 
 fn failed(path: &str, failure: WireFailure) -> FileReadResult {

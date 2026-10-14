@@ -60,7 +60,7 @@ pub fn scan(
             .collect();
         let answers = ask(collector, &questions, exclude)?;
         for (link, answer) in pending.into_iter().zip(&answers) {
-            walk.take_link(link, answer)?;
+            walk.take_link(&link, answer)?;
         }
     }
     Ok(walk.finish())

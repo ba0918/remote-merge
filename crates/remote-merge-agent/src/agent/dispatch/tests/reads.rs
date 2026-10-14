@@ -16,7 +16,7 @@ fn read_files_existing() {
             size_limit: None,
         })
         .unwrap();
-    let results = collect_file_contents(resps);
+    let results = collect_file_contents(&resps);
 
     assert_eq!(results.len(), 1);
     match &results[0] {
@@ -38,7 +38,7 @@ fn read_files_nonexistent_returns_error_variant() {
             size_limit: None,
         })
         .unwrap();
-    let results = collect_file_contents(resps);
+    let results = collect_file_contents(&resps);
 
     assert_eq!(results.len(), 1);
     assert!(matches!(&results[0], FileReadResult::Failed { .. }));
@@ -118,7 +118,7 @@ fn read_files_streaming_last_chunk_has_is_last_true() {
         .unwrap();
 
     // 最後のチャンクだけ is_last=true
-    let results = collect_file_contents(resps);
+    let results = collect_file_contents(&resps);
     assert_eq!(results.len(), 2);
 }
 
@@ -217,7 +217,7 @@ fn read_files_sends_each_answer_before_reading_the_next_files() {
 
     assert!(open);
     assert!(sent.len() > 1, "{}", sent.len());
-    let b = collect_file_contents(sent)
+    let b = collect_file_contents(&sent)
         .into_iter()
         .find_map(|result| match result {
             FileReadResult::Ok { path, content, .. } if path == "b.txt" => Some(content),

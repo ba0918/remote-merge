@@ -23,10 +23,10 @@ impl RemoteTargetIo {
         &self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
-        change: RemoteChange<'_>,
+        change: &RemoteChange<'_>,
     ) -> anyhow::Result<()> {
         let name = &self.name;
-        rt.change_on_route(name, |rt| rt.remote_change(name, path, &change))
+        rt.change_on_route(name, |rt| rt.remote_change(name, path, change))
     }
 
     fn write(
@@ -38,7 +38,7 @@ impl RemoteTargetIo {
     ) -> anyhow::Result<()> {
         tracing::debug!("Write remote file: {}:{}", self.name, path.as_typed());
         let write = RemoteChange::Write { content, is_binary };
-        self.change(rt, path, write)
+        self.change(rt, path, &write)
     }
 }
 
@@ -76,11 +76,11 @@ impl TargetIo for RemoteTargetIo {
         path: &EntryPath,
         mode: u32,
     ) -> anyhow::Result<()> {
-        self.change(rt, path, RemoteChange::Chmod { mode })
+        self.change(rt, path, &RemoteChange::Chmod { mode })
     }
 
     fn remove_file(&mut self, rt: &mut CoreRuntime, path: &EntryPath) -> anyhow::Result<()> {
-        self.change(rt, path, RemoteChange::Remove)
+        self.change(rt, path, &RemoteChange::Remove)
     }
 
     fn create_symlink(
@@ -89,7 +89,7 @@ impl TargetIo for RemoteTargetIo {
         path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
-        self.change(rt, path, RemoteChange::Symlink { target })
+        self.change(rt, path, &RemoteChange::Symlink { target })
     }
 
     fn scan_listing(

@@ -31,7 +31,9 @@ impl CoreRuntime {
         server_name: &str,
     ) -> Result<BoxedAgentClient, AgentState> {
         // サーバー設定を取得（借用を先に解決）
-        let server_config = self.get_server_config(server_name).map_err(cannot_start)?;
+        let server_config = self
+            .get_server_config(server_name)
+            .map_err(|error| cannot_start(&error))?;
         let user = server_config.user.clone();
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let sudo = server_config.sudo;
@@ -40,7 +42,7 @@ impl CoreRuntime {
         // sudo=true の場合: pre-flight チェック
         let (default_uid, default_gid) = if sudo {
             self.sudo_preflight(server_name, &user)
-                .map_err(cannot_start)?
+                .map_err(|error| cannot_start(&error))?
         } else {
             (None, None)
         };
@@ -55,12 +57,12 @@ impl CoreRuntime {
 
         // 配置先の中のもの（版の確認を含む）を実行する前に、他人が差し替えられない場所かを確かめる
         let dir_check = deploy::build_deploy_dir_check_command(&remote_path, sudo);
-        let ssh_client =
-            require_ssh_client(&mut self.ssh_clients, server_name).map_err(cannot_deploy)?;
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)
+            .map_err(|error| cannot_deploy(&error))?;
         let dir_check_output = self
             .rt
             .block_on(ssh_client.exec(&dir_check))
-            .map_err(cannot_deploy)?;
+            .map_err(|error| cannot_deploy(&error))?;
         let deploy_dir_state = deploy::judge_deploy_dir(&dir_check_output);
         let deploy_dir_display = remote_path.parent().unwrap_or(&remote_path).display();
         match deploy_dir_state {
@@ -89,12 +91,12 @@ impl CoreRuntime {
             let version_cmd = deploy::check_version_command(&remote_path, sudo);
             format!("{{ {uname_cmd}; }} 2>/dev/null; {version_cmd}")
         };
-        let ssh_client =
-            require_ssh_client(&mut self.ssh_clients, server_name).map_err(cannot_deploy)?;
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)
+            .map_err(|error| cannot_deploy(&error))?;
         let combined_output = self
             .rt
             .block_on(ssh_client.exec(&combined))
-            .map_err(cannot_deploy)?;
+            .map_err(|error| cannot_deploy(&error))?;
         let (uname_result, parsed_version_check) =
             deploy::parse_uname_and_version(&combined_output);
         let version_check = if repaired {
@@ -110,14 +112,14 @@ impl CoreRuntime {
         let needs_deploy = match version_check {
             VersionCheck::Match => {
                 self.installed_binary_check(server_name, &remote_path, remote_target, sudo)
-                    .map_err(cannot_deploy)?
+                    .map_err(|error| cannot_deploy(&error))?
                     == deploy::InstalledBinary::Redeploy
             }
             VersionCheck::Mismatch { .. } | VersionCheck::NotFound => true,
         };
         if needs_deploy {
             self.deploy_agent_binary(server_name, &remote_path, sudo, remote_target)
-                .map_err(cannot_deploy)?;
+                .map_err(|error| cannot_deploy(&error))?;
         }
 
         // Agent プロセスを起動
@@ -128,20 +130,22 @@ impl CoreRuntime {
             server_name,
             agent_command
         );
-        let ssh_client =
-            require_ssh_client(&mut self.ssh_clients, server_name).map_err(cannot_start)?;
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)
+            .map_err(|error| cannot_start(&error))?;
         let channel = self
             .rt
             .block_on(ssh_client.open_exec_channel(&agent_command))
-            .map_err(cannot_start)?;
+            .map_err(|error| cannot_start(&error))?;
 
         // ブリッジスレッドを起動し、UnixStream ペアを取得
         let handle = self.rt.handle().clone();
-        let transport = SshAgentTransport::start(handle, channel).map_err(cannot_start)?;
+        let transport =
+            SshAgentTransport::start(handle, channel).map_err(|error| cannot_start(&error))?;
         let (read_stream, write_stream, guard) = transport.into_streams();
 
         // AgentClient を接続（ハンドシェイク）
-        let client = AgentClient::connect(read_stream, write_stream).map_err(not_connected)?;
+        let client = AgentClient::connect(read_stream, write_stream)
+            .map_err(|error| not_connected(&error))?;
         tracing::info!(
             "Agent client connected: server={}, protocol_version={}",
             server_name,

@@ -24,7 +24,7 @@ pub(super) fn take_value(
     }
     // 値そのものが symlink なら、同じ問いの答えでそのリンク先を決める
     match walk.take_leaf(path, entry, vec![root], counter)? {
-        Some(link) => walk.take_link(link, answer),
+        Some(link) => walk.take_link(&link, answer),
         None => Ok(()),
     }
 }
@@ -48,7 +48,7 @@ pub(super) fn take_itself(
     let container = answer.link == Some(super::raw::LinkTarget::Directory);
     let counter = (!container).then_some(counter);
     match walk.take_leaf_counted(path, entry, vec![root], counter)? {
-        Some(link) => walk.point_link(link, answer),
+        Some(link) => walk.point_link(&link, answer),
         None => Ok(()),
     }
 }
@@ -75,7 +75,7 @@ pub(super) fn take_below(
                     return Ok(());
                 }
                 let link = PendingLink::new(path.to_vec(), vec![root], start.group);
-                return walk.take_link(link, answer);
+                return walk.take_link(&link, answer);
             }
             true
         }

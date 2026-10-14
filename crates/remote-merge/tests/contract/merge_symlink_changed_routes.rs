@@ -206,7 +206,7 @@ fn merge_after_change(
         max_entries: None,
         hunks: None,
     };
-    let output = merge_with_a_change_between(core, args, || change.apply(destination_root));
+    let output = merge_with_a_change_between(core, &args, || change.apply(destination_root));
     if let Some(skipped) = output.skipped.first() {
         return Outcome::Skipped(skipped.reason.clone());
     }

@@ -38,7 +38,7 @@ fn scan_with(
     exclude: &[String],
 ) -> Vec<AgentResponse> {
     match scan(collector, &Exclude::new(exclude), request) {
-        Ok(listing) => chunks(listing),
+        Ok(listing) => chunks(&listing),
         Err(ScanError::Failure(failure)) => vec![AgentResponse::TreeFailed { failure }],
         // 集め方そのものの失敗も走査の失敗として運び、エージェントの故障として SSH の経路に
         // 回させない
@@ -51,7 +51,7 @@ fn scan_with(
 }
 
 /// 一覧を TreeChunk に分ける。最後の応答に読めない名前と打ち切りを載せる
-fn chunks(listing: Listing) -> Vec<AgentResponse> {
+fn chunks(listing: &Listing) -> Vec<AgentResponse> {
     let mut parts: Vec<Vec<_>> = listing
         .entries
         .chunks(ENTRIES_PER_CHUNK)

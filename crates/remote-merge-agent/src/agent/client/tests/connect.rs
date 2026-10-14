@@ -9,7 +9,7 @@ fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
     let refusal = protocol::RelPathError::Traversal("../x".into());
     let paths = rels(&["ok.txt"]);
     let errors = [
-        answering(AgentResponse::FileContents {
+        answering(&AgentResponse::FileContents {
             results: Vec::new(),
             is_last: true,
             refused: vec![refusal.clone()],
@@ -17,7 +17,7 @@ fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
         .read_files(&paths, 1024, None)
         .map(|_| ())
         .unwrap_err(),
-        answering(AgentResponse::FileHashes {
+        answering(&AgentResponse::FileHashes {
             results: Vec::new(),
             is_last: true,
             refused: vec![refusal.clone()],
@@ -25,7 +25,7 @@ fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
         .hash_files(&paths)
         .map(|_| ())
         .unwrap_err(),
-        answering(AgentResponse::PathRefused {
+        answering(&AgentResponse::PathRefused {
             refusal: refusal.clone(),
         })
         .inspect_path(&rel("ok.txt"))

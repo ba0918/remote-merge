@@ -90,12 +90,12 @@ impl BackupStore {
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
         // 集約先と予約の場所を作れなければ、どのファイルも書き込む前にコマンド全体を止める
         // （docs/ir/backup/failure.md の REQ-backup-045）
-        create_dir_owner_only(root).map_err(|error| store_failure(root, error))?;
+        create_dir_owner_only(root).map_err(|error| store_failure(root, &error))?;
         let reservations = root.join("reservations");
         create_dir_owner_only(&reservations)
-            .map_err(|error| store_failure(&reservations, error))?;
+            .map_err(|error| store_failure(&reservations, &error))?;
         let mut existing = fs::read_dir(&reservations)
-            .map_err(|error| store_failure(&reservations, error))?
+            .map_err(|error| store_failure(&reservations, &error))?
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
             .collect::<Vec<_>>();
@@ -115,7 +115,7 @@ impl BackupStore {
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     existing.push(id)
                 }
-                Err(error) => return Err(store_failure(&reservation, error)),
+                Err(error) => return Err(store_failure(&reservation, &error)),
             }
         }
     }
@@ -135,16 +135,16 @@ impl BackupStore {
         let description = target_description(config, target, &self.startup_directory)?;
         let key = format!("{:x}", Sha256::digest(description.as_bytes()));
         let target_dir = root.join("targets").join(&key);
-        create_dir_owner_only(&target_dir).map_err(|error| store_failure(&target_dir, error))?;
+        create_dir_owner_only(&target_dir).map_err(|error| store_failure(&target_dir, &error))?;
         let description_file = target_dir.join("target.txt");
         write_file_owner_only(&description_file, description.as_bytes())
-            .map_err(|error| store_failure(&description_file, error))?;
+            .map_err(|error| store_failure(&description_file, &error))?;
         let records = root
             .join("sessions")
             .join(session_id)
             .join(key)
             .join("records");
-        create_dir_owner_only(&records).map_err(|error| store_failure(&records, error))
+        create_dir_owner_only(&records).map_err(|error| store_failure(&records, &error))
     }
 
     pub fn save_file(
@@ -169,7 +169,7 @@ impl BackupStore {
         target: &Side,
         session_id: &str,
         rel_path: &str,
-        link: SymlinkBackup<'_>,
+        link: &SymlinkBackup<'_>,
     ) -> anyhow::Result<String> {
         let record = StoredBackup::Symlink {
             path: rel_path,
@@ -270,7 +270,7 @@ impl BackupStore {
         };
         let mut sessions = Vec::new();
         for entry in entries {
-            let entry = entry.map_err(|error| unreadable_store(&sessions_dir, error))?;
+            let entry = entry.map_err(|error| unreadable_store(&sessions_dir, &error))?;
             let Some(session_id) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
@@ -285,7 +285,7 @@ impl BackupStore {
             let mut complete = true;
             for record_dir in records {
                 let record_dir = record_dir
-                    .map_err(|error| unreadable_store(&records_dir, error))?
+                    .map_err(|error| unreadable_store(&records_dir, &error))?
                     .path();
                 let Some(record) = read_stored_record(&record_dir)? else {
                     complete = false;
@@ -417,12 +417,12 @@ fn unless_not_found<T>(result: std::io::Result<T>, path: &Path) -> anyhow::Resul
     match result {
         Ok(value) => Ok(Some(value)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(unreadable_store(path, error)),
+        Err(error) => Err(unreadable_store(path, &error)),
     }
 }
 
 /// 集約先の中身の読み込みの失敗。どのパスかを示す
-fn unreadable_store(path: &Path, error: std::io::Error) -> anyhow::Error {
+fn unreadable_store(path: &Path, error: &std::io::Error) -> anyhow::Error {
     anyhow::anyhow!(
         "backup store could not be read: {}: {error}",
         path.display()
@@ -430,7 +430,7 @@ fn unreadable_store(path: &Path, error: std::io::Error) -> anyhow::Error {
 }
 
 /// 集約先の準備の失敗。どの場所で失敗したかを示す
-fn store_failure(path: &Path, error: std::io::Error) -> anyhow::Error {
+fn store_failure(path: &Path, error: &std::io::Error) -> anyhow::Error {
     anyhow::anyhow!(
         "backup store could not be prepared: {}: {error}",
         path.display()

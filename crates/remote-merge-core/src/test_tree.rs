@@ -59,7 +59,7 @@ impl PermissionLocks {
 
 impl Drop for PermissionLocks {
     fn drop(&mut self) {
-        report(self.restore());
+        report(&self.restore());
     }
 }
 
@@ -102,7 +102,7 @@ impl Drop for TestTree {
                 problems.push(format!("cannot remove {}: {error}", path.display()));
             }
         }
-        report(problems);
+        report(&problems);
     }
 }
 
@@ -112,7 +112,7 @@ impl Drop for TestTree {
     clippy::print_stderr,
     reason = "二重の panic を避けるため、試験がもう panic しているときだけ標準エラーに出す"
 )]
-fn report(problems: Vec<String>) {
+fn report(problems: &[String]) {
     if problems.is_empty() {
         return;
     }

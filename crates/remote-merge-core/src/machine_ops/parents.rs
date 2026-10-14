@@ -50,7 +50,13 @@ pub(super) fn create_parents_with(
         match mkdir(&dir) {
             Ok(()) => made.push(dir),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}
-            Err(error) => return Err(undo_parents(&made, parent_failure(&dir, error), remove_dir)),
+            Err(error) => {
+                return Err(undo_parents(
+                    &made,
+                    parent_failure(&dir, &error),
+                    remove_dir,
+                ));
+            }
         }
     }
     if parent.as_os_str().is_empty() || parent.is_dir() {
@@ -59,7 +65,7 @@ pub(super) fn create_parents_with(
     let error = std::io::Error::from(std::io::ErrorKind::NotADirectory);
     Err(undo_parents(
         &made,
-        parent_failure(parent, error),
+        parent_failure(parent, &error),
         remove_dir,
     ))
 }
@@ -72,14 +78,14 @@ fn root_failure(root: &Path) -> Option<OpFailure> {
         Ok(_) => Some(OpFailure::RootGone),
         Err(error) => Some(match error.kind() {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => OpFailure::RootGone,
-            _ => failed(error),
+            _ => failed(&error),
         }),
     }
 }
 
 /// 親 `dir` を作れなかった失敗。`dir` かその祖先がすでにあって（リンク切れの symlink を含む）
 /// ディレクトリでなければ、途中の要素がディレクトリでない失敗にする（D35）
-fn parent_failure(dir: &Path, error: std::io::Error) -> OpFailure {
+fn parent_failure(dir: &Path, error: &std::io::Error) -> OpFailure {
     let blocked = dir.ancestors().any(|ancestor| {
         !ancestor.as_os_str().is_empty()
             && std::fs::symlink_metadata(ancestor).is_ok()

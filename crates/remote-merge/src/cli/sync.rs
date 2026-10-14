@@ -68,6 +68,10 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     Ok(result.exit_code)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "コマンドの入口は clap が渡す引数を値で受け取り、下の段に引き回す形に保つ"
+)]
 pub fn execute_sync(
     args: SyncArgs,
     config: AppConfig,

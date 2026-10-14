@@ -555,6 +555,10 @@ enum TracingMode {
 const USER_WARNINGS: &str = "remote_merge::warning=warn";
 
 /// tracing を初期化する。`cli_level` が Some の場合は環境変数より優先する。
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "起動の入口は main が持つ値をそのまま受け取る形に保つ"
+)]
 fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

@@ -136,7 +136,7 @@ impl CoreRuntime {
                     target,
                     session,
                     path,
-                    SymlinkBackup {
+                    &SymlinkBackup {
                         link_target: Path::new(current),
                         expected: Some((link_target, real_parent)),
                     },

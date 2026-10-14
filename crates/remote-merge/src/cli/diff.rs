@@ -95,14 +95,18 @@ pub fn execute_diff(
         reference,
     };
     let mut core = CoreRuntime::with_targets(config, targets);
-    let result = compare_and_show(&mut core, &args, &sides, scope, max_entries);
+    let result = compare_and_show(&mut core, args, &sides, scope, max_entries);
     core.disconnect_all();
     result
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "コマンドの入口は clap が渡す引数を値で受け取り、下の段に引き回す形に保つ"
+)]
 fn compare_and_show(
     core: &mut CoreRuntime,
-    args: &DiffArgs,
+    args: DiffArgs,
     sides: &CompareSides,
     scope: DiffScope,
     max_entries: usize,

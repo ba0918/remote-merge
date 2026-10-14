@@ -10,7 +10,6 @@
 //! （docs/ir/paths/operations.md の REQ-paths-021）
 use std::fs;
 use std::os::unix::fs::{OpenOptionsExt, symlink};
-use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -32,7 +31,10 @@ fn fifo(path: &Path) {
 
 /// `work` を別のスレッドで動かし、時間の上限の内に終わった結果を返す。終わらなければ FIFO の読み手を
 /// 終わらせてから失敗にする
-fn within_limit<T: Send + 'static>(fifo: PathBuf, work: impl FnOnce() -> T + Send + 'static) -> T {
+fn within_limit<T: Send + 'static>(
+    fifo: &std::path::Path,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> T {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || sender.send(work()));
     match receiver.recv_timeout(LIMIT) {
@@ -42,7 +44,7 @@ fn within_limit<T: Send + 'static>(fifo: PathBuf, work: impl FnOnce() -> T + Sen
             if let Ok(writer) = fs::OpenOptions::new()
                 .write(true)
                 .custom_flags(libc::O_NONBLOCK)
-                .open(&fifo)
+                .open(fifo)
             {
                 drop(writer);
             }
@@ -59,7 +61,7 @@ fn reading_or_hashing_a_fifo_fails_as_not_a_regular_file_without_waiting() {
     fifo(&root.join("pipe"));
     symlink("pipe", root.join("l")).unwrap();
 
-    let results = within_limit(root.join("pipe"), move || {
+    let results = within_limit(&root.join("pipe"), move || {
         ["pipe", "l"]
             .iter()
             .map(|path| {

@@ -49,21 +49,21 @@ pub(super) fn log_version_check(server_name: &str, version_check: &VersionCheck)
 }
 
 /// 配置できなかった
-pub(super) fn cannot_deploy(error: anyhow::Error) -> AgentState {
+pub(super) fn cannot_deploy(error: &anyhow::Error) -> AgentState {
     AgentState::CannotDeploy {
         reason: format!("{error:#}"),
     }
 }
 
 /// 起動できなかった
-pub(super) fn cannot_start(error: anyhow::Error) -> AgentState {
+pub(super) fn cannot_start(error: &anyhow::Error) -> AgentState {
     AgentState::CannotStart {
         reason: format!("{error:#}"),
     }
 }
 
 /// 起動の挨拶が通らなかった。通信の版が違えばその状態にする
-pub(super) fn not_connected(error: anyhow::Error) -> AgentState {
+pub(super) fn not_connected(error: &anyhow::Error) -> AgentState {
     match error
         .chain()
         .find_map(|cause| cause.downcast_ref::<crate::agent::protocol::ProtocolVersionMismatch>())

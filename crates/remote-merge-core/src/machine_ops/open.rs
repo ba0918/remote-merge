@@ -48,7 +48,7 @@ pub fn open_for_write_with(
                         new_dirs: Vec::new(),
                         created: false,
                     })
-                    .map_err(failed);
+                    .map_err(|error| failed(&error));
             }
         }
     }
@@ -59,7 +59,7 @@ pub fn open_for_write_with(
             new_dirs,
             created: true,
         }),
-        Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),
+        Err(error) => Err(undo_parents(&new_dirs, failed(&error), remove_dir)),
     }
 }
 

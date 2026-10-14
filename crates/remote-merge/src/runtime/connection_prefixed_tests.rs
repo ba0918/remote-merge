@@ -10,7 +10,7 @@ fn op(failure: OpFailure) -> anyhow::Error {
 // @kotowari[REQ-paths-016, REQ-paths-020]
 #[test]
 fn a_prefixed_operation_failure_keeps_its_kind_and_its_whole_message() {
-    let error = prefixed(op(OpFailure::NotFound), "backup failed: ");
+    let error = prefixed(&op(OpFailure::NotFound), "backup failed: ");
 
     assert_eq!(failure_of(&error), Some(&OpFailure::NotFound));
     assert_eq!(
@@ -25,7 +25,7 @@ fn a_prefixed_operation_failure_keeps_its_kind_and_its_whole_message() {
 fn a_prefixed_lost_connection_is_still_a_lost_connection() {
     let lost = op(OpFailure::Disconnected(Disconnection::NoAnswer("x".into())));
 
-    let error = prefixed(lost, "existing entry deleted, but ");
+    let error = prefixed(&lost, "existing entry deleted, but ");
 
     assert!(classify(&error).is_disconnection());
 }
@@ -34,7 +34,7 @@ fn a_prefixed_lost_connection_is_still_a_lost_connection() {
 fn a_prefixed_failure_keeps_the_causes_in_its_message() {
     let error = op(OpFailure::NotFound).context("restoring a.txt");
 
-    let prefixed = prefixed(error, "backup failed: ");
+    let prefixed = prefixed(&error, "backup failed: ");
 
     let message = prefixed.to_string();
     assert!(

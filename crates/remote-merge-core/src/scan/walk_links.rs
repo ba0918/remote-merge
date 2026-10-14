@@ -9,10 +9,10 @@ use super::walk::Walk;
 
 impl Walk<'_> {
     /// 待たせた symlink のリンク先を答えから決める（REQ-scan-002・018）
-    pub fn take_link(&mut self, link: PendingLink, answer: &Answer) -> Result<(), ScanError> {
+    pub fn take_link(&mut self, link: &PendingLink, answer: &Answer) -> Result<(), ScanError> {
         match answer.link {
             Some(LinkTarget::Directory) => {
-                self.point(&link, LinkPoint::Directory);
+                self.point(link, LinkPoint::Directory);
                 if !self.follow_links {
                     return Ok(());
                 }
@@ -23,26 +23,26 @@ impl Walk<'_> {
             }
             Some(LinkTarget::NotDirectory) => Ok(()),
             Some(LinkTarget::Other) => {
-                self.point(&link, LinkPoint::Other);
+                self.point(link, LinkPoint::Other);
                 Ok(())
             }
             Some(LinkTarget::Missing) => {
-                self.point(&link, LinkPoint::Missing);
+                self.point(link, LinkPoint::Missing);
                 Ok(())
             }
-            Some(LinkTarget::Unresolvable) => self.point_unresolvable(&link),
+            Some(LinkTarget::Unresolvable) => self.point_unresolvable(link),
             None => Err(changed(&link.path)),
         }
     }
 
     /// 待たせた symlink を辿らずに、リンク先の種類だけを答えから決める
-    pub fn point_link(&mut self, link: PendingLink, answer: &Answer) -> Result<(), ScanError> {
+    pub fn point_link(&mut self, link: &PendingLink, answer: &Answer) -> Result<(), ScanError> {
         match answer.link {
-            Some(LinkTarget::Directory) => self.point(&link, LinkPoint::Directory),
-            Some(LinkTarget::Missing) => self.point(&link, LinkPoint::Missing),
-            Some(LinkTarget::Other) => self.point(&link, LinkPoint::Other),
+            Some(LinkTarget::Directory) => self.point(link, LinkPoint::Directory),
+            Some(LinkTarget::Missing) => self.point(link, LinkPoint::Missing),
+            Some(LinkTarget::Other) => self.point(link, LinkPoint::Other),
             Some(LinkTarget::NotDirectory) => {}
-            Some(LinkTarget::Unresolvable) => return self.point_unresolvable(&link),
+            Some(LinkTarget::Unresolvable) => return self.point_unresolvable(link),
             None => return Err(changed(&link.path)),
         }
         Ok(())

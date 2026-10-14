@@ -71,14 +71,18 @@ pub fn execute_status(
     };
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
     let mut core = CoreRuntime::with_targets(config, targets);
-    let result = compare_and_list(&mut core, &args, pair, reference, max_entries);
+    let result = compare_and_list(&mut core, args, pair, reference, max_entries);
     core.disconnect_all();
     result
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "コマンドの入口は clap が渡す引数を値で受け取り、下の段に引き回す形に保つ"
+)]
 fn compare_and_list(
     core: &mut CoreRuntime,
-    args: &StatusArgs,
+    args: StatusArgs,
     (left, right): (Side, Side),
     reference: Option<Side>,
     max_entries: usize,

@@ -1718,6 +1718,7 @@ fn test_diff_null_bytes_detected_as_binary() {
 // ─── symlink を経由する root_dir ─────────────────────────
 
 /// root_dir を symlink にする側
+#[derive(Clone, Copy)]
 enum LinkedRoot {
     Local,
     Remote,

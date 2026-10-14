@@ -25,7 +25,7 @@ fn a_hard_link_placed_after_the_check_for_a_new_file_is_not_written() {
     let written = open_for_write_with(root, &entry("a.txt"), |path| {
         fs::hard_link(root.join("victim"), path).unwrap();
     })
-    .and_then(|mut opened| opened.file.write_all(b"x").map_err(failed));
+    .and_then(|mut opened| opened.file.write_all(b"x").map_err(|error| failed(&error)));
 
     assert_eq!(written, Err(OpFailure::Io("File exists".into())));
     assert_eq!(fs::read_to_string(root.join("victim")).unwrap(), "secret");

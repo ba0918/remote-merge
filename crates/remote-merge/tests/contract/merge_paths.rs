@@ -1372,7 +1372,7 @@ fn delete_rechecks_a_link_that_appears_after_the_listing() {
     let link = destination.path().join("link.txt");
 
     let output =
-        merge_with_a_change_between(&mut core, merge_args_with(&["link.txt"], true), || {
+        merge_with_a_change_between(&mut core, &merge_args_with(&["link.txt"], true), || {
             fs::remove_file(&link).unwrap();
             symlink("target.txt", &link).unwrap();
         });
@@ -1408,7 +1408,7 @@ fn deletions_that_cannot_inspect_or_remove_the_destination_fail_without_stopping
     let mut preconditions_hold = false;
 
     let args = merge_args_with(&["hidden/a.txt", "locked/a.txt", "free.txt"], true);
-    let output = merge_with_a_change_between(&mut core, args, || {
+    let output = merge_with_a_change_between(&mut core, &args, || {
         // hidden は中を調べられず、locked は中のファイルを消せない
         locks.lock(&hidden, 0o000);
         locks.lock(&locked, 0o555);
@@ -1473,7 +1473,7 @@ fn external_edit_with_restored_size_and_timestamp_is_not_overwritten() {
     config.backup.enabled = false;
     let mut core = CoreRuntime::with_targets(config, targets);
 
-    let output = merge_with_a_change_between(&mut core, merge_args("file.txt"), || {
+    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {
         fs::write(&target, "evil change\n").unwrap();
         fs::OpenOptions::new()
             .write(true)
@@ -1506,7 +1506,7 @@ fn only_the_files_whose_destination_changed_since_comparison_are_stopped() {
     let mut core = CoreRuntime::with_targets(config, targets);
 
     let args = merge_args_with(&["changed.txt", "appeared.txt", "ok.txt"], false);
-    let output = merge_with_a_change_between(&mut core, args, || {
+    let output = merge_with_a_change_between(&mut core, &args, || {
         // 比べた後で、一件の中身を変え、比べたときになかった書き込み先を一件作る
         fs::write(destination.path().join("changed.txt"), "third party\n").unwrap();
         fs::write(destination.path().join("appeared.txt"), "third party\n").unwrap();
@@ -1541,7 +1541,7 @@ fn unchanged_destination_is_updated_after_content_recheck() {
     config.backup.enabled = false;
     let mut core = CoreRuntime::with_targets(config, targets);
 
-    let output = merge_with_a_change_between(&mut core, merge_args("file.txt"), || {});
+    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {});
 
     assert_eq!(output.merged.len(), 1, "{output:?}");
     assert_eq!(fs::read_to_string(target).unwrap(), "new version\n");
@@ -1559,7 +1559,7 @@ fn a_file_created_after_comparison_is_not_overwritten() {
     let mut core = CoreRuntime::with_targets(config, targets);
     let target = destination.path().join("file.txt");
 
-    let output = merge_with_a_change_between(&mut core, merge_args("file.txt"), || {
+    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {
         fs::write(&target, "other writer\n").unwrap();
     });
 
