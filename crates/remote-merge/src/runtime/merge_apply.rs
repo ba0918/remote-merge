@@ -4,7 +4,7 @@
 //! 変更の直前に書き込み先をもう一度判定して（docs/ir/compare/reading.md の REQ-compare-015）、
 //! バックアップしてから変える
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use remote_merge_core::compare::PathComparison;
 use remote_merge_core::op_failure::SizeLimit;
@@ -107,13 +107,18 @@ impl CoreRuntime {
                 (BTreeMap::new(), Some(format!("{error:#}")))
             }
         };
+        let failed_batch: BTreeSet<&str> = batch_failure
+            .iter()
+            .flat_map(|_| &batch)
+            .map(EntryPath::as_str)
+            .collect();
         changes
             .iter()
             .zip(inspected)
             .map(|(change, inspected)| {
                 let in_failed_batch = batch_failure
                     .as_deref()
-                    .filter(|_| batch.iter().any(|path| path.as_str() == change.path));
+                    .filter(|_| failed_batch.contains(change.path));
                 match (inspected, in_failed_batch) {
                     (Err(error), _) => Applied::Failed(format!("{error:#}")),
                     (
