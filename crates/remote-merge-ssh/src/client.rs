@@ -624,12 +624,21 @@ impl SshClient {
                     _ => {}
                 }
             }
-            Ok((stderr, exit_code))
+            Ok::<_, anyhow::Error>((stderr, exit_code))
         };
-        // Sending first can fill the bounded output queue and block SSH window updates.
-        let result = tokio::try_join!(send_input, receive_output);
+        // Sending first can block window updates; waiting for both can hang after an early exit.
+        let result = {
+            tokio::pin!(send_input, receive_output);
+            tokio::select! {
+                result = &mut receive_output => result,
+                sent = &mut send_input => match sent {
+                    Ok(()) => receive_output.await,
+                    Err(error) => Err(error),
+                },
+            }
+        };
         let _ = writer.close().await;
-        let ((), (stderr, exit_code)) = result?;
+        let (stderr, exit_code) = result?;
         let Some(exit_code) = exit_code else {
             anyhow::bail!(AppError::SshDisconnected {
                 host: self.server_name.clone(),

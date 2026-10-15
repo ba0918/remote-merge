@@ -196,6 +196,23 @@ impl server::Handler for TestHandler {
     ) -> Result<(), Self::Error> {
         let command = login_shell::script_of(data);
 
+        if command == "reject-upload" {
+            let output = tokio::process::Command::new("sh")
+                .args([
+                    "-c",
+                    "printf 'upload rejected'; printf 'decoder: unavailable\\n' >&2; exit 127",
+                ])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .await?;
+            session.data(channel, CryptoVec::from_slice(&output.stdout))?;
+            session.extended_data(channel, 1, CryptoVec::from_slice(&output.stderr))?;
+            session.exit_status_request(channel, output.status.code().unwrap() as u32)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
+
         if command == "duplex-upload" {
             self.exec_commands.lock().unwrap().insert(channel, command);
             // One large packet would not fill the client's bounded message queue.
@@ -507,6 +524,73 @@ async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
 }
 
 // ── write_file テストケース ──
+
+#[tokio::test]
+async fn rejected_large_input_returns_remote_exit_and_stderr_without_waiting_for_upload() {
+    let handle = start_test_server().await;
+    handle.registry.register("echo hello", "hello\n", 0);
+    let (mut client, _key) = connect_client(&handle).await;
+    let input = vec![b'A'; 16 * 1024 * 1024];
+
+    let (stdout, stderr, exit_code) = tokio::time::timeout(
+        Duration::from_secs(3),
+        client.run_with_input("reject-upload", &input),
+    )
+    .await
+    .expect("remote exit must cancel an upload blocked by the SSH window")
+    .expect("remote command's exit status must be returned");
+
+    assert_eq!(stdout, b"upload rejected");
+    assert_eq!(stderr, b"decoder: unavailable\n");
+    assert_eq!(exit_code, 127);
+    assert_eq!(client.exec("echo hello").await.unwrap(), "hello\n");
+    client.disconnect().await.expect("disconnect failed");
+}
+
+#[tokio::test]
+async fn successful_early_exit_does_not_wait_for_unconsumed_large_input() {
+    let handle = start_test_server().await;
+    handle.registry.register("early-success", "done", 0);
+    let (mut client, _key) = connect_client(&handle).await;
+    let input = vec![b'A'; 16 * 1024 * 1024];
+
+    let (stdout, stderr, exit_code) = tokio::time::timeout(
+        Duration::from_secs(3),
+        client.run_with_input("early-success", &input),
+    )
+    .await
+    .expect("remote success must finish without consuming all stdin")
+    .expect("remote command failed");
+
+    assert_eq!(stdout, b"done");
+    assert!(stderr.is_empty());
+    assert_eq!(exit_code, 0);
+    client.disconnect().await.expect("disconnect failed");
+}
+
+#[tokio::test]
+async fn large_input_cut_off_without_exit_status_returns_connection_error_promptly() {
+    let handle = start_test_server().await;
+    handle
+        .registry
+        .register_without_exit_status("cut-off-upload", "partial");
+    let (mut client, _key) = connect_client(&handle).await;
+    let input = vec![b'A'; 16 * 1024 * 1024];
+
+    let error = tokio::time::timeout(
+        Duration::from_secs(3),
+        client.run_with_input("cut-off-upload", &input),
+    )
+    .await
+    .expect("channel closure must cancel the blocked upload")
+    .expect_err("missing exit status must not succeed");
+
+    assert!(
+        remote_merge::error::is_connection_error(&error),
+        "{error:?}"
+    );
+    client.disconnect().await.expect("disconnect failed");
+}
 
 #[tokio::test]
 async fn large_input_completes_while_remote_outputs_before_reading_stdin() {
