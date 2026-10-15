@@ -4,69 +4,107 @@ on:
   push:
     tags: ["v*"]
 
+# 読み取りだけを既定にする。リリースを作るジョブが contents: write を自分で宣言する
 permissions:
-  contents: write
+  contents: read
+
+# 公開は直列にし、走っている公開を中断しない
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
 
+# bash --noprofile --norc -eo pipefail で走らせる（パイプの中の失敗でも止まる）
+defaults:
+  run:
+    shell: bash
+
 jobs:
+  verify:
+    name: Verify the tag matches the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check the tag against the canonical version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: scripts/check-release-version.sh
+
   build:
     name: Build (${{ matrix.target }})
+    needs: verify
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-24.04
             archive: tar.gz
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-15
             archive: tar.gz
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-15
             archive: tar.gz
           # TODO: Windows support (separate cycle)
           # - target: x86_64-pc-windows-msvc
-          #   os: windows-latest
+          #   os: windows-2025
           #   archive: zip
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
 
       - name: Add the build target
-        run: rustup target add ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup target add "$TARGET"
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
+      # リリースのワークフローではキャッシュを使わない（汚染されたキャッシュで公開しない）
+      # ため、ビルドのキャッシュは置かない。
 
       - name: Install musl toolchain
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools cmake nasm
 
       - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET"
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../remote-merge-${{ matrix.target }}.tar.gz remote-merge
+          cd "target/$TARGET/release"
+          tar czf "../../../remote-merge-$TARGET.tar.gz" remote-merge
           cd ../../..
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
         shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/remote-merge.exe" -DestinationPath "remote-merge-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/$env:TARGET/release/remote-merge.exe" -DestinationPath "remote-merge-$env:TARGET.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: remote-merge-${{ matrix.target }}
           path: remote-merge-${{ matrix.target }}.${{ matrix.archive }}
@@ -75,12 +113,18 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write  # リリースを作るのに要る（ほかは読み取りだけ）
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
         with:
           path: artifacts
           merge-multiple: true
@@ -91,11 +135,8 @@ jobs:
           sha256sum remote-merge-* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Create GitHub Release
+      - name: Create the GitHub release with the changelog section
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            artifacts/*
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: scripts/create-release.sh

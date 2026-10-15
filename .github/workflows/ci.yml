@@ -6,20 +6,39 @@ on:
   pull_request:
     branches: [main]
 
+# 読み取りだけを既定にする（書き込むジョブは自分の permissions で広げる）
+permissions:
+  contents: read
+
+# 同じブランチ・PR への新しい push が、走っている検査を置き換える
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+
+# bash --noprofile --norc -eo pipefail で走らせる（パイプの中の失敗でも止まる）
+defaults:
+  run:
+    shell: bash
 
 jobs:
   check:
     name: Format & Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
 
       - name: Check formatting
         run: |
@@ -37,14 +56,19 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
 
       - name: Install fish for the login shell tests
         run: sudo apt-get update && sudo apt-get install -y fish
@@ -61,9 +85,13 @@ jobs:
 
   container-e2e:
     name: OpenSSH and sudo (required)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
@@ -71,7 +99,8 @@ jobs:
       - name: Add the musl target
         run: rustup target add x86_64-unknown-linux-musl
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
 
       - name: Install musl build tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools cmake nasm
@@ -81,9 +110,13 @@ jobs:
 
   build-musl:
     name: Build (musl)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
@@ -91,7 +124,8 @@ jobs:
       - name: Add the musl target
         run: rustup target add x86_64-unknown-linux-musl
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           key: x86_64-unknown-linux-musl
 
@@ -103,9 +137,13 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         run: rustup show
@@ -113,29 +151,38 @@ jobs:
       - name: Add the coverage component
         run: rustup component add llvm-tools-preview
 
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8  # v2.87.28
+        with:
+          tool: cargo-llvm-cov
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
 
       - name: Generate coverage
         run: cargo llvm-cov --lcov --output-path lcov.info --ignore-filename-regex='main\.rs'
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: coverage-report
           path: lcov.info
 
   msrv:
     name: MSRV (1.88.0)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install the MSRV toolchain
         run: rustup toolchain install 1.88.0 --profile minimal
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           key: msrv-1.88.0
 

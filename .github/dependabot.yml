@@ -1,0 +1,20 @@
+# ワークフローと依存の更新を提案させる（ピン留めしたハッシュと版のコメントを一緒に更新する）。
+# 新しいリリースが公開されてすぐに提案しないよう、冷却期間を置く。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cargo-dependencies:
+        patterns: ["*"]
