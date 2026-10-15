@@ -241,8 +241,8 @@ pub fn detect_conflicts(
                 let ref_end = l_end.max(r_end);
                 regions.push(ConflictRegion {
                     ref_range: ref_start..ref_end,
-                    left_lines: l_info.replacement.clone(),
-                    right_lines: r_info.replacement.clone(),
+                    left_lines: Vec::new(),
+                    right_lines: Vec::new(),
                     left_diff_range: Some(l_info.diff_line_range.clone()),
                     right_diff_range: Some(r_info.diff_line_range.clone()),
                     left_file_lines: l_info.file_lines.clone(),
@@ -255,7 +255,29 @@ pub fn detect_conflicts(
     // 隣接するコンフリクト領域をマージ
     merge_overlapping_regions(&mut regions);
 
+    let left_lines = replacement_lines_by_index(&left_changes);
+    let right_lines = replacement_lines_by_index(&right_changes);
+    for region in &mut regions {
+        region.left_lines = region
+            .left_file_lines
+            .iter()
+            .map(|index| left_lines[index].clone())
+            .collect();
+        region.right_lines = region
+            .right_file_lines
+            .iter()
+            .map(|index| right_lines[index].clone())
+            .collect();
+    }
+
     ConflictInfo { regions }
+}
+
+fn replacement_lines_by_index(changes: &BTreeMap<usize, ChangeInfo>) -> BTreeMap<usize, &String> {
+    changes
+        .values()
+        .flat_map(|change| change.file_lines.iter().copied().zip(&change.replacement))
+        .collect()
 }
 
 /// 重複するコンフリクト領域を結合する（隣接のみの場合は結合しない）
@@ -273,8 +295,6 @@ fn merge_overlapping_regions(regions: &mut Vec<ConflictRegion>) {
         if region.ref_range.start < last.ref_range.end {
             // マージ
             last.ref_range.end = last.ref_range.end.max(region.ref_range.end);
-            last.left_lines.extend(region.left_lines.iter().cloned());
-            last.right_lines.extend(region.right_lines.iter().cloned());
             // diff_range もマージ
             last.left_diff_range = merge_ranges(&last.left_diff_range, &region.left_diff_range);
             last.right_diff_range = merge_ranges(&last.right_diff_range, &region.right_diff_range);
@@ -302,6 +322,45 @@ fn merge_ranges(a: &Option<Range<usize>>, b: &Option<Range<usize>>) -> Option<Ra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_replacement_overlapping_several_changes_is_reported_once_on_either_side() {
+        for (left, right, expected_left, expected_right) in [
+            (
+                "X\nY\nZ\n",
+                "P\nb\nQ\n",
+                vec!["X", "Y", "Z"],
+                vec!["P", "Q"],
+            ),
+            (
+                "P\nb\nQ\n",
+                "X\nY\nZ\n",
+                vec!["P", "Q"],
+                vec!["X", "Y", "Z"],
+            ),
+            (
+                "X\nX\nX\n",
+                "P\nb\nP\n",
+                vec!["X", "X", "X"],
+                vec!["P", "P"],
+            ),
+        ] {
+            let info = detect_conflicts(Some("a\nb\nc\n"), left, right);
+            assert_eq!(info.conflict_count(), 1);
+            let region = &info.regions[0];
+            assert_eq!(region.ref_range, 0..3);
+            assert_eq!(region.left_lines, expected_left, "{left:?} / {right:?}");
+            assert_eq!(region.right_lines, expected_right, "{left:?} / {right:?}");
+            let json = serde_json::to_value(region).unwrap();
+            assert_eq!(json.as_object().unwrap().len(), 3);
+        }
+    }
+
+    #[test]
+    fn changes_that_only_touch_do_not_conflict() {
+        assert!(detect_conflicts(Some("a\nb\n"), "X\nb\n", "a\nY\n").is_empty());
+        assert!(detect_conflicts(Some("a\nb\n"), "X\nb\n", "a\nY\nb\n").is_empty());
+    }
 
     #[test]
     fn test_basic_conflict() {
