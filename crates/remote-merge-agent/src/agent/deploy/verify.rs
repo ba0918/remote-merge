@@ -37,11 +37,8 @@ pub fn parse_version_output(output: &str, cli_version: &str) -> VersionCheck {
 /// `None` otherwise. Handles both GNU (`hash  path`) and BSD (`hash path`) formats.
 pub fn parse_checksum_output(output: &str) -> Option<String> {
     let trimmed = output.trim();
-    if trimmed.len() < 64 {
-        return None;
-    }
-    let candidate = &trimmed[..64];
-    if candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+    let candidate = trimmed.get(..64)?;
+    if candidate.bytes().all(|c| c.is_ascii_hexdigit()) {
         Some(candidate.to_string())
     } else {
         None
@@ -115,6 +112,21 @@ mod tests {
 
     const LOCAL: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn a_checksum_with_a_multibyte_character_at_the_digest_boundary_is_rejected() {
+        let output = format!("{}é  binary", "a".repeat(63));
+        assert_eq!(parse_checksum_output(&output), None);
+    }
+
+    #[test]
+    fn an_installed_binary_with_a_malformed_utf8_digest_is_redeployed() {
+        let output = format!("{}é  binary", "a".repeat(63));
+        assert_eq!(
+            judge_installed_binary(Some(LOCAL), &output),
+            InstalledBinary::Redeploy
+        );
+    }
 
     #[test]
     fn an_installed_binary_with_the_local_hash_is_run() {
