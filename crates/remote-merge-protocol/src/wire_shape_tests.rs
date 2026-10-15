@@ -124,15 +124,34 @@ fn every_failure() -> Vec<ScanFailure> {
 
 /// 一覧の項目の種類と走査の起点のすべての種類。種類を足すと、下の match が組み立てで落ちる
 fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
-    let kinds = vec![
-        ListedKind::File,
-        ListedKind::Directory,
-        ListedKind::Symlink {
-            target: "t".into(),
-            points_to: remote_merge_core::scan::outcome::LinkPoint::NotDirectory,
-        },
-        ListedKind::Other,
+    use remote_merge_core::scan::outcome::LinkPoint;
+
+    // リンク先の種類を足すと、下の match が組み立てで落ちる（v14 で Unresolvable を足した）
+    let link_points = [
+        LinkPoint::Directory,
+        LinkPoint::NotDirectory,
+        LinkPoint::Other,
+        LinkPoint::Missing,
+        LinkPoint::Unresolvable,
     ];
+    for point in &link_points {
+        match point {
+            LinkPoint::Directory
+            | LinkPoint::NotDirectory
+            | LinkPoint::Other
+            | LinkPoint::Missing
+            | LinkPoint::Unresolvable => {}
+        }
+    }
+
+    let mut kinds = vec![ListedKind::File, ListedKind::Directory];
+    for point in &link_points {
+        kinds.push(ListedKind::Symlink {
+            target: "t".into(),
+            points_to: *point,
+        });
+    }
+    kinds.push(ListedKind::Other);
     let scopes = vec![
         ScanScope::Whole,
         ScanScope::Starts(vec![
@@ -210,7 +229,7 @@ fn every_kind_of_entry_and_scope_keeps_its_wire_shape() {
         .collect();
     assert_eq!(
         hex(&serialize_response(&chunk).unwrap()),
-        "81a9547265654368756e6b979497a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b929174ac4e6f744469726563746f7279000000000097a165a54f746865720000000000c290c3c09000",
+        "81a9547265654368756e6b979897a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b929174a94469726563746f7279000000000097a16581a753796d6c696e6b929174ac4e6f744469726563746f7279000000000097a16581a753796d6c696e6b929174a54f74686572000000000097a16581a753796d6c696e6b929174a74d697373696e67000000000097a16581a753796d6c696e6b929174ac556e7265736f6c7661626c65000000000097a165a54f746865720000000000c290c3c09000",
         "bump PROTOCOL_VERSION"
     );
     assert_eq!(

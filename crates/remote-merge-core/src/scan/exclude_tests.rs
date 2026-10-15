@@ -45,30 +45,3 @@ fn a_name_that_is_not_utf8_is_matched_in_its_escaped_form() {
 fn a_pattern_with_a_parent_reference_is_not_applied() {
     assert!(!exclude(&["../a"]).excludes(b"a"));
 }
-
-#[test]
-fn only_patterns_with_the_same_meaning_in_find_are_used_for_pruning() {
-    let rule = exclude(&[
-        "node_modules",
-        "*.log",
-        "a/b",
-        "vendor/legacy/**",
-        "src/*.tmp",
-        "**/gen",
-        "file?.txt",
-        "[ab].txt",
-        "{x,y}",
-        "esc\\*",
-        "",
-        "/abs",
-        "a//b",
-        "./a",
-    ]);
-    assert_eq!(
-        rule.prunable(),
-        Prunable {
-            names: vec!["node_modules".into(), "*.log".into()],
-            paths: vec!["a/b".into(), "vendor/legacy".into()],
-        }
-    );
-}

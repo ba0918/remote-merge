@@ -12,22 +12,6 @@
 
 use std::path::{Component, Path};
 
-/// ファイル名が除外パターン（セグメントパターン）にマッチするか。
-///
-/// パターンに `/` が含まれるもの（パスパターン）はスキップされる。
-/// パス全体でのマッチが必要な場合は [`is_path_excluded`] を使う。
-pub fn should_exclude(name: &str, patterns: &[String]) -> bool {
-    for pattern in patterns {
-        if pattern.contains('/') {
-            continue;
-        }
-        if glob_match::glob_match(pattern, name) {
-            return true;
-        }
-    }
-    false
-}
-
 /// パスが除外パターンにマッチするか判定する。
 ///
 /// パターンの種類によって2通りのマッチを行う:
@@ -205,65 +189,9 @@ pub fn drop_nested_include_paths(mut paths: Vec<String>) -> Vec<String> {
     result
 }
 
-/// エントリの相対パスが include フィルターに基づいて表示すべきか判定する。
-///
-/// 表示条件（いずれかを満たす）:
-/// 1. include が空 → 常に true（フィルタなし）
-/// 2. エントリが include パスの祖先（例: "vendor" は "vendor/current" の祖先）
-/// 3. エントリが include パスと完全一致
-/// 4. エントリが include パス配下（例: "src/main.rs" は "src" の配下）
-pub fn is_path_included(entry_rel_path: &str, include_paths: &[String]) -> bool {
-    if include_paths.is_empty() {
-        return true;
-    }
-
-    for inc in include_paths {
-        // 完全一致
-        if entry_rel_path == inc {
-            return true;
-        }
-        // エントリが include パス配下（例: "src/main.rs" は "src" の配下）
-        if entry_rel_path.starts_with(inc.as_str())
-            && entry_rel_path.as_bytes().get(inc.len()) == Some(&b'/')
-        {
-            return true;
-        }
-        // エントリが include パスの祖先（例: "vendor" は "vendor/current" の祖先）
-        if inc.starts_with(entry_rel_path)
-            && inc.as_bytes().get(entry_rel_path.len()) == Some(&b'/')
-        {
-            return true;
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── should_exclude ──
-
-    #[test]
-    fn test_should_exclude_matches_name() {
-        let patterns = vec!["*.log".to_string(), "node_modules".to_string()];
-        assert!(should_exclude("app.log", &patterns));
-        assert!(should_exclude("node_modules", &patterns));
-        assert!(!should_exclude("main.rs", &patterns));
-    }
-
-    #[test]
-    fn test_should_exclude_skips_path_patterns() {
-        // `/` を含むパターンは should_exclude ではスキップされる
-        let patterns = vec!["vendor/**/*.js".to_string()];
-        assert!(!should_exclude("index.js", &patterns));
-    }
-
-    #[test]
-    fn test_should_exclude_empty_patterns() {
-        assert!(!should_exclude("anything", &[]));
-    }
 
     // ── is_path_excluded: セグメントパターン ──
 
@@ -553,74 +481,6 @@ mod tests {
             assert_eq!(values, expected, "{input:?}");
             assert_eq!(warnings.len(), warning_count, "{input:?}: {warnings:?}");
         }
-    }
-
-    // ── is_path_included ──
-
-    #[test]
-    fn test_is_path_included_empty_include() {
-        // include 空 → 常に true
-        assert!(is_path_included("anything", &[]));
-        assert!(is_path_included("src/main.rs", &[]));
-    }
-
-    #[test]
-    fn test_is_path_included_exact_match() {
-        let include = vec!["src".to_string()];
-        assert!(is_path_included("src", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_descendant() {
-        // 配下パス → true
-        let include = vec!["src".to_string()];
-        assert!(is_path_included("src/main.rs", &include));
-        assert!(is_path_included("src/deep/nested.rs", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_ancestor() {
-        // 祖先パス → true
-        let include = vec!["vendor/current".to_string()];
-        assert!(is_path_included("vendor", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_unrelated() {
-        // 無関係パス → false
-        let include = vec!["src".to_string()];
-        assert!(!is_path_included("docs", &include));
-        assert!(!is_path_included("tests/unit.rs", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_no_false_prefix() {
-        // 前方一致の誤爆防止（セグメント境界チェック）
-        let include = vec!["src".to_string()];
-        assert!(!is_path_included("srclib", &include));
-        assert!(!is_path_included("srclib/foo.rs", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_deep_ancestor() {
-        // 深い祖先チェーン
-        let include = vec!["a/b/c".to_string()];
-        assert!(is_path_included("a", &include));
-        assert!(is_path_included("a/b", &include));
-        assert!(is_path_included("a/b/c", &include));
-        assert!(is_path_included("a/b/c/d.rs", &include));
-        assert!(!is_path_included("a/x", &include));
-    }
-
-    #[test]
-    fn test_is_path_included_multiple_paths() {
-        // 複数 include パスの OR 評価
-        let include = vec!["src".to_string(), "docs".to_string()];
-        assert!(is_path_included("src", &include));
-        assert!(is_path_included("docs", &include));
-        assert!(is_path_included("src/main.rs", &include));
-        assert!(is_path_included("docs/guide.md", &include));
-        assert!(!is_path_included("tests", &include));
     }
 
     // ── filter_tree_by_include ──

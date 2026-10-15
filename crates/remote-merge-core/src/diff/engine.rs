@@ -99,25 +99,6 @@ pub enum DiffResult {
     },
 }
 
-impl DiffResult {
-    /// この差分結果が「同一（差分なし）」かどうかを判定する。
-    /// テキスト Equal、バイナリ SHA-256 一致、シンボリックリンク同一ターゲットを含む。
-    pub fn is_equal(&self) -> bool {
-        match self {
-            DiffResult::Equal => true,
-            DiffResult::Modified { .. } => false,
-            DiffResult::Binary { left, right } => match (left, right) {
-                (Some(l), Some(r)) => l.is_same_content(r),
-                _ => false,
-            },
-            DiffResult::SymlinkDiff {
-                left_target,
-                right_target,
-            } => left_target == right_target && left_target.is_some(),
-        }
-    }
-}
-
 /// 差分の統計情報
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiffStats {
@@ -842,85 +823,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_equal_for_equal() {
-        assert!(DiffResult::Equal.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_modified() {
-        let result = compute_diff("a\n", "b\n");
-        assert!(!result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_binary_same_hash() {
-        let info = super::super::binary::BinaryInfo {
-            size: 10,
-            sha256: "abc".to_string(),
-        };
-        let result = DiffResult::Binary {
-            left: Some(info.clone()),
-            right: Some(info),
-        };
-        assert!(result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_binary_different_hash() {
-        let result = DiffResult::Binary {
-            left: Some(super::super::binary::BinaryInfo {
-                size: 10,
-                sha256: "abc".to_string(),
-            }),
-            right: Some(super::super::binary::BinaryInfo {
-                size: 10,
-                sha256: "def".to_string(),
-            }),
-        };
-        assert!(!result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_binary_one_side_missing() {
-        let result = DiffResult::Binary {
-            left: Some(super::super::binary::BinaryInfo {
-                size: 10,
-                sha256: "abc".to_string(),
-            }),
-            right: None,
-        };
-        assert!(!result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_symlink_same_target() {
-        let result = DiffResult::SymlinkDiff {
-            left_target: Some("../README.md".to_string()),
-            right_target: Some("../README.md".to_string()),
-        };
-        assert!(result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_symlink_different_target() {
-        let result = DiffResult::SymlinkDiff {
-            left_target: Some("../README.md".to_string()),
-            right_target: Some("../OTHER.md".to_string()),
-        };
-        assert!(!result.is_equal());
-    }
-
-    #[test]
-    fn test_is_equal_for_symlink_both_none() {
-        let result = DiffResult::SymlinkDiff {
-            left_target: None,
-            right_target: None,
-        };
-        // 両方Noneは「読み込めてない」ので equal とは判定しない
-        assert!(!result.is_equal());
-    }
-
-    #[test]
     fn test_merge_hunk_line_range_start_correct() {
         // 2つの離れた変更 → line_range.start が正しい位置を指すこと
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
@@ -1068,14 +970,6 @@ mod tests {
             new_start: 0,
         };
         assert!(!empty.contains_line(0));
-    }
-
-    #[test]
-    fn test_apply_hunk_to_text_empty_hunk_lines() {
-        let original = "line1\nline2\nline3\n";
-        // 空の hunk_lines を渡すとオリジナルをそのまま返す
-        let result = apply_hunk_to_text(original, &[], 0, 0, HunkDirection::RightToLeft);
-        assert_eq!(result, original);
     }
 
     // ── apply_selected_hunks_single_pass tests ──

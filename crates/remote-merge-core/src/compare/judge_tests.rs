@@ -58,7 +58,7 @@ fn both_absent_is_both_absent() {
 #[test]
 fn a_name_that_is_not_utf8_on_either_side_is_undecidable() {
     let undecidable = decided(Verdict::Undecidable(Undecidable::UnreadableName));
-    for other in [SideState::Absent, file(1, 0, 0, 9), SideState::Other] {
+    for other in [SideState::Absent, file(1, 0, 0, 0), SideState::Other] {
         for method in BOTH {
             assert_eq!(
                 judge(&SideState::UnreadableName, &other, method),
@@ -77,7 +77,7 @@ fn a_name_that_is_not_utf8_on_either_side_is_undecidable() {
 fn another_kind_on_either_side_is_undecidable_as_not_a_regular_file() {
     for other in [
         SideState::Absent,
-        file(1, 0, 0, 9),
+        file(1, 0, 0, 0),
         SideState::Directory,
         link("t"),
     ] {
@@ -105,7 +105,7 @@ fn another_kind_on_either_side_is_undecidable_as_not_a_regular_file() {
 #[test]
 fn ex_compare_019_the_reason_names_the_sides_of_another_kind_in_order() {
     let reference = judge_states(
-        (Role::Left, &file(1, 0, 0, 9)),
+        (Role::Left, &file(1, 0, 0, 0)),
         (Role::Ref, &SideState::Other),
         Method::Metadata,
     );
@@ -123,7 +123,7 @@ fn ex_compare_019_the_reason_names_the_sides_of_another_kind_in_order() {
 // @kotowari[REQ-compare-006, TBL-compare-001]
 #[test]
 fn an_entry_on_one_side_only_is_one_sided() {
-    for present in [file(1, 0, 0, 9), SideState::Directory, link("t")] {
+    for present in [file(1, 0, 0, 0), SideState::Directory, link("t")] {
         for method in BOTH {
             assert_eq!(
                 judge(&present, &SideState::Absent, method),
@@ -141,8 +141,8 @@ fn an_entry_on_one_side_only_is_one_sided() {
 #[test]
 fn different_kinds_differ_in_kind_including_a_directory_and_a_link_to_a_directory() {
     let pairs = [
-        (file(1, 0, 0, 9), SideState::Directory),
-        (file(1, 0, 0, 9), link("t")),
+        (file(1, 0, 0, 0), SideState::Directory),
+        (file(1, 0, 0, 0), link("t")),
         (SideState::Directory, link("t")),
         (SideState::Directory, dir_link()),
     ];

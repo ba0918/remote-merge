@@ -20,29 +20,6 @@ impl BinaryInfo {
             sha256: compute_sha256(content),
         }
     }
-
-    /// SHA-256ハッシュが一致するかどうかを判定する
-    pub fn is_same_content(&self, other: &Self) -> bool {
-        self.sha256 == other.sha256
-    }
-}
-
-/// バイナリファイルの比較結果
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BinaryComparison {
-    /// ハッシュが一致（同一）
-    Equal,
-    /// ハッシュが異なる（差分あり）
-    Different,
-}
-
-/// 2つの BinaryInfo を比較する
-pub fn compare(left: &BinaryInfo, right: &BinaryInfo) -> BinaryComparison {
-    if left.is_same_content(right) {
-        BinaryComparison::Equal
-    } else {
-        BinaryComparison::Different
-    }
 }
 
 /// SHA-256ハッシュを計算する（16進数文字列）
@@ -80,28 +57,6 @@ mod tests {
         let info = BinaryInfo::from_bytes(b"hello world");
         assert_eq!(info.size, 11);
         assert!(!info.sha256.is_empty());
-    }
-
-    #[test]
-    fn test_binary_comparison_equal() {
-        let a = BinaryInfo::from_bytes(b"same content");
-        let b = BinaryInfo::from_bytes(b"same content");
-        assert_eq!(compare(&a, &b), BinaryComparison::Equal);
-    }
-
-    #[test]
-    fn test_binary_comparison_different() {
-        let a = BinaryInfo::from_bytes(b"content a");
-        let b = BinaryInfo::from_bytes(b"content b");
-        assert_eq!(compare(&a, &b), BinaryComparison::Different);
-    }
-
-    #[test]
-    fn test_binary_comparison_different_size_same_would_not_happen() {
-        // サイズが違えばハッシュも違う
-        let a = BinaryInfo::from_bytes(b"short");
-        let b = BinaryInfo::from_bytes(b"longer content here");
-        assert_eq!(compare(&a, &b), BinaryComparison::Different);
     }
 
     // format_size テストは crate::format::tests に集約済み

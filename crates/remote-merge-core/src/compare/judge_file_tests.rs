@@ -27,7 +27,7 @@ const BOTH: [Method; 2] = [Method::Metadata, Method::Content];
 fn files_of_different_sizes_differ_without_reading() {
     for method in BOTH {
         assert_eq!(
-            judge(&file(1, 5, 0, 9), &file(2, 5, 0, 9), method),
+            judge(&file(1, 5, 0, 0), &file(2, 5, 0, 0), method),
             decided(Verdict::Differs)
         );
     }
@@ -35,7 +35,7 @@ fn files_of_different_sizes_differ_without_reading() {
 
 // @kotowari[REQ-compare-006, TBL-compare-001]
 #[test]
-fn by_metadata_files_with_the_same_size_and_time_at_the_common_precision_are_the_same() {
+fn by_metadata_files_with_the_same_size_and_time_are_the_same_or_decided_by_content() {
     assert_eq!(
         judge(
             &file(3, 5, 123_456_789, 9),
@@ -44,18 +44,19 @@ fn by_metadata_files_with_the_same_size_and_time_at_the_common_precision_are_the
         ),
         decided(Verdict::Same)
     );
-    // 共通する最も細かい精度（小数 2 桁）で比べる
+    // 秒より細かい値が違えば、中身で比べる
     assert_eq!(
         judge(
-            &file(3, 5, 120_000_000, 2),
             &file(3, 5, 123_456_789, 9),
+            &file(3, 5, 987_654_321, 9),
             Method::Metadata
         ),
-        decided(Verdict::Same)
+        Judgement::ByContent
     );
+    // 片側が秒までしか持たない（digits 0）ときは、秒より細かい値を比べられないので中身で比べる
     assert_eq!(
         judge(
-            &file(3, 5, 130_000_000, 2),
+            &file(3, 5, 0, 0),
             &file(3, 5, 123_456_789, 9),
             Method::Metadata
         ),
@@ -68,11 +69,11 @@ fn by_metadata_files_with_the_same_size_and_time_at_the_common_precision_are_the
 fn by_metadata_a_side_with_only_seconds_or_a_different_time_is_decided_by_content() {
     let only_seconds = file(3, 5, 0, 0);
     assert_eq!(
-        judge(&file(3, 5, 0, 9), &only_seconds, Method::Metadata),
+        judge(&file(3, 5, 0, 0), &only_seconds, Method::Metadata),
         Judgement::ByContent
     );
     assert_eq!(
-        judge(&file(3, 5, 0, 9), &file(3, 6, 0, 9), Method::Metadata),
+        judge(&file(3, 5, 0, 0), &file(3, 6, 0, 0), Method::Metadata),
         Judgement::ByContent
     );
     let unknown = SideState::File {
@@ -80,7 +81,7 @@ fn by_metadata_a_side_with_only_seconds_or_a_different_time_is_decided_by_conten
         mtime: None,
     };
     assert_eq!(
-        judge(&unknown, &file(3, 5, 0, 9), Method::Metadata),
+        judge(&unknown, &file(3, 5, 0, 0), Method::Metadata),
         Judgement::ByContent
     );
 }
