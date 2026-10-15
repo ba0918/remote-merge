@@ -13,6 +13,22 @@ SSH 経由でローカルとリモートサーバー間のファイル差分を�
 
 ## Install
 
+### mise（推奨）
+
+Linux x86_64 / macOS（Intel・Apple Silicon）向けの配布バイナリを、[mise](https://mise.jdx.dev/getting-started.html) でインストールできます。
+mise の導入とシェルの有効化を済ませてから実行してください。
+
+```bash
+mise use --global github:ba0918/remote-merge@0.3.0
+remote-merge --version
+```
+
+別の版を使う場合は、`@0.3.0` をその版に置き換えてください。
+`@latest` は mise 側のバージョン情報の反映が遅れると旧版を選ぶことがあるため、版を明示しています。
+プロジェクトごとに版を管理する場合は、そのディレクトリで `--global` を外して実行すると `mise.toml` に記録されます。
+
+### インストールスクリプト（mise を使わない場合）
+
 **Linux / macOS:**
 
 ```bash
@@ -24,10 +40,10 @@ Windows はまだ配布していません（バイナリの配布は Linux と m
 バージョン指定やインストール先の変更も可能:
 
 ```bash
-VERSION=v0.3.0 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
+curl -fsSL https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.sh | VERSION=v0.3.0 INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
-**ソースからビルド:**
+### ソースからビルド
 
 ```bash
 cargo install --path crates/remote-merge
