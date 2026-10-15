@@ -60,7 +60,7 @@ impl CoreRuntime {
             )) => real_path,
             // root_dir の祖先がディレクトリでない（"not a directory" の誤り）も、root_dir が
             // なくなったものとする（REQ-merge-044）。辿れない（権限がない・接続断など）はそのまま返す
-            Some(Err(error)) if !is_not_a_directory(&error) => return Err(error),
+            Some(Err(error)) if !is_root_gone_error(&error) => return Err(error),
             // root_dir がないかディレクトリでない
             _ => {
                 return Err(match absent {
@@ -124,12 +124,16 @@ impl CoreRuntime {
     }
 }
 
-/// `error` が、root_dir の祖先がディレクトリでないこと（"not a directory" の誤り）を表すか。
-/// 辿れない（権限がない・接続断など）は偽
-pub(super) fn is_not_a_directory(error: &anyhow::Error) -> bool {
-    error
-        .chain()
-        .any(|cause| cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory))
+/// `error` が、root_dir を辿れないこと（祖先がディレクトリでない "not a directory"、祖先がリンク切れの
+/// symlink "dangling symbolic link"）を表すか。権限がない・接続断などは偽。走査はどちらも root_dir が
+/// ないとして止めるので、まとめた問いも root_dir がないものとする（REQ-merge-044）
+pub(super) fn is_root_gone_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<ResolveError>(),
+            Some(ResolveError::NotADirectory | ResolveError::DanglingSymlink)
+        )
+    })
 }
 
 /// `error` が、その側への最初の問いで root_dir がないと分かったときの走査の root_dir の誤り

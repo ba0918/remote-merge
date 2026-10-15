@@ -14,7 +14,9 @@ use super::common::{TestDirs, gen_config};
 /// 設定を置く場所とカレントディレクトリをテストごとに選べる、隔離した実行環境。
 ///
 /// HOME・XDG_CONFIG_HOME・XDG_DATA_HOME を一時ディレクトリに向けるため、利用者のマシンの設定は読まない。
-/// グローバル設定の場所は "HOME/.config/remote-merge/config.toml" になる（Linux の場合）。
+/// グローバル設定の場所は、既定では XDG_CONFIG_HOME（"<root>/xdg-config"）の下、
+/// [`status_without_xdg`](Self::status_without_xdg) では "HOME/.config" の下になる（Linux の場合）。
+/// 2 つを別の場所にして、どちらを読んだかをテストが見分けられるようにしている（REQ-config-045）
 struct Workspace {
     dirs: TestDirs,
     /// テストが書いた設定ファイルと、その [local] の root_dir

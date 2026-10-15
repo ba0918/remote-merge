@@ -39,7 +39,7 @@ impl RootWatch {
                 *target_kind != Some(ExistingKind::Directory)
             }
             // root_dir の祖先がディレクトリでない（REQ-paths-002 の "not a directory" の誤り）
-            Err(error) => super::root_checked::is_not_a_directory(error),
+            Err(error) => super::root_checked::is_root_gone_error(error),
         }
     }
 
