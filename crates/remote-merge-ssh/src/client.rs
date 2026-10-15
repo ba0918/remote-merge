@@ -13,6 +13,7 @@ use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{MAX_PASSPHRASE_RETRIES, PassphraseProvider};
+use super::password::{PasswordSource, resolve_password};
 use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
 use crate::login_shell::wrap_for_login_shell;
@@ -783,40 +784,8 @@ fn is_passphrase_error(e: &russh::keys::Error) -> bool {
     matches!(e, russh::keys::Error::KeyIsEncrypted)
 }
 
-/// パスワード認証のソース
-#[derive(Debug, Clone, PartialEq)]
-enum PasswordSource {
-    /// 環境変数 REMOTE_MERGE_PASSWORD_{SERVER} から取得
-    EnvVar,
-    /// config.toml の password フィールドから取得（平文）
-    Config,
-}
-
-/// パスワードを解決する。
-///
-/// 優先順位: 環境変数 `REMOTE_MERGE_PASSWORD_{SERVER}` > config の `password` フィールド。
-/// 空文字列の環境変数は無視する。
-/// 返値のパスワードはドロップ時にメモリゼロ化される。
-fn resolve_password(
-    server_name: &str,
-    config_password: Option<&str>,
-) -> Option<(Zeroizing<String>, PasswordSource)> {
-    let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
-    if let Ok(val) = std::env::var(&env_key)
-        && !val.is_empty()
-    {
-        return Some((Zeroizing::new(val), PasswordSource::EnvVar));
-    }
-    config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
-}
-
 #[cfg(test)]
 mod tests {
-    #![expect(
-        unsafe_code,
-        reason = "テスト専用の名前の環境変数を、serial 実行の下で置き換える"
-    )]
-
     use super::*;
 
     #[test]
@@ -900,112 +869,5 @@ mod tests {
             "error should mention key load: {}",
             err
         );
-    }
-
-    // ── resolve_password テスト ──
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_env_var_takes_priority() {
-        let env_key = "REMOTE_MERGE_PASSWORD_TESTSERVER";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "env-pass") };
-
-        let result = resolve_password("testserver", Some("config-pass"));
-        let (pass, source) = result.expect("パスワードが解決されるべき");
-        assert_eq!(pass.as_str(), "env-pass");
-        assert_eq!(source, PasswordSource::EnvVar);
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_falls_back_to_config() {
-        let env_key = "REMOTE_MERGE_PASSWORD_FALLBACKTEST";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-
-        let result = resolve_password("fallbacktest", Some("config-pass"));
-        let (pass, source) = result.expect("パスワードが解決されるべき");
-        assert_eq!(pass.as_str(), "config-pass");
-        assert_eq!(source, PasswordSource::Config);
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_empty_env_var_falls_back_to_config() {
-        let env_key = "REMOTE_MERGE_PASSWORD_EMPTYENVTEST";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "") };
-
-        let result = resolve_password("emptyenvtest", Some("config-pass"));
-        let (pass, source) = result.expect("パスワードが解決されるべき");
-        assert_eq!(pass.as_str(), "config-pass");
-        assert_eq!(source, PasswordSource::Config);
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_no_source_returns_none() {
-        let env_key = "REMOTE_MERGE_PASSWORD_NOSOURCE";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-
-        let result = resolve_password("nosource", None);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_server_name_uppercased() {
-        let env_key = "REMOTE_MERGE_PASSWORD_MY-SERVER";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "found") };
-
-        let result = resolve_password("my-server", None);
-        let (pass, source) = result.expect("パスワードが解決されるべき");
-        assert_eq!(pass.as_str(), "found");
-        assert_eq!(source, PasswordSource::EnvVar);
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_returns_zeroizing_env_var() {
-        // Zeroizing<String> が返ることのコンパイル時検証 + ランタイムテスト
-        let env_key = "REMOTE_MERGE_PASSWORD_ZEROIZETEST";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "zeroize-me") };
-
-        let result: Option<(Zeroizing<String>, PasswordSource)> =
-            resolve_password("zeroizetest", None);
-        let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
-        assert_eq!(pass.as_str(), "zeroize-me");
-        assert_eq!(source, PasswordSource::EnvVar);
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_resolve_password_returns_zeroizing_config() {
-        // config パスで Zeroizing<String> が返ることを確認
-        let env_key = "REMOTE_MERGE_PASSWORD_ZEROCONFIGTEST";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-
-        let result: Option<(Zeroizing<String>, PasswordSource)> =
-            resolve_password("zeroconfigtest", Some("config-secret"));
-        let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
-        assert_eq!(pass.as_str(), "config-secret");
-        assert_eq!(source, PasswordSource::Config);
     }
 }
