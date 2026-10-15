@@ -28,6 +28,11 @@ fn ex_cli_078_a_directory_against_a_file_shows_the_kind_the_children_and_the_bod
             "the kind difference is missing: {kinds}"
         );
         assert!(kinds["hunks"].to_string().contains("right body"), "{kinds}");
+        assert!(
+            run.text.contains("right body"),
+            "the body is missing from the text: {}",
+            run.text
+        );
         let child = run.entry("x/child.txt");
         assert!(child["hunks"].to_string().contains("left child"), "{child}");
         assert_eq!(run.code, exit_code::DIFF_FOUND, "{} paths", paths.len());

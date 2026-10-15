@@ -248,7 +248,6 @@ fn text_names_the_ref_in_the_header_marks_files_and_adds_a_ref_line_after_the_su
 
     let summary = lines.iter().position(|line| line.starts_with("Summary: "));
     let ref_line = lines.iter().position(|line| {
-        let line = line.trim();
         line.starts_with("Ref: 5 differs, ") && line.ends_with(" ref-only, 2 ref-missing")
     });
     assert!(summary.is_some() && ref_line > summary, "{stdout}");

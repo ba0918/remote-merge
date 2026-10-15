@@ -103,7 +103,7 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
         output.summary.ref_missing,
     ) {
         lines.push(format!(
-            "  Ref: {} differs, {} ref-only, {} ref-missing",
+            "Ref: {} differs, {} ref-only, {} ref-missing",
             rd, ro, rm
         ));
     }
@@ -178,7 +178,6 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
 
     if let Some(note) = &output.note {
         lines.push(note.to_string());
-        return lines.join("\n");
     }
 
     for hunk in &output.hunks {

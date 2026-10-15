@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Output, Stdio};
 
-use super::common::{CliEnv, assert_exit_error, assert_exit_success};
+use super::common::{CliEnv, assert_exit_error, assert_exit_success, place_symlink};
 
 /// develop と staging のどちらにも、書き込むファイル一つと --delete で消すファイル一つがある構成
 fn one_merge_and_one_deletion_on_each_target() -> CliEnv {
@@ -300,6 +300,33 @@ fn a_sync_without_a_path_stops_before_writing() {
     assert_exit_error(&output, 2);
     assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
     assert_eq!(read(env.remote_dir.join("extra.txt")), "develop extra\n");
+}
+
+// 種類の違いのスキップしかない sync は、失敗があるので "No files to sync." を出さない
+// @kotowari[REQ-cli-072, TBL-cli-007]
+#[test]
+fn a_kind_mismatch_alone_is_a_failure_and_not_no_files_to_sync() {
+    let env = CliEnv::new_3way(
+        &[("kind.txt", "incoming\n")],
+        &[("kind.txt", "develop old\n")],
+        &[("kind.txt", "staging old\n")],
+    );
+    // 左右で種類を違える（左は symlink、右は通常ファイル）
+    fs::remove_file(env.temp_root().join("local/kind.txt")).unwrap();
+    place_symlink(&env.temp_root().join("local"), "kind.txt", "target.txt");
+
+    let output = env
+        .cmd_with("sync")
+        .args([
+            "kind.txt", "--left", "local", "--right", "develop", "staging",
+        ])
+        .output()
+        .unwrap();
+
+    assert_exit_error(&output, 2);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("No files to sync."), "{stdout}");
+    assert!(stdout.contains("failed"), "{stdout}");
 }
 
 // @kotowari[REQ-cli-072]

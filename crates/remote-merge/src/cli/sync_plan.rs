@@ -52,11 +52,11 @@ impl TargetPlan {
     /// 書き込む予定も削除する予定も失敗もない（REQ-cli-072 の "No files to sync."）
     pub fn is_empty(&self) -> bool {
         match &self.state {
-            TargetState::Planned { plan, .. } => plan.iter().all(|(_, entry)| {
-                matches!(
-                    entry,
-                    MergeEntry::Skip(_) | MergeEntry::Nothing | MergeEntry::Absent
-                )
+            TargetState::Planned { plan, .. } => plan.iter().all(|(_, entry)| match entry {
+                // 種類の違いのスキップは失敗に数える（TBL-cli-007）ので、空としない
+                MergeEntry::Skip(reason) => !reason.counts_as_failure(),
+                MergeEntry::Nothing | MergeEntry::Absent => true,
+                _ => false,
             }),
             TargetState::Failed(_) => false,
         }
