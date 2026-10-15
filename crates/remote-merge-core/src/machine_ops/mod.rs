@@ -59,7 +59,9 @@ pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>,
 
 /// symlink を辿った先の中身の SHA-256（小文字の16進）。中身を少しずつ読む
 pub fn hash(root: &Path, entry: &EntryPath) -> Result<String, OpFailure> {
-    let mut file = open_regular(&full_path(root, entry))?;
+    let path = full_path(root, entry);
+    regular_file(&std::fs::metadata(&path).map_err(|error| failed(&error))?)?;
+    let mut file = open_regular(&path)?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher).map_err(|error| failed(&error))?;
     Ok(hex(&hasher.finalize()))

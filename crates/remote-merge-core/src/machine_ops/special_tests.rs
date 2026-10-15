@@ -87,3 +87,16 @@ fn reading_or_hashing_a_directory_fails_as_not_a_regular_file() {
     assert_eq!(read(root, &path, SizeLimit::Unlimited), not_regular());
     assert_eq!(hash(root, &path), not_regular());
 }
+
+#[test]
+fn reading_or_hashing_a_socket_or_its_symlink_fails_as_not_a_regular_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let _listener = std::os::unix::net::UnixListener::bind(root.join("socket")).unwrap();
+    symlink("socket", root.join("link")).unwrap();
+    for path in ["socket", "link"] {
+        let path = EntryPath::parse(path).unwrap();
+        assert_eq!(read(root, &path, SizeLimit::Unlimited), not_regular());
+        assert_eq!(hash(root, &path), not_regular());
+    }
+}
