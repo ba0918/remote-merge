@@ -26,6 +26,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 #[cfg(unix)]
 use russh::ChannelMsg;
+#[cfg(unix)]
+use tokio::sync::Notify;
 
 /// リモートの agent が標準エラーに出した文字列を中継する記録の target。
 ///
@@ -55,12 +57,14 @@ pub struct TransportGuard {
     bridge_thread: Option<JoinHandle<()>>,
     writer_relay_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
+    wakeup: Arc<Notify>,
 }
 
 #[cfg(unix)]
 impl Drop for TransportGuard {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
+        self.wakeup.notify_one();
 
         let deadline = Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
         for t in [self.writer_relay_thread.take(), self.bridge_thread.take()]
@@ -100,6 +104,7 @@ pub struct SshAgentTransport {
     bridge_thread: Option<JoinHandle<()>>,
     writer_relay_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
+    wakeup: Arc<Notify>,
 }
 
 #[cfg(unix)]
@@ -127,6 +132,7 @@ impl SshAgentTransport {
         client_read.set_read_timeout(Some(read_timeout))?;
 
         let shutdown = Arc::new(AtomicBool::new(false));
+        let wakeup = Arc::new(Notify::new());
         let (write_tx, write_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
         // Writer relay: UnixStream から読み取り → mpsc で bridge に送信
@@ -139,10 +145,18 @@ impl SshAgentTransport {
 
         // Bridge: channel を排他所有し、select! で双方向中継
         let shutdown3 = shutdown.clone();
+        let bridge_wakeup = wakeup.clone();
         let bridge_thread = std::thread::Builder::new()
             .name("agent-bridge".into())
             .spawn(move || {
-                bridge_loop(&handle, channel, bridge_write, write_rx, shutdown3);
+                bridge_loop(
+                    &handle,
+                    channel,
+                    bridge_write,
+                    write_rx,
+                    shutdown3,
+                    bridge_wakeup,
+                );
             })?;
 
         Ok(Self {
@@ -151,6 +165,7 @@ impl SshAgentTransport {
             bridge_thread: Some(bridge_thread),
             writer_relay_thread: Some(writer_relay_thread),
             shutdown,
+            wakeup,
         })
     }
 
@@ -169,6 +184,7 @@ impl SshAgentTransport {
             bridge_thread: self.bridge_thread.take(),
             writer_relay_thread: self.writer_relay_thread.take(),
             shutdown: self.shutdown.clone(),
+            wakeup: self.wakeup.clone(),
         };
         // self の Drop は client_read/write=None, threads=None なので何もしない
         (r, w, guard)
@@ -185,6 +201,7 @@ impl Drop for SshAgentTransport {
         }
 
         self.shutdown.store(true, Ordering::Release);
+        self.wakeup.notify_one();
 
         // UnixStream をシャットダウンしてブリッジスレッドに EOF を通知
         if let Some(ref s) = self.client_read {
@@ -245,6 +262,7 @@ fn bridge_loop(
     mut bridge_write: UnixStream,
     mut write_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     shutdown: Arc<AtomicBool>,
+    wakeup: Arc<Notify>,
 ) {
     handle.block_on(async move {
         let mut write_open = true;
@@ -254,6 +272,8 @@ fn bridge_loop(
                 break;
             }
             tokio::select! {
+                // One bridge waits here; notify_one retains a permit if Drop wins the race.
+                _ = wakeup.notified() => break,
                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { ref data }) => {
@@ -367,6 +387,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: Arc::new(AtomicBool::new(false)),
+            wakeup: Arc::new(Notify::new()),
         };
         let (mut read_end, mut write_end, _guard) = transport.into_streams();
         write_end.write_all(b"test").unwrap();
@@ -390,6 +411,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: shutdown.clone(),
+            wakeup: Arc::new(Notify::new()),
         };
         let (_r, _w, guard) = transport.into_streams();
         // transport の Drop が走った後も shutdown は false のまま
@@ -600,6 +622,7 @@ mod tests {
             bridge_thread: Some(thread),
             writer_relay_thread: None,
             shutdown,
+            wakeup: Arc::new(Notify::new()),
         };
 
         let start = Instant::now();
@@ -630,6 +653,7 @@ mod tests {
             bridge_thread: Some(thread),
             writer_relay_thread: None,
             shutdown,
+            wakeup: Arc::new(Notify::new()),
         };
 
         let start = Instant::now();
