@@ -8,7 +8,7 @@ SSH 経由でローカルとリモートサーバー間のファイル差分を�
 - `status` / `diff` / `merge` / `sync` / `rollback` サブコマンド（`--format json` で機械可読な出力）
 - hunk 単位マージ（`merge --hunks`）
 - 3-way 比較（`--ref` で参照サーバーを指定）
-- マージ時の楽観的ロック（mtime チェック）
+- マージ時の楽観的ロック（書き込み先が比べた後に変わっていないかを、種類・リンク文字列・中身のハッシュで確かめる）
 - Agent モードによる高速リモート操作
 
 ## Install
@@ -19,16 +19,12 @@ SSH 経由でローカルとリモートサーバー間のファイル差分を�
 curl -fsSL https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.sh | sh
 ```
 
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.ps1 | iex
-```
+Windows はまだ配布していません（バイナリの配布は Linux と macOS だけです。`scripts/install.ps1` は Windows 対応のときに使います）。
 
 バージョン指定やインストール先の変更も可能:
 
 ```bash
-VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
+VERSION=v0.3.0 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
 ```
 
 **ソースからビルド:**
@@ -37,7 +33,7 @@ VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
 cargo install --path crates/remote-merge
 ```
 
-ソースからのインストールには、同じcheckout内の `crates/remote-merge-core` と `crates/remote-merge-protocol` も必要です。
+ソースからのインストールには、同じ checkout の全体（`Cargo.toml`・`Cargo.lock` と 8 つのクレート）が必要です（`crates/remote-merge` は同じ workspace のクレートを path で参照します）。
 
 ## Quick Start
 

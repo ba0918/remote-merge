@@ -10,9 +10,12 @@
 
 ### 変更（互換性がないもの）
 
+- TUI を無くしました。サブコマンドを指定しない起動は TUI を開かず、使い方を標準エラーに出して終了コード 2 を返します。`events` サブコマンドも無くなりました。
+- `--ref` の別名 `--reference` を無くしました。`--ref` を使ってください（`--reference` は知らないオプションとして使い方のエラーになります）。
 - `[local]` の `root_dir` は明示が要るようになりました。グローバル設定にもプロジェクト設定にもない設定は、エラーで止まります（終了コード 2）。既定値はありません。
-- グローバル設定の場所が、OS の設定ディレクトリの下の `remote-merge/config.toml` になりました（Linux は `XDG_CONFIG_HOME` があればその下、なければ `~/.config`、macOS は `~/Library/Application Support`）。macOS では今までの場所と違うので、設定を移してください。
-- 競合の JSON（`whole_file`）の行の競合から、削除済みの TUI のための 4 欄（`left_diff_range`・`right_diff_range`・`left_file_lines`・`right_file_lines`）を削除しました。読む側は未知の欄として無視できます。
+- 以前の版が読んでいた設定のキー（`[filter]` の `sensitive`、トップレベルの `badge_scan_max_files`、`[agent]` の `timeout_secs`・`tree_chunk_size`・`max_file_chunk_bytes`）は、知らないキーとしてエラーで止まります（終了コード 2）。設定から消してください。
+- 機密ファイル（sensitive）の保護を無くしました。`[filter]` の `sensitive` のパターンも、既定のパターンによる中身の隠し方もありません。これに伴い diff の `--force` の意味が変わり、「機密の中身を表示する」ではなく「大きさの上限を外す」になりました。diff の JSON の `sensitive` 欄も無くなりました。
+- 競合の JSON の行の競合から、削除済みの TUI のための 4 欄（`left_diff_range`・`right_diff_range`・`left_file_lines`・`right_file_lines`）を削除しました。読む側は未知の欄として無視できます。
 
 ### 変更
 
@@ -20,11 +23,10 @@
 - merge・sync で名前で指定したファイルには、include と exclude を当てなくなりました（diff と同じ）。今まではフィルタに当たると「両側にない」になり、書かれませんでした。
 - sync の書き込む前の確認の行は、件数が 0 の部分を出さず、書き込む予定のない書き込み先の行を出しません。確認を断ったときは、標準出力に何も出しません（標準エラーの "Sync cancelled." と終了コード 0 は今までどおり）。
 - 設定ファイルの `password` の平文を使って接続するときは、毎回警告を出します（鍵認証を勧めます）。接続のたびにパスワードを尋ねることはありません。
-- `status -v` で右がリモートのとき、JSON の "agent" とテキストの "Agent:" の行に、右のエージェントの接続状態を出すようになりました。
-- diff の JSON は `files` の配列と `summary` を持ち、`left`・`right` は `label` と `root` を持つ形になりました。
 
 ### 修正
 
+- 診断ログを `head` や `less` で絞って読むとき（読み手が先に閉じるとき）、panic せずに終わります（終了コード 101 を返しません）。
 - バックアップのセッション ID の連番が上限に達したとき、panic せず、次の ID を決められない誤りで止まります。
 - `merge --hunks N --with-permissions` が、権限の複製を無視していました。
 - 名前で指定したディレクトリとその下のファイルを一緒に指定したとき、件数の上限を二度当てて、そのファイルの差分を黙って落とすことがありました（diff）。

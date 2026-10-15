@@ -105,7 +105,7 @@ remote-merge merge src/foo.rs --left local --right develop --hunks 0,2,5
 
 JSON output includes `hunks_applied`, `hunks_total`, and `direction` fields when `--hunks` is used. When the file has no differences, nothing is written: the JSON entry has status `"skipped (no changes)"` and the text output shows `Skipped: <path> (no changes)` (exit code 0).
 
-Backups created automatically. Optimistic locking checks mtime before writing.
+Backups created automatically. Optimistic locking re-checks the destination's kind, link target and content hash before writing.
 
 ### 3.5. Sync (1:N multi-server synchronization)
 
@@ -142,7 +142,7 @@ Behavior:
 - **Connection failures are tolerated**: if one server fails, others continue
 - Confirmation prompt shows all servers' plans, then asks once (use `--force` to skip)
 - One backup session ID is shared across every write target in the sync operation
-- Remote-to-remote pairs are blocked unless `--force` or `--dry-run` is used
+- Remote-to-remote pairs ask for confirmation once before writing (answer `y`); `--dry-run` previews without asking
 - Duplicate `--right` values are rejected
 
 Exit codes: 0 = all servers succeeded, 2 = one or more servers failed (partial or total).
@@ -262,6 +262,7 @@ dir_permissions = "0755"                # Per-server dir permission override
 
 [servers.develop.ssh_options]           # Legacy SSH algorithm overrides
 kex_algorithms = ["diffie-hellman-group14-sha1"]
+mac_algorithms = ["hmac-sha2-256", "hmac-sha1"]
 host_key_algorithms = ["ssh-rsa"]
 ciphers = ["aes128-ctr"]
 
@@ -334,7 +335,7 @@ These environment variables are useful for non-interactive CI/CD pipelines and a
 
 ## Exit Codes
 
-0 = success (no diff), 1 = success (diffs found), 2 = error.
+0 = success, 2 = error. `1` (diffs found) is returned by `status` and `diff` only; `merge`, `sync` and `rollback` return 0 even when they write.
 
 ## Error Recovery
 

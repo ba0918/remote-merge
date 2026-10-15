@@ -141,7 +141,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
     { "path": "old-file.ts", "status": "ok", "backup": "20260311-140000/old-file.ts" }
   ],
   "failed": [
-    { "path": "broken.ts", "error": "optimistic lock failed" }
+    { "path": "broken.ts", "error": "destination changed since it was compared" }
   ]
 }
 ```
@@ -229,7 +229,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `sessions[].file_count`: number of files in the session
 - `sessions[].expired`: boolean, present when true (the UTC timestamp in the session ID is at least `retention_days * 24 hours` old). Omitted when false.
 - `sessions[].files`: backed-up entries. Regular-file entries contain `path` and `size`. An entry for a replaced symlink contains `path` and `link_target`, and omits `size`.
-- Sessions with missing or corrupt records are omitted. Operations that had nothing to back up do not leave empty sessions.
+- Sessions whose records are missing are omitted; a record that cannot be parsed stops the command with the path and the reason (exit code 2). Operations that had nothing to back up do not leave empty sessions.
 
 ## rollback (restore)
 
@@ -244,7 +244,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
     { "path": "current", "reason": "symlink restore not supported" }
   ],
   "failed": [
-    { "path": "broken.ts", "error": "file not found in backup" }
+    { "path": "broken.ts", "error": "cannot resolve path: permission denied" }
   ]
 }
 ```
