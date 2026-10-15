@@ -82,16 +82,16 @@ pub(super) fn merge_hunks(
     }
     // 読めなかった側はどれも、ファイル全体の merge と同じ形の理由に並べる（REQ-compare-014）
     let mut unread = Vec::new();
-    let mut body = |role: Role| -> anyhow::Result<Vec<u8>> {
+    let mut body = |role: Role| -> anyhow::Result<&[u8]> {
         match (state(role), compared.contents.get(&role)) {
-            (Some(SideState::Absent), _) => Ok(Vec::new()),
-            (_, Some(Ok(content))) => Ok(content.clone()),
+            (Some(SideState::Absent), _) => Ok(&[]),
+            (_, Some(Ok(content))) => Ok(content.as_slice()),
             (_, Some(Err(failure))) => {
                 unread.push(SideFailure {
                     role,
                     failure: failure.clone(),
                 });
-                Ok(Vec::new())
+                Ok(&[])
             }
             (_, None) => anyhow::bail!("'{path}' is not a regular file on both sides"),
         }
@@ -103,10 +103,10 @@ pub(super) fn merge_hunks(
     if !unread.is_empty() {
         return Ok(failed(&path, Undecidable::ReadFailed(unread).to_string()));
     }
-    if is_binary(&left) || is_binary(&right) {
+    if is_binary(left) || is_binary(right) {
         anyhow::bail!("Hunk merge is not supported for binary files: '{path}'");
     }
-    let (left, right) = (String::from_utf8(left)?, String::from_utf8(right)?);
+    let (left, right) = (std::str::from_utf8(left)?, std::str::from_utf8(right)?);
     let reference = match (reference_check, compared.contents.get(&Role::Ref)) {
         (true, Some(Ok(reference))) => Some(reference.as_slice()),
         // 参照先を読めなければ、競合がないことを確かめられない
@@ -115,7 +115,7 @@ pub(super) fn merge_hunks(
         }
         (true, None) | (false, _) => None,
     };
-    let (merged, total) = match merge_selected_hunks(&left, &right, reference, hunks) {
+    let (merged, total) = match merge_selected_hunks(left, right, reference, hunks) {
         Ok(HunkMerge::NoChanges) => return Ok(no_changes(&path)),
         Ok(HunkMerge::Merged { content, total }) => (content, total),
         Err(HunkError::OutOfRange { index, total }) => {
