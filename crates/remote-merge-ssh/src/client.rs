@@ -714,7 +714,7 @@ fn load_secret_key_with_passphrase(
             Ok(key) => return Ok(key),
             Err(_) => {
                 tracing::warn!(
-                    target: "remote_merge::ssh::client",
+                    target: "remote_merge::warning",
                     "Passphrase from {} is incorrect for '{}'",
                     env_key,
                     expanded_path

@@ -304,7 +304,8 @@ pub(crate) fn host_matches(pattern: &str, host_entry: &str, hostname: &str, port
 
     for p in pattern.split(',') {
         let p = p.trim();
-        if p == host_entry || p == hostname {
+        // 括弧なしの行（ポート 22 用の書き方）は、ポート 22 の接続にだけ当たる（OpenSSH と同じ）
+        if p == host_entry || (port == 22 && p == hostname) {
             return true;
         }
     }
@@ -438,6 +439,18 @@ example.com ssh-ed25519 AAAAC3...
             &entry_22,
             "example.com",
             22
+        ));
+    }
+
+    // 括弧なしの行はポート 22 の接続にだけ当たる（OpenSSH と同じ。非標準ポートでは [host]:port の行だけ）
+    #[test]
+    fn test_a_plain_line_does_not_match_a_non_standard_port() {
+        let entry_2222 = format_host_entry("example.com", 2222);
+        assert!(!host_matches(
+            "example.com",
+            &entry_2222,
+            "example.com",
+            2222
         ));
     }
 
