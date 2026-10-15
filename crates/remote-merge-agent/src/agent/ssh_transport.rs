@@ -247,6 +247,7 @@ fn bridge_loop(
     shutdown: Arc<AtomicBool>,
 ) {
     handle.block_on(async move {
+        let mut write_open = true;
         loop {
             if shutdown.load(Ordering::Acquire) {
                 tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: shutdown signal received");
@@ -276,7 +277,7 @@ fn bridge_loop(
                         Some(_) => {} // ExitStatus 等は無視
                     }
                 }
-                data = write_rx.recv() => {
+                data = write_rx.recv(), if write_open => {
                     match data {
                         Some(bytes) => {
                             if let Err(e) = channel.data(&bytes[..]).await {
@@ -285,6 +286,7 @@ fn bridge_loop(
                             }
                         }
                         None => {
+                            write_open = false;
                             // writer-relay が終了 → stdin EOF を送信
                             tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: write_rx closed, sending EOF");
                             let _ = channel.eof().await;
@@ -341,6 +343,10 @@ fn writer_relay_loop(
 #[cfg(unix)]
 #[path = "ssh_transport_relay_tests.rs"]
 mod relay_tests;
+
+#[cfg(all(test, unix))]
+#[path = "ssh_transport_bridge_tests.rs"]
+mod bridge_tests;
 
 // ---------------------------------------------------------------------------
 // Tests
