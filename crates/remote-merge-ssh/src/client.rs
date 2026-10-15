@@ -592,37 +592,43 @@ impl SshClient {
         input: Option<&[u8]>,
         on_stdout: &mut (dyn FnMut(&[u8]) + Send),
     ) -> crate::error::Result<(Vec<u8>, u32)> {
-        let mut channel = self.open_channel_with_retry().await?;
+        let channel = self.open_channel_with_retry().await?;
         channel
             .exec(true, wrap_for_login_shell(command))
             .await
             .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),
             })?;
-        if let Some(input) = input {
-            if let Err(error) = self.send_data_chunked(&mut channel, input).await {
-                let _ = channel.close().await;
-                return Err(error);
+        let (mut reader, writer) = channel.split();
+        let send_input = async {
+            if let Some(input) = input {
+                self.send_data_chunked(&writer, input).await?;
+                writer
+                    .eof()
+                    .await
+                    .map_err(|error| AppError::SshDisconnected {
+                        host: self.server_name.clone(),
+                        message: format!("Failed to send EOF: {error}"),
+                    })?;
             }
-            if let Err(error) = channel.eof().await {
-                let _ = channel.close().await;
-                return Err(AppError::SshDisconnected {
-                    host: self.server_name.clone(),
-                    message: format!("Failed to send EOF: {error}"),
+            Ok::<(), anyhow::Error>(())
+        };
+        let receive_output = async {
+            let (mut stderr, mut exit_code) = (Vec::new(), None);
+            while let Some(message) = reader.wait().await {
+                match message {
+                    ChannelMsg::Data { ref data } => on_stdout(data),
+                    ChannelMsg::ExtendedData { ref data, ext: 1 } => stderr.extend_from_slice(data),
+                    ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
+                    _ => {}
                 }
-                .into());
             }
-        }
-        let (mut stderr, mut exit_code) = (Vec::new(), None);
-        while let Some(message) = channel.wait().await {
-            match message {
-                ChannelMsg::Data { ref data } => on_stdout(data),
-                ChannelMsg::ExtendedData { ref data, ext: 1 } => stderr.extend_from_slice(data),
-                ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
-                _ => {}
-            }
-        }
-        let _ = channel.close().await;
+            Ok((stderr, exit_code))
+        };
+        // Sending first can fill the bounded output queue and block SSH window updates.
+        let result = tokio::try_join!(send_input, receive_output);
+        let _ = writer.close().await;
+        let ((), (stderr, exit_code)) = result?;
         let Some(exit_code) = exit_code else {
             anyhow::bail!(AppError::SshDisconnected {
                 host: self.server_name.clone(),
@@ -638,7 +644,7 @@ impl SshClient {
     /// `CHANNEL_DATA_CHUNK_SIZE` ごとに分割して送信する。
     async fn send_data_chunked(
         &self,
-        channel: &mut russh::Channel<russh::client::Msg>,
+        channel: &russh::ChannelWriteHalf<russh::client::Msg>,
         data: &[u8],
     ) -> crate::error::Result<()> {
         for chunk in data.chunks(CHANNEL_DATA_CHUNK_SIZE) {

@@ -159,6 +159,21 @@ impl server::Handler for TestHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if self
+            .exec_commands
+            .lock()
+            .unwrap()
+            .get(&channel)
+            .map(String::as_str)
+            == Some("duplex-upload")
+        {
+            session.data(channel, CryptoVec::from("stdout after EOF"))?;
+            session.extended_data(channel, 1, CryptoVec::from("stderr after EOF"))?;
+            session.exit_status_request(channel, 23)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
         // write 系コマンド（cat >... や openssl base64 -d ...）の場合、
         // EOF 受信で書き込み完了として exit_status 0 + close を返す
         let is_write_cmd = self
@@ -184,6 +199,20 @@ impl server::Handler for TestHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         let command = login_shell::script_of(data);
+
+        if command == "duplex-upload" {
+            self.exec_commands.lock().unwrap().insert(channel, command);
+            // One large packet would not fill the client's bounded message queue.
+            for index in 0..256_u32 {
+                session.data(channel, CryptoVec::from(index.to_le_bytes().as_slice()))?;
+                session.extended_data(
+                    channel,
+                    1,
+                    CryptoVec::from(index.to_be_bytes().as_slice()),
+                )?;
+            }
+            return Ok(());
+        }
 
         // write 系コマンドは exec_commands に記録し、stdin データ待ちにする
         let is_write_cmd = is_write_command(&command);
@@ -475,6 +504,35 @@ async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
 }
 
 // ── write_file テストケース ──
+
+#[tokio::test]
+async fn large_input_completes_while_remote_outputs_before_reading_stdin() {
+    let handle = start_test_server().await;
+    let (mut client, _key) = connect_client(&handle).await;
+    let input: Vec<u8> = (0_u8..=255).cycle().take(6 * 1024 * 1024).collect();
+
+    let (stdout, stderr, exit_code) = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.run_with_input("duplex-upload", &input),
+    )
+    .await
+    .expect("upload stalled while the remote emitted output before consuming stdin")
+    .expect("duplex command failed");
+
+    let mut expected_stdout: Vec<u8> = (0..256_u32).flat_map(u32::to_le_bytes).collect();
+    expected_stdout.extend_from_slice(b"stdout after EOF");
+    let mut expected_stderr: Vec<u8> = (0..256_u32).flat_map(u32::to_be_bytes).collect();
+    expected_stderr.extend_from_slice(b"stderr after EOF");
+    assert_eq!(stdout, expected_stdout);
+    assert_eq!(stderr, expected_stderr);
+    assert_eq!(exit_code, 23);
+    {
+        let received = handle.received_data.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received.values().next().unwrap(), &input);
+    }
+    client.disconnect().await.expect("disconnect failed");
+}
 
 #[tokio::test]
 async fn test_ssh_write_file_small() {
