@@ -1,6 +1,6 @@
 //! known_hosts ファイルの I/O 操作（読み込み・書き込み・フォーマット）。
 
-use std::io::Write as _;
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::Path;
 
 use base64::Engine;
@@ -93,9 +93,20 @@ pub(crate) fn append_known_hosts_entry(
 
     let result = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(&path)
-        .and_then(|mut f| f.write_all(line.as_bytes()));
+        .and_then(|mut f| {
+            if f.metadata()?.len() > 0 {
+                f.seek(SeekFrom::End(-1))?;
+                let mut last = [0];
+                f.read_exact(&mut last)?;
+                if last[0] != b'\n' {
+                    f.write_all(b"\n")?;
+                }
+            }
+            f.write_all(line.as_bytes())
+        });
 
     if let Err(e) = result {
         tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to write to known_hosts: {}", e);
@@ -109,4 +120,52 @@ pub(crate) fn append_known_hosts_entry(
     }
 
     tracing::info!(target: "remote_merge::ssh::known_hosts_io", "Added new host key to known_hosts: {}", host_entry);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::known_hosts::{HostKeyJudgement, judge_host_key};
+
+    #[test]
+    fn appending_preserves_and_separates_an_unterminated_host_entry() {
+        assert_append_preserves_entries("old.example ssh-ed25519 old-key");
+    }
+
+    #[test]
+    fn appending_separates_an_unterminated_final_comment() {
+        assert_append_preserves_entries("old.example ssh-ed25519 old-key\n# final comment");
+    }
+
+    #[test]
+    fn appending_does_not_add_an_unnecessary_separator() {
+        for original in ["", "old.example ssh-ed25519 old-key\n"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("known_hosts");
+            std::fs::write(&path, original).unwrap();
+            append_known_hosts_entry(Some(&path), "new.example", 22, "ssh-ed25519", "new-key");
+            assert_eq!(
+                std::fs::read_to_string(path).unwrap(),
+                format!("{original}new.example ssh-ed25519 new-key\n")
+            );
+        }
+    }
+
+    fn assert_append_preserves_entries(original: &str) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        std::fs::write(&path, original).unwrap();
+        append_known_hosts_entry(Some(&path), "new.example", 22, "ssh-ed25519", "new-key");
+        let content = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            content,
+            format!("{original}\nnew.example ssh-ed25519 new-key\n")
+        );
+        for (host, key) in [("old.example", "old-key"), ("new.example", "new-key")] {
+            assert_eq!(
+                judge_host_key(&content, host, 22, "ssh-ed25519", key),
+                HostKeyJudgement::Trusted
+            );
+        }
+    }
 }
