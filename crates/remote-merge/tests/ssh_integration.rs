@@ -1,7 +1,3 @@
-#![expect(
-    unsafe_code,
-    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
-)]
 #![cfg(unix)]
 //! インプロセス SSH サーバーを使った結合テスト
 //!
@@ -386,30 +382,25 @@ async fn test_ssh_connect_and_exec() {
 }
 
 #[tokio::test]
-async fn test_ssh_password_auth() {
+async fn test_ssh_configured_password_auth() {
     let handle = start_test_server_with_password(Some("secret123".to_string())).await;
     handle.registry.register("whoami", "testuser\n", 0);
 
-    // 環境変数でパスワードを設定。edition 2024 では環境の書き換えは unsafe。
-    // この名前はこのテスト専用で、ほかのテストは自分の名前の変数だけを読む。
-    // SAFETY: このテスト専用の名前の環境変数で、ほかのテストはこの名前を読まない
-    unsafe { std::env::set_var("REMOTE_MERGE_PASSWORD_TEST", "secret123") };
-
-    let server_config = make_server_config(handle.port, AuthMethod::Password, None);
+    let server_config = ServerConfig {
+        password: Some("secret123".to_string()),
+        ..make_server_config(handle.port, AuthMethod::Password, None)
+    };
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("パスワード認証に失敗");
+    let mut client =
+        SshClient::connect_insecure("configured-password-auth", &server_config, &ssh_config)
+            .await
+            .expect("パスワード認証に失敗");
 
     let output = client.exec("whoami").await.expect("exec に失敗");
     assert_eq!(output, "testuser\n");
 
     client.disconnect().await.expect("切断に失敗");
-
-    // クリーンアップ
-    // SAFETY: このテスト専用の名前の環境変数で、ほかのテストはこの名前を読まない
-    unsafe { std::env::remove_var("REMOTE_MERGE_PASSWORD_TEST") };
 }
 
 #[tokio::test]
