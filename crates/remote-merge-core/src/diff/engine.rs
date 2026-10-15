@@ -397,6 +397,28 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
         return Vec::new();
     }
 
+    let mut position = 0;
+    let mut old_start = 0;
+    let mut new_start = 0;
+    let mut make_hunk = |start: usize, end: usize| {
+        for line in &lines[position..start] {
+            match line.tag {
+                DiffTag::Equal => {
+                    old_start += 1;
+                    new_start += 1;
+                }
+                DiffTag::Delete => old_start += 1,
+                DiffTag::Insert => new_start += 1,
+            }
+        }
+        position = start;
+        DiffHunk {
+            line_range: start..end,
+            old_start,
+            new_start,
+        }
+    };
+
     let mut hunks = Vec::new();
     let mut hunk_start = change_indices[0].saturating_sub(context);
     let mut hunk_end = (change_indices[0] + context + 1).min(lines.len());
@@ -408,41 +430,15 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
             hunk_end = (ci + context + 1).min(lines.len());
         } else {
             // 前のハンクを確定、新しいハンクを開始
-            hunks.push(make_hunk(hunk_start, hunk_end, lines));
+            hunks.push(make_hunk(hunk_start, hunk_end));
             hunk_start = ci_start;
             hunk_end = (ci + context + 1).min(lines.len());
         }
     }
     // 最後のハンク
-    hunks.push(make_hunk(hunk_start, hunk_end, lines));
+    hunks.push(make_hunk(hunk_start, hunk_end));
 
     hunks
-}
-
-fn make_hunk(start_in_all: usize, end_in_all: usize, all_lines: &[DiffLine]) -> DiffHunk {
-    let old_start = if start_in_all == 0 {
-        0
-    } else {
-        // start_in_all 時点での old 行番号を求める
-        all_lines[..start_in_all]
-            .iter()
-            .filter(|l| l.tag != DiffTag::Insert)
-            .count()
-    };
-    let new_start = if start_in_all == 0 {
-        0
-    } else {
-        all_lines[..start_in_all]
-            .iter()
-            .filter(|l| l.tag != DiffTag::Delete)
-            .count()
-    };
-
-    DiffHunk {
-        line_range: start_in_all..end_in_all,
-        old_start,
-        new_start,
-    }
 }
 
 #[cfg(test)]
@@ -452,6 +448,77 @@ mod tests {
         reason = "テストの照合は「Modified を期待」の形で書き、他の結果は panic で示す"
     )]
     use super::*;
+
+    #[test]
+    fn many_separated_insertions_and_deletions_keep_hunk_positions_and_merge_output() {
+        let old: String = (0..4096).map(|i| format!("line-{i}\n")).collect();
+        let new: String = (0..4096)
+            .map(|i| match i % 32 {
+                0 => format!("insert-{i}\nline-{i}\n"),
+                16 => String::new(),
+                _ => format!("line-{i}\n"),
+            })
+            .collect();
+        let DiffResult::Modified {
+            hunks,
+            merge_hunks,
+            lines,
+            ..
+        } = compute_diff(&old, &new)
+        else {
+            panic!("separated changes must produce hunks");
+        };
+        assert_eq!(hunks.len(), 256);
+        assert_eq!(merge_hunks.len(), 256);
+        for (number, (display, merge)) in hunks.iter().zip(&merge_hunks).enumerate() {
+            let original_index = number * 16;
+            let diff_index = original_index + original_index / 32 + number % 2;
+            assert_eq!(merge.line_range, diff_index..diff_index + 1);
+            assert_eq!(merge.old_start, original_index);
+            assert_eq!(merge.new_start, original_index + number % 2);
+            assert_eq!(
+                display.line_range,
+                diff_index.saturating_sub(3)..(diff_index + 4).min(lines.len())
+            );
+            for hunk in [display, merge] {
+                let preceding = &lines[..hunk.line_range.start];
+                assert_eq!(
+                    hunk.old_start,
+                    preceding
+                        .iter()
+                        .filter(|line| line.old_index.is_some())
+                        .count()
+                );
+                assert_eq!(
+                    hunk.new_start,
+                    preceding
+                        .iter()
+                        .filter(|line| line.new_index.is_some())
+                        .count()
+                );
+            }
+        }
+        let all = (0..merge_hunks.len()).collect();
+        for (direction, source, target) in [
+            (HunkDirection::LeftToRight, &old, &new),
+            (HunkDirection::RightToLeft, &new, &old),
+        ] {
+            assert_eq!(
+                apply_selected_hunks_single_pass(&lines, &merge_hunks, &all, direction, true),
+                *source
+            );
+            assert_eq!(
+                apply_selected_hunks_single_pass(
+                    &lines,
+                    &merge_hunks,
+                    &HashSet::new(),
+                    direction,
+                    true
+                ),
+                *target
+            );
+        }
+    }
 
     #[test]
     fn selected_blank_lines_and_unselected_blank_lines_are_preserved_in_both_directions() {
