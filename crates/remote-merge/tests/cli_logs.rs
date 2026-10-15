@@ -12,6 +12,37 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
+fn excessive_since_is_an_ordinary_error_in_text_and_json() {
+    for duration in [
+        "9223372036854775807s",
+        "9223372036854775807m",
+        "9223372036854775807h",
+        "9223372036854775807d",
+        "10000000000000s",
+    ] {
+        for format in ["text", "json"] {
+            let output = remote_merge_cmd()
+                .args(["logs", "--since", duration, "--format", format])
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(2),
+                "{duration}/{format}: {output:?}"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!stderr.contains("panicked"), "{stderr}");
+            if format == "json" {
+                let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert!(error.to_string().contains("Duration"), "{error}");
+            } else {
+                assert!(stderr.contains("Duration"), "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
 fn test_logs_runs_without_log_file() {
     // ログファイルが存在しなくても logs サブコマンドが exit 0 で終了すること
     let output = remote_merge_cmd()

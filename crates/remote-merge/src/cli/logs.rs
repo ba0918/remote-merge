@@ -35,7 +35,13 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
     let since = match &args.since {
         Some(s) => {
             let duration = log_reader::parse_duration_shorthand(s)?;
-            Some(chrono::Utc::now() - duration)
+            Some(
+                chrono::Utc::now()
+                    .checked_sub_signed(duration)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Duration is out of range for --since: '{s}'")
+                    })?,
+            )
         }
         None => None,
     };
@@ -74,6 +80,21 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
 mod tests {
     use super::*;
     use crate::telemetry::log_reader::LogEntry;
+
+    #[test]
+    fn a_valid_duration_outside_the_calendar_range_returns_an_error() {
+        assert!(log_reader::parse_duration_shorthand("10000000000000s").is_ok());
+        let result = std::panic::catch_unwind(|| {
+            run_logs(LogsArgs {
+                level: None,
+                since: Some("10000000000000s".into()),
+                tail: None,
+                format: "json".into(),
+            })
+        });
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_err());
+    }
 
     #[test]
     fn test_format_text_output() {

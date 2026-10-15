@@ -113,13 +113,14 @@ pub fn parse_duration_shorthand(s: &str) -> anyhow::Result<Duration> {
         anyhow::bail!("Duration must be positive: '{}'", s);
     }
 
-    match suffix {
-        "s" => Ok(Duration::seconds(num)),
-        "m" => Ok(Duration::minutes(num)),
-        "h" => Ok(Duration::hours(num)),
-        "d" => Ok(Duration::days(num)),
+    let duration = match suffix {
+        "s" => Duration::try_seconds(num),
+        "m" => Duration::try_minutes(num),
+        "h" => Duration::try_hours(num),
+        "d" => Duration::try_days(num),
         other => anyhow::bail!("Unknown duration suffix '{}' (expected s, m, h, d)", other),
-    }
+    };
+    duration.ok_or_else(|| anyhow::anyhow!("Duration is out of range: '{}'", s))
 }
 
 /// Duration 文字列を数値部分とサフィックスに分割する
@@ -141,6 +142,16 @@ mod tests {
     use super::*;
 
     // --- parse_duration_shorthand ---
+
+    #[test]
+    fn out_of_range_durations_return_errors_without_panicking() {
+        for suffix in ["s", "m", "h", "d"] {
+            let input = format!("{}{suffix}", i64::MAX);
+            let result = std::panic::catch_unwind(|| parse_duration_shorthand(&input));
+            assert!(result.is_ok(), "panicked for {input}");
+            assert!(result.unwrap().is_err(), "accepted {input}");
+        }
+    }
 
     #[test]
     fn test_parse_duration_5m() {
