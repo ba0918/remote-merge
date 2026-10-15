@@ -168,6 +168,55 @@ fn a_link_says_where_its_target_leads() {
     assert_eq!(paths(&followed), [b"f"]);
 }
 
+#[test]
+fn descendant_links_keep_their_own_metadata_and_are_not_traversed() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("d")).unwrap();
+    fs::write(root.join("d/file"), "contents").unwrap();
+    symlink("d", root.join("to_dir")).unwrap();
+    symlink("missing", root.join("dangling")).unwrap();
+    symlink("loop", root.join("loop")).unwrap();
+    let answer = ask(root, b"", true, &[]);
+    assert_eq!(
+        paths(&answer),
+        [&b"d"[..], b"d/file", b"dangling", b"loop", b"to_dir"]
+    );
+    let tree = answer.subtree.unwrap();
+    assert!(tree.changed.is_empty());
+    assert!(tree.unreadable_entries.is_empty());
+    for (name, target) in [("to_dir", "d"), ("dangling", "missing"), ("loop", "loop")] {
+        let entry = tree
+            .entries
+            .iter()
+            .find(|e| e.path == name.as_bytes())
+            .unwrap();
+        assert_eq!(
+            entry,
+            &entry_at(&root.join(name), name.as_bytes().to_vec()).unwrap()
+        );
+        assert_eq!(
+            entry.kind,
+            RawKind::Symlink {
+                target: Some(target.as_bytes().to_vec())
+            }
+        );
+    }
+}
+
+#[test]
+fn a_link_that_disappears_after_its_metadata_was_read_has_unknown_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("link");
+    symlink("missing", &path).unwrap();
+    let meta = fs::symlink_metadata(&path).unwrap();
+    fs::remove_file(&path).unwrap();
+    let entry = entry_with_metadata(&path, b"link".to_vec(), &meta);
+    assert_eq!(entry.kind, RawKind::Symlink { target: None });
+    assert_eq!(entry.path, b"link");
+    assert_eq!(entry.size, meta.len());
+}
+
 // @kotowari[REQ-config-044, REQ-scan-014]
 #[test]
 fn an_excluded_directory_is_not_read_and_an_unreadable_one_is_reported() {

@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use super::exclude::Exclude;
 use super::machine_fs::{
-    bytes_of, cause_of, entry_at, link_target, path_of, raw_entry, root_went_away, unreached,
-    went_away,
+    bytes_of, cause_of, entry_at, entry_with_metadata, link_target, path_of, raw_entry,
+    root_went_away, unreached, went_away,
 };
 use super::parts::join;
 use super::raw::{
@@ -133,12 +133,8 @@ fn collect_below(dir: &Path, logical: &[u8], depth: Depth, exclude: &Exclude) ->
             // 情報を読めない項目は、その項目自身のパスで答える（どう扱うかは規則が決める）
             match std::fs::symlink_metadata(child.path()) {
                 Err(error) => child_unreadable(&mut tree, child_rel, &error),
-                Ok(_) => {
-                    let Ok(entry) = entry_at(&child.path(), child_rel.clone()) else {
-                        tree.unreadable_entries
-                            .push(UnreadableDir::new(child_rel, ReadCause::Other));
-                        continue;
-                    };
+                Ok(meta) => {
+                    let entry = entry_with_metadata(&child.path(), child_rel.clone(), &meta);
                     if entry.kind == RawKind::Directory && depth == Depth::All {
                         stack.push(child_rel);
                     }

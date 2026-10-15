@@ -72,12 +72,16 @@ pub fn raw_entry(path: Vec<u8>, meta: &Metadata, link: Option<Option<Vec<u8>>>) 
 /// `path` の項目そのもの（最後の要素のリンクは辿らない）を生の項目にする
 pub fn entry_at(path: &Path, rel: Vec<u8>) -> Result<RawEntry, Unreached> {
     let meta = std::fs::symlink_metadata(path).map_err(|e| unreached(&e))?;
+    Ok(entry_with_metadata(path, rel, &meta))
+}
+
+pub(super) fn entry_with_metadata(path: &Path, rel: Vec<u8>, meta: &Metadata) -> RawEntry {
     let link = meta.file_type().is_symlink().then(|| {
         std::fs::read_link(path)
             .ok()
             .map(|t| bytes_of(t.as_os_str()))
     });
-    Ok(raw_entry(rel, &meta, link))
+    raw_entry(rel, meta, link)
 }
 
 /// symlink `path` のリンク先を辿った結果（REQ-scan-018）
