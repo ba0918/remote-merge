@@ -35,5 +35,5 @@ Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（u
   - why: 重複を除いた実測は 86 箇所。core と engine は自前の enum（DiffResult・RawKind・ListedKind・Judged・MergeEntry など）が主で、外部の enum（std::io::ErrorKind・std::path::Component）は理由つきの expect にした。agent は 31 箇所すべてが protocol の AgentResponse、製品は 23 箇所のうち 18 箇所が他 crate か外部の型で、有効にすると理由つきの抑制が並ぶだけになる（ba0918-rust の lints.md はこの場合「有効にせず規則を review に残す」と定める）。照合の対象が自前の enum に移った時点で、その crate で有効にする。
   - decided_by: AI（実測と lints.md の指示）
 - A9 ssh ライブラリの出力を呼び出し側に移し、ssh の直下でも print_stdout/print_stderr を deny にする。
-  - why: ホストキー確認の問いは表示先を引数で受け取り（trait の実装が stderr を渡す）、パスフレーズの案内は利用者向けの tracing（target: remote_merge::warning。main の USER_WARNINGS が記録の細かさによらず標準エラーに出す）に移した。テスト専用の知らせには理由つきの expect を置いた。これで 7 つのライブラリすべてが同じ扱いになる。
+  - why: ホストキー確認の問いは表示先を引数で受け取り（trait の実装が stderr を渡す）、パスフレーズの案内は利用者向けの tracing（target: remote_merge::warning。main の USER_WARNINGS が記録の細かさによらず標準エラーに出す）に移した。テスト専用の知らせには理由つきの expect を置いた。これで 7 つのライブラリすべてが同じ扱いになる。パスフレーズを端末から読めなかったときの文言は、tracing の見出しが深刻さを出すので "Error: " を外し、"Could not read the passphrase from the terminal." に変えた。
   - decided_by: AI（ba0918-rust の規則）
