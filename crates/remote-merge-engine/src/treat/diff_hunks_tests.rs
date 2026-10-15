@@ -39,6 +39,31 @@ fn a_change_is_shown_with_removed_and_added_lines_and_zero_based_starts() {
     assert_eq!(kinds(&one_sided), [(DiffLineType::Added, "x".to_string())]);
 }
 
+// 追加と削除の行がちょうど上限で、その後に出す行がなければ truncated にしない（何も省いていない）
+// @kotowari[REQ-cli-054]
+#[test]
+fn exactly_the_limit_with_nothing_left_is_not_truncated() {
+    let shown = shown_hunks("a\n", "a\nb\n", Some(1));
+
+    assert_eq!(
+        kinds(&shown),
+        [
+            (DiffLineType::Context, "a".to_string()),
+            (DiffLineType::Added, "b".to_string())
+        ]
+    );
+    assert!(!shown.truncated);
+}
+
+// 上限に達した後に出す行が残っていれば、打ち切って truncated にする
+// @kotowari[REQ-cli-054]
+#[test]
+fn a_line_left_after_the_limit_is_truncated() {
+    let shown = shown_hunks("a\nx\nz\n", "a\nb\nz\n", Some(1));
+
+    assert!(shown.truncated);
+}
+
 // @kotowari[REQ-cli-054]
 #[test]
 fn change_lines_stop_at_the_limit_and_context_is_not_counted() {

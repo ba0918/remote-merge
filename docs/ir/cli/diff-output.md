@@ -29,10 +29,10 @@ hunks の left_start・right_start は 0 始まりの行番号とする。
 
 ### REQ-cli-054: 変更の行数で打ち切る
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A3
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A3, docs/decision/records/2026-10-15-review-followups.md#A1
 - verification: unit
 
---max-lines を指定したとき、diff は追加と削除の行を数え、その数が値に達したらそれ以降の行を出さずにそのファイルの truncated を true にし、テキストでは "... (output truncated)" を出す。文脈の行は数えず、0 と指定なしは無制限とする。
+--max-lines を指定したとき、diff は追加と削除の行を数え、その数が値に達した後も出す行が残っていれば、それ以降の行を出さずにそのファイルの truncated を true にし、テキストでは "... (output truncated)" を出す。値に達したところで行が残っていなければ truncated にしない（何も省いていないため）。文脈の行は数えず、0 と指定なしは無制限とする。
 
 ### REQ-cli-055: 出すファイルの数を打ち切る
 - kind: state_driven
