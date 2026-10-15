@@ -151,7 +151,7 @@ pub(super) fn merge_hunks(
     let options = ApplyOptions {
         dry_run: args.dry_run,
         session: session.as_deref(),
-        with_permissions: false,
+        with_permissions: args.with_permissions,
         content_limit: remote_merge_core::op_failure::SizeLimit::from_force(args.force),
     };
     let applied = core.apply_changes(&sides.right, &[change], &options);

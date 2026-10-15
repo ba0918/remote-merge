@@ -52,3 +52,30 @@ async fn copy_new_file_from_remote() -> u32 {
 async fn ex_merge_043_a_new_file_from_a_remote_source_gets_the_source_mode() {
     assert_eq!(copy_new_file_from_remote().await, 0o600);
 }
+
+// --hunks の merge でも、--with-permissions は読み込み元の権限を写す（REQ-merge-014・036）
+// @kotowari[REQ-merge-014, REQ-merge-036]
+#[tokio::test(flavor = "multi_thread")]
+async fn req_merge_014_a_hunk_merge_with_permissions_copies_the_source_mode() {
+    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
+    fixture.put(FILE, Some("local\n"), Some("remote\n"));
+    fs::set_permissions(
+        fixture.remote().join(FILE),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    fs::set_permissions(
+        fixture.local().join(FILE),
+        fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+
+    let output = fixture.run_with_sides(
+        &["merge", FILE, "--hunks", "0", "--with-permissions"],
+        &["--left", "fixture", "--right", "local"],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    assert_eq!(mode_of(&fixture.local().join(FILE)), 0o600);
+}
