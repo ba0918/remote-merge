@@ -76,6 +76,10 @@ fn all_and_none(left: &str, right: &str) -> (String, String) {
 fn every_hunk_makes_the_source_and_no_hunk_keeps_the_destination_with_its_last_newline() {
     let middle: String = (0..8).map(|i| format!("m{i}\n")).collect();
     let cases = [
+        ("\n".to_string(), String::new()),
+        (String::new(), "\n".to_string()),
+        ("\n\n".to_string(), "\n".to_string()),
+        ("\n".to_string(), "x\n".to_string()),
         ("x\ny\n".to_string(), String::new()),
         ("a".to_string(), "a\n".to_string()),
         ("a\n".to_string(), "a".to_string()),

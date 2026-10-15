@@ -204,7 +204,7 @@ fn join_lines<S: AsRef<str>>(lines: &[S], trailing_newline: bool) -> String {
         .map(|s| s.as_ref())
         .collect::<Vec<_>>()
         .join("\n");
-    if trailing_newline && !text.is_empty() {
+    if trailing_newline && !lines.is_empty() {
         text.push('\n');
     }
     text
@@ -452,6 +452,51 @@ mod tests {
         reason = "テストの照合は「Modified を期待」の形で書き、他の結果は panic で示す"
     )]
     use super::*;
+
+    #[test]
+    fn selected_blank_lines_and_unselected_blank_lines_are_preserved_in_both_directions() {
+        for (old, new) in [("\n", ""), ("", "\n"), ("\n\n", "\n"), ("\n", "x\n")] {
+            let diff = compute_diff(old, new);
+            let (hunks, lines) = unwrap_modified(&diff);
+            for (direction, source, target) in [
+                (HunkDirection::LeftToRight, old, new),
+                (HunkDirection::RightToLeft, new, old),
+            ] {
+                for (selected, expected) in [
+                    ((0..hunks.len()).collect(), source),
+                    (HashSet::new(), target),
+                ] {
+                    assert_eq!(
+                        apply_selected_hunks_single_pass(
+                            lines,
+                            hunks,
+                            &selected,
+                            direction,
+                            expected.ends_with('\n'),
+                        ),
+                        expected,
+                        "{old:?} -> {new:?}, {direction:?}, {selected:?}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_line_with_a_blank_line_preserves_the_original_last_newline() {
+        let diff = compute_diff("x\n", "\n");
+        let (hunks, lines) = unwrap_modified(&diff);
+        assert_eq!(
+            apply_hunk_to_text(
+                "x\n",
+                hunks[0].lines(lines),
+                0,
+                0,
+                HunkDirection::RightToLeft
+            ),
+            "\n",
+        );
+    }
 
     #[test]
     fn test_equal_content() {
