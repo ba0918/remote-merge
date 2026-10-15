@@ -65,8 +65,12 @@ impl CoreRuntime {
         let real_root = match answers.next() {
             Some(Ok(ResolvedPath::Exists { real_path, .. }))
             | Some(Ok(ResolvedPath::Symlink { real_path, .. })) => real_path,
-            // root_dir がないか読めないことは、走査の最初の問いで報告する
+            // root_dir がないか、ディレクトリでないか、祖先がディレクトリでない（"not a directory" の
+            // 誤り）ことは、走査の最初の問いで報告する（REQ-merge-044・E38）
             Some(Ok(_)) => return Ok(Some(Vec::new())),
+            Some(Err(error)) if super::root_checked::is_not_a_directory(&error) => {
+                return Ok(Some(Vec::new()));
+            }
             Some(Err(error)) => return Err(super::connection::label_read(error)),
             None => anyhow::bail!("the include values were not all answered"),
         };
@@ -88,6 +92,9 @@ impl CoreRuntime {
 
 #[cfg(test)]
 mod cache_tests {
+    use remote_merge_core::scan::outcome::ScanRequest;
+    use remote_merge_core::scan::starts::scope_for;
+
     use super::*;
 
     #[test]
@@ -106,5 +113,40 @@ mod cache_tests {
         core.config.filter.include = vec!["b".into()];
         let second = core.checked_include(&Side::Local).unwrap();
         assert_eq!(second, Some(vec!["b".to_string()]));
+    }
+
+    // root_dir の祖先がディレクトリでないときも、include の確認は走査の最初の問いに任せ、
+    // include を設定していない同じ場面と同じ誤りにする（REQ-merge-044・E38）
+    #[test]
+    fn an_include_check_defers_a_root_dir_whose_ancestor_is_not_a_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app").join("web");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(temp.path().join("app")).unwrap();
+        std::fs::write(temp.path().join("app"), "not a directory any more").unwrap();
+        let mut core = CoreRuntime::new_for_test();
+        core.config.local.root_dir = root;
+        core.config.filter.include = vec!["a".into()];
+
+        let checked = core
+            .checked_include(&Side::Local)
+            .expect("the include check defers to the scan");
+        assert_eq!(checked, Some(Vec::new()));
+
+        let scan_error = |core: &mut CoreRuntime, scope| {
+            core.scan_listing(
+                &Side::Local,
+                &ScanRequest {
+                    scope,
+                    max_entries: 100,
+                },
+            )
+            .expect_err("the scan reports the root_dir")
+            .to_string()
+        };
+        let with_include = scan_error(&mut core, scope_for(None, Some(&[])));
+        core.config.filter.include.clear();
+        let without_include = scan_error(&mut core, scope_for(None, None));
+        assert_eq!(with_include, without_include);
     }
 }
