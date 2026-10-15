@@ -25,10 +25,10 @@ diff は、比べるファイルか差分を示すための中身を片側でも
 
 ### REQ-cli-090: 参照先を読めない理由を参照先にないことと分ける
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-size-limit.md#A33, docs/decision/records/2026-10-12-foundation-4.md#E3
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-size-limit.md#A33, docs/decision/records/2026-10-12-foundation-4.md#E3, docs/decision/records/2026-10-15-review-decisions.md#A1
 - verification: unit
 
---ref を指定した diff は、参照先の同じパスがないかを参照先の状態から決め（compare/flow.md の REQ-compare-003）、状態ではあった参照先のファイルの読み込みが失敗したときは、失敗の種類によらず REQ-cli-063 のとおりそのファイルに "ref" だけを出し、参照先にないときと区別してそのパスと理由を errors に載せ、終了コード 2 を返す。参照先の同じパスがファイルと種類（REQ-merge-001 の通常ファイル・ディレクトリ・末尾の symlink）の違うものであるときは読み込みの失敗とせず、参照先を読まずに "ref" だけを出し、errors に載せない。
+--ref を指定した diff は、参照先の同じパスがないかを参照先の状態から決め（compare/flow.md の REQ-compare-003）、状態ではあった参照先のファイルの読み込みが失敗したときは、失敗の種類によらず REQ-cli-063 のとおりそのファイルに "ref" だけを出し、参照先にないときと区別してそのパスと理由を errors に載せ、終了コード 2 を返す。参照先の同じパスがファイルと種類（REQ-merge-001 の通常ファイル・ディレクトリ・末尾の symlink）の違うものであるときは読み込みの失敗とせず、参照先を読まずに "ref" だけを出し、errors に載せない。参照先がリンク先を辿れない symlink（scan/directory-links.md の REQ-scan-018）のときは種類の違いとせず、左右と参照先の組を判定できないものとしてそのパスと理由を errors に載せ、終了コード 2 を返す。
 
 ## Examples
 

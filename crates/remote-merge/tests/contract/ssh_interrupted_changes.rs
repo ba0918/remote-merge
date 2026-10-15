@@ -457,6 +457,33 @@ fn larger_than_one_chunk(byte: u8) -> Vec<u8> {
     vec![byte; 4 * 1024 * 1024 + 1024]
 }
 
+// 書きかけと確かめたファイルしかない書き込み先の status も、中身が変わったものとして "partial" にする
+// @kotowari[REQ-cli-041]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sync_whose_only_change_is_partially_written_is_partial() {
+    // 分けて送る書き込みの最初の一つを書いた後で、次の一つを送る前にエージェントとの間が切れる
+    let fixture = AgentFixture::new(
+        Setup::default(),
+        cut("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
+    )
+    .await;
+    fs::write(fixture.local().join("big.bin"), larger_than_one_chunk(b'n')).unwrap();
+    fs::write(
+        fixture.remote().join("big.bin"),
+        larger_than_one_chunk(b'o'),
+    )
+    .unwrap();
+
+    let output = fixture.run(&["sync", "big.bin", "--force"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    let target = &result["targets"][0];
+    assert_eq!(target["status"], "partial", "{result}");
+    let error = failure(&target["failed"], "big.bin");
+    assert!(error.contains(PARTIAL), "{error}");
+}
+
 /// 手元に保存したバックアップの session の名前
 pub fn backup_sessions(fixture: &AgentFixture) -> Vec<String> {
     let mut found = Vec::new();

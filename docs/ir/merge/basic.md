@@ -20,10 +20,11 @@
 
 ### REQ-merge-022: 指定したパスをそれぞれ一度だけ書く
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A4
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A4, docs/decision/records/2026-10-15-review-decisions.md#A3
 - verification: unit
 
 複数のパスを指定した merge は指定したそれぞれのパスを書き込み、同じパスを重ねて指定しても一度だけ書き込む。
+名前で指定したファイルには include と exclude を当てずに書き（diff の REQ-cli-081 と同じ）、指定したディレクトリの配下と root_dir 全体には当てる。フィルタに当たって親ディレクトリの下の走査に載らなかったファイルも、起点そのものとして集めて書く。sync も同じ。
 
 ### REQ-merge-035: 両側にないパスを failed に入れる
 - kind: event_driven

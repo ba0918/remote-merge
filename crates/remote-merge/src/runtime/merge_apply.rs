@@ -163,7 +163,8 @@ impl CoreRuntime {
         };
         let before = content.and_then(Result::ok);
         if let Err(error) = self.change_destination(target, &entry, change, before) {
-            let after_change = error.chain().any(|cause| cause.is::<AfterChange>());
+            let after_change = error.chain().any(|cause| cause.is::<AfterChange>())
+                || is_partially_written(&error);
             let error = super::confirm::ConfirmedChange::with_backup(error, backup.as_deref());
             let error = format!("{error:#}");
             return match after_change {
@@ -176,4 +177,16 @@ impl CoreRuntime {
         }
         Applied::Done { backup }
     }
+}
+
+/// 変更の最中の `接続断` の後で書きかけと確かめた失敗か（書き込み先は変わっている。REQ-ssh-022・
+/// REQ-cli-041）
+fn is_partially_written(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<super::confirm::ConfirmedChange>()
+            .is_some_and(|confirmed| {
+                confirmed.outcome == Some(super::change_check::Outcome::Partial)
+            })
+    })
 }

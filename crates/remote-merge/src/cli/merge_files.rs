@@ -15,7 +15,7 @@ use remote_merge_engine::treat::merge_uses::MergeUses;
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, MergeSides};
 use super::plan_apply::{apply_plan, change_counts, skip_reasons};
 use crate::runtime::{
-    ApplyOptions, CompareRequest, CompareScope, CompareSides, CoreRuntime, EntryLimit,
+    ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
     ExternalLinks, LostDestination, UnfollowableLinks,
 };
 use crate::service::path_resolver::paths_not_found;
@@ -74,6 +74,9 @@ pub fn plan_merge(
     let comparison = core
         .compare(&compare_sides, &request, &uses)
         .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
+    // 名前で指定したファイルがフィルタに当たって親ディレクトリの下の走査に載らなかったときは、
+    // 起点そのものとしてもう一度比べる（diff の REQ-cli-081 と同じ。REQ-merge-022）
+    let comparison = compare_named_files(core, &compare_sides, &request, &uses, comparison)?;
     if let Some(stopped) = core.root_gone_stop() {
         return Err(stopped);
     }
@@ -148,6 +151,40 @@ pub fn apply_merge(
         output,
         exit_code: code,
     })
+}
+
+/// 名前で指定したファイルが、親ディレクトリの下の走査で include と exclude に当たって載らなかった
+/// ときは、起点そのものとしてもう一度比べる（diff の REQ-cli-081 と同じ。REQ-merge-022）
+pub(super) fn compare_named_files(
+    core: &mut CoreRuntime,
+    sides: &CompareSides,
+    request: &CompareRequest,
+    uses: &MergeUses,
+    mut comparison: Comparison,
+) -> anyhow::Result<Comparison> {
+    let unseen: Vec<String> = uses
+        .targets
+        .named
+        .iter()
+        .filter(|name| !comparison.paths.contains_key(*name))
+        .cloned()
+        .collect();
+    if unseen.is_empty() {
+        return Ok(comparison);
+    }
+    let mut again = request.clone();
+    again.scope = CompareScope::Entries(unseen);
+    again.counted_before = comparison.counted.clone();
+    let more = core.compare(sides, &again, uses)?;
+    for (path, found) in more.paths {
+        comparison.paths.entry(path).or_insert(found);
+    }
+    for incomplete in more.incomplete {
+        if !comparison.incomplete.contains(&incomplete) {
+            comparison.incomplete.push(incomplete);
+        }
+    }
+    Ok(comparison)
 }
 
 /// 比べ方の求め。名前で指定したファイルは中身で比べる（TBL-compare-003）

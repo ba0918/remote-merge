@@ -12,7 +12,7 @@ use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, merge_plan}
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
-use super::merge_files::merge_request;
+use super::merge_files::{compare_named_files, merge_request};
 use super::plan_apply::change_counts;
 use super::sync::SyncArgs;
 use crate::runtime::{CompareRequest, CompareSides, CoreRuntime, Reused};
@@ -125,7 +125,11 @@ fn compare_target(
         right: destination.clone(),
         reference: None,
     };
-    match core.compare_reusing(&sides, request, uses, reused) {
+    let compared = match core.compare_reusing(&sides, request, uses, reused) {
+        Ok(comparison) => compare_named_files(core, &sides, request, uses, comparison),
+        Err(error) => Err(error),
+    };
+    match compared {
         Ok(comparison) => {
             if let Some(stopped) = core.stopped_error_for(source) {
                 return Err(stopped);

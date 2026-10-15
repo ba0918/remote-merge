@@ -56,10 +56,10 @@ status は常に root_dir 全体を走査し、diff はパスを指定しない�
 
 ### REQ-scan-019: フィルタは走査の起点によらず root_dir からのパスに当てる
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-12-foundation-2.md#C2
+- source: docs/decision/records/2026-10-12-foundation-2.md#C2, docs/decision/records/2026-10-15-review-decisions.md#A3
 - verification: unit
 
-走査は、起点が root_dir 全体でも指定したパスでも、exclude と include を root_dir からの相対パスに当てる。merge・sync が TBL-scan-001 のとおり指定したディレクトリや親ディレクトリの下だけを走査するときも同じである。
+走査は、起点が root_dir 全体でも指定したパスでも、exclude と include を root_dir からの相対パスに当てる。merge・sync が TBL-scan-001 のとおり指定したディレクトリや親ディレクトリの下だけを走査するときも同じである。名前で指定したファイルは、フィルタに当たっても起点そのものとして集める（merge・sync。merge/basic.md の REQ-merge-022、cli/diff-strategy.md の REQ-cli-081）。
 
 ## Decision tables
 

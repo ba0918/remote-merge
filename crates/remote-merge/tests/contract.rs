@@ -198,6 +198,8 @@ mod merge_content_cli;
 mod merge_created_directory_routes;
 #[path = "contract/merge_dry_run_paths.rs"]
 mod merge_dry_run_paths;
+#[path = "contract/merge_filtered_named_paths.rs"]
+mod merge_filtered_named_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_flow_cli.rs"]
 mod merge_flow_cli;

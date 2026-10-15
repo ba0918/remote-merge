@@ -34,6 +34,15 @@ pub fn fixture() -> Fixture {
     build(false)
 }
 
+/// `[filter]` に `filter` を書いた構成
+pub fn fixture_with_filter(filter: &str) -> Fixture {
+    let fixture = build(false);
+    let mut text = fs::read_to_string(&fixture.config_path).unwrap();
+    text.push_str(&format!("[filter]\n{filter}\n"));
+    fs::write(&fixture.config_path, text).unwrap();
+    fixture
+}
+
 /// バックアップを有効にし、集約先を一時ディレクトリに差し替えた構成
 pub fn fixture_with_backup() -> Fixture {
     build(true)

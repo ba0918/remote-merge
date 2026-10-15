@@ -29,12 +29,12 @@ sync は --right に指定した順に書き込み先を一つずつ処理し、
 
 ### REQ-cli-041: 書き込み先ごとの状態を判定する
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E25, docs/decision/records/2026-10-12-foundation-5.md#F86
+- source: docs/decision/records/2026-09-27-adopt-sync.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E25, docs/decision/records/2026-10-12-foundation-5.md#F86, docs/decision/records/2026-10-15-review-decisions.md#A2
 - verification: unit
 - definition: TBL-cli-007
 
 sync は書き込み先ごとの status を TBL-cli-007 に従って "success"・"partial"・"failed" に判定する。
-TBL-cli-007 の書き込めたファイルには、中身は書けたが権限の変更に失敗したファイルと、symlink を置き換えるために古いリンクを消した後に新しいリンクを作れなかったファイルを含める。どちらのファイルも failed に出す。
+TBL-cli-007 の書き込めたファイルには、中身は書けたが権限の変更に失敗したファイル、symlink を置き換えるために古いリンクを消した後に新しいリンクを作れなかったファイル、変更の途中の `接続断` の後に書きかけと確かめたファイルを含める。どのファイルも failed に出す。
 
 ### REQ-cli-042: 全体を集計する
 - kind: ubiquitous
