@@ -19,6 +19,7 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 allow_attributes_without_reason = "warn"
+needless_pass_by_value = "warn"
 undocumented_unsafe_blocks = "warn"
 todo = "warn"
 unimplemented = "warn"
