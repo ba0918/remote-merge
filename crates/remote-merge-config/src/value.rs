@@ -570,6 +570,11 @@ root_dir = "/home/user/app"
 
     #[test]
     fn test_load_config_with_project_override_uses_specified_file() {
+        if !in_isolated_discovery_process(
+            "test_load_config_with_project_override_uses_specified_file",
+        ) {
+            return;
+        }
         let content = r#"
 [servers.develop]
 host = "override.example.com"
@@ -604,24 +609,25 @@ root_dir = "/home/user/override"
 
     #[test]
     fn test_load_config_with_project_override_none_falls_back() {
-        // None を渡すと CWD の .remote-merge.toml を探す（通常テスト環境には存在しない）
-        // グローバル設定もなければ ConfigNotFound エラーになる。
-        // テスト環境にグローバル設定がない前提で、ConfigNotFound を確認する。
-        let result = load_config_with_project_override(None);
-        match result {
-            Ok(cfg) => {
-                // グローバル設定が存在する環境: [local] が読めた = 正常
-                assert!(!cfg.local.root_dir.as_os_str().is_empty());
-            }
-            Err(e) => {
-                let err = format!("{}", e);
-                assert!(
-                    err.contains("not found"),
-                    "Expected 'not found' error, got: {}",
-                    err
-                );
-            }
+        if !in_isolated_discovery_process("test_load_config_with_project_override_none_falls_back")
+        {
+            return;
         }
+        let config = load_config_with_project_override(None).unwrap();
+        assert_eq!(config.local.root_dir, PathBuf::from("/fixture-project"));
+        assert_eq!(config.ssh.timeout_sec, 41);
+        assert_eq!(config.servers["global"].host, "global.example");
+        std::fs::remove_file(project_config_path()).unwrap();
+        let global_only = load_config_with_project_override(None).unwrap();
+        assert_eq!(global_only.local.root_dir, PathBuf::from("/fixture-global"));
+        assert_eq!(global_only.ssh.timeout_sec, 99);
+        std::fs::remove_file(global_config_path().unwrap()).unwrap();
+        assert!(
+            load_config_with_project_override(None)
+                .unwrap_err()
+                .to_string()
+                .contains("not found")
+        );
     }
 
     #[test]
@@ -671,7 +677,7 @@ root_dir = "/home/user/project"
 timeout_sec = 60
 "#;
         let f = write_temp_config(content);
-        let config = load_config_with_project_override(Some(f.path())).unwrap();
+        let config = load_config_from_paths(None, Some(f.path())).unwrap();
         assert_eq!(config.servers.len(), 1);
         assert_eq!(config.servers["production"].host, "prod.example.com");
         assert_eq!(config.servers["production"].user, "admin");
@@ -859,29 +865,80 @@ enabled = false
 
     #[test]
     fn test_load_config_delegates_to_load_config_with_project_override() {
-        // load_config() は load_config_with_project_override(None) に委譲する。
-        // 両者が同じ結果を返すことを確認。
-        let result_direct = load_config_with_project_override(None);
-        let result_delegate = load_config();
-
-        match (result_direct, result_delegate) {
-            (Ok(cfg1), Ok(cfg2)) => {
-                // 同じ設定が読まれるはず
-                assert_eq!(cfg1.local.root_dir, cfg2.local.root_dir);
-                assert_eq!(cfg1.ssh.timeout_sec, cfg2.ssh.timeout_sec);
-            }
-            (Err(e1), Err(e2)) => {
-                // 同じエラーになるはず
-                assert_eq!(format!("{}", e1), format!("{}", e2));
-            }
-            (r1, r2) => {
-                panic!(
-                    "load_config() and load_config_with_project_override(None) diverged: {:?} vs {:?}",
-                    r1.is_ok(),
-                    r2.is_ok()
-                );
-            }
+        if !in_isolated_discovery_process(
+            "test_load_config_delegates_to_load_config_with_project_override",
+        ) {
+            return;
         }
+        let direct = load_config_with_project_override(None).unwrap();
+        let delegated = load_config().unwrap();
+        assert_eq!(delegated.local.root_dir, PathBuf::from("/fixture-project"));
+        assert_eq!(delegated.ssh.timeout_sec, 41);
+        assert_eq!(delegated.local.root_dir, direct.local.root_dir);
+        assert_eq!(delegated.ssh.timeout_sec, direct.ssh.timeout_sec);
+    }
+
+    fn in_isolated_discovery_process(test_name: &str) -> bool {
+        const CHILD: &str = "REMOTE_MERGE_CONFIG_DISCOVERY_CHILD";
+        if std::env::var(CHILD).as_deref() == Ok(test_name) {
+            let expected = PathBuf::from(std::env::var_os("XDG_CONFIG_HOME").unwrap())
+                .join("remote-merge/config.toml");
+            assert_eq!(global_config_path(), Some(expected));
+            return true;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let config_home = if cfg!(target_os = "macos") {
+            home.join("Library/Application Support")
+        } else {
+            home.join(".config")
+        };
+        let global_dir = config_home.join("remote-merge");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::write(
+            global_dir.join("config.toml"),
+            r#"
+[servers.global]
+host = "global.example"
+user = "fixture"
+root_dir = "/fixture-global"
+[local]
+root_dir = "/fixture-global"
+[ssh]
+timeout_sec = 99
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(".remote-merge.toml"),
+            r#"
+[local]
+root_dir = "/fixture-project"
+[ssh]
+timeout_sec = 41
+"#,
+        )
+        .unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(format!("value::tests::{test_name}"))
+            .arg("--nocapture")
+            .current_dir(dir.path())
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env("APPDATA", &config_home)
+            .env("USERPROFILE", &home)
+            .env(CHILD, test_name)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated discovery failed: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        false
     }
 
     // ── DefaultsConfig + パーミッション + sudo テスト ──
