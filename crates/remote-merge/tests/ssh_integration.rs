@@ -414,32 +414,44 @@ async fn test_ssh_password_auth() {
 
 #[tokio::test]
 async fn test_ssh_connection_timeout() {
-    // 存在しないアドレスに接続してタイムアウトを確認
-    let server_config = ServerConfig {
-        host: "192.0.2.1".to_string(), // TEST-NET: 到達不能なアドレス
-        port: 22,
-        user: "test".to_string(),
-        auth: AuthMethod::Key,
-        password: None,
-        key: None,
-        root_dir: PathBuf::from("/tmp"),
-        ssh_options: None,
-        sudo: false,
-        file_permissions: None,
-        dir_permissions: None,
-    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server_config =
+        make_server_config(listener.local_addr().unwrap().port(), AuthMethod::Key, None);
     let ssh_config = SshConfig {
         timeout_sec: 1,
         ..SshConfig::default()
     };
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let peer = async {
+        // 接続拒否ではタイムアウトを検証できないので、TCP 接続を受けて SSH 識別を返さず保持する。
+        let (_socket, _) = listener.accept().await.unwrap();
+        release_rx
+            .await
+            .expect("connection attempt did not release peer");
+    };
+    let connect = async {
+        let result = SshClient::connect("test", &server_config, &ssh_config).await;
+        release_tx
+            .send(())
+            .expect("peer stopped before connection completed");
+        result
+    };
 
-    let start = std::time::Instant::now();
-    let result = SshClient::connect("test", &server_config, &ssh_config).await;
-    let elapsed = start.elapsed();
+    let ((), result) = tokio::time::timeout(Duration::from_secs(15), async {
+        tokio::join!(peer, connect)
+    })
+    .await
+    .expect("connection attempt hung while waiting for SSH identification");
 
-    assert!(result.is_err());
-    // タイムアウトは1秒 + αで完了するはず
-    assert!(elapsed < Duration::from_secs(3));
+    let error = result.err().expect("silent SSH peer must not connect");
+    assert!(
+        matches!(
+            error.downcast_ref::<remote_merge::error::AppError>(),
+            Some(remote_merge::error::AppError::SshTimeout { host, timeout_sec })
+                if host == "127.0.0.1" && *timeout_sec == ssh_config.timeout_sec
+        ),
+        "expected configured SSH timeout, got {error:?}"
+    );
 }
 
 #[tokio::test]
