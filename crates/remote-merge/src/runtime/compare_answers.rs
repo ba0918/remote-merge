@@ -55,7 +55,9 @@ impl CoreRuntime {
                         .map(|(path, answer)| (path.clone(), answer.clone())),
                 );
                 for path in paths {
-                    if let Some(answer) = known.get(path) {
+                    if !answered.contains_key(path)
+                        && let Some(answer) = known.get(path)
+                    {
                         answered.insert(path.clone(), answer.clone());
                     }
                 }
@@ -194,4 +196,64 @@ fn unanswered(role: Role) -> SideFailure {
 /// 判定せずにつなぎ直しの規則に任せる `接続断` の誤り
 pub(super) fn disconnected(path: &str, lost: SideFailure) -> anyhow::Error {
     OpError::new(Operation::Hash, path, lost.failure).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_source_answers_are_a_snapshot_and_only_new_paths_are_read() {
+        let mut runtime = CoreRuntime::new_for_test();
+        let sides = BTreeMap::from([(Role::Left, Side::Local)]);
+        let wanted = BTreeMap::from([(Role::Left, vec!["old".into(), "new".into()])]);
+        let mut cache = BTreeMap::from([("old".into(), Ok(b"snapshot".to_vec()))]);
+        let mut reads = 0;
+        let answers = runtime
+            .ask_each(
+                &sides,
+                &wanted,
+                Some((Side::Local, &mut cache)),
+                |_, _, paths| {
+                    reads += 1;
+                    assert_eq!(
+                        paths.iter().map(EntryPath::as_str).collect::<Vec<_>>(),
+                        ["new"]
+                    );
+                    Ok(vec![("new".into(), Ok(b"fresh".to_vec()))])
+                },
+            )
+            .unwrap();
+        assert_eq!(reads, 1);
+        assert_eq!(answers[&Role::Left], cache);
+        assert_eq!(cache["old"].as_ref().unwrap(), b"snapshot");
+        assert_eq!(cache["new"].as_ref().unwrap(), b"fresh");
+        let again = runtime
+            .ask_each(
+                &sides,
+                &wanted,
+                Some((Side::Local, &mut cache)),
+                |_, _, _| panic!("a cached source must not be read again"),
+            )
+            .unwrap();
+        assert_eq!(again, answers);
+    }
+
+    #[test]
+    fn unexpected_answers_are_retained_but_do_not_replace_a_missing_answer() {
+        let mut runtime = CoreRuntime::new_for_test();
+        let sides = BTreeMap::from([(Role::Left, Side::Local)]);
+        let wanted = BTreeMap::from([(Role::Left, vec!["wanted".into()])]);
+        let mut cache: ByPath<Vec<u8>> = BTreeMap::new();
+        let error = runtime
+            .ask_each(
+                &sides,
+                &wanted,
+                Some((Side::Local, &mut cache)),
+                |_, _, _| Ok(vec![("unexpected".into(), Ok(b"extra".to_vec()))]),
+            )
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("no answer for a path that was asked"));
+        assert_eq!(cache["unexpected"].as_ref().unwrap(), b"extra");
+    }
 }
