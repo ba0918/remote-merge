@@ -22,6 +22,33 @@ fn is_no_answer(error: &anyhow::Error) -> bool {
     )
 }
 
+// 読みの時間切れはハングせず、接続断（応答なし）になる（REQ-ssh-003 のつなぎ直しと停止の道）
+#[test]
+fn a_read_timeout_is_a_disconnection() {
+    use std::io::Write as _;
+    use std::time::Duration;
+
+    let (reader, mut peer) = UnixStream::pair().unwrap();
+    let writer = reader.try_clone().unwrap();
+    // トランスポートが読みに付ける時間切れを、小さくした形
+    reader
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    // 挨拶だけ返し、その後の要求には答えないエージェント
+    writeln!(peer, "{}", protocol::format_handshake()).unwrap();
+    let mut client = AgentClient::connect(reader, writer).unwrap();
+
+    let error = client
+        .request(&AgentRequest::Ping)
+        .expect_err("the answer times out");
+
+    assert!(is_no_answer(&error), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("did not answer within the timeout"),
+        "{error:#}"
+    );
+}
+
 #[test]
 fn an_answer_that_cannot_be_read_is_a_disconnection() {
     let error = answering_bytes(b"\xff\x00 not a message")

@@ -383,7 +383,8 @@ async fn agent_ssh_exec_handshake() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel).expect("transport start failed");
+    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
+        .expect("transport start failed");
     let (reader, writer, _guard) = transport.into_streams();
 
     let client = AgentClient::connect(reader, writer).expect("AgentClient handshake failed");
@@ -423,7 +424,8 @@ async fn agent_ssh_list_tree_roundtrip() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel).expect("transport start failed");
+    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
+        .expect("transport start failed");
     let (reader, writer, _guard) = transport.into_streams();
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
@@ -482,7 +484,8 @@ async fn agent_ssh_read_files_roundtrip() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel).expect("transport start failed");
+    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
+        .expect("transport start failed");
     let (reader, writer, _guard) = transport.into_streams();
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
@@ -529,7 +532,8 @@ async fn agent_ssh_ping_pong() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel).expect("transport start failed");
+    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
+        .expect("transport start failed");
     let (reader, writer, _guard) = transport.into_streams();
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");

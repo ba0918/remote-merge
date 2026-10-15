@@ -108,9 +108,13 @@ impl SshAgentTransport {
     ///
     /// - `handle`: tokio ランタイムハンドル（block_on 用）
     /// - `channel`: SSH exec チャネル（既にコマンド実行済みであること）
+    /// - `read_timeout`: 手元が応答を読むときの時間切れ。エージェントが答えないまま接続だけが
+    ///   生きている場合に、コマンドが返らないままにならないようにする（`接続断` の時間切れ。
+    ///   docs/ir/ssh/reconnect.md の REQ-ssh-003）
     pub fn start(
         handle: tokio::runtime::Handle,
         channel: russh::Channel<russh::client::Msg>,
+        read_timeout: Duration,
     ) -> Result<Self> {
         // read 方向: bridge → client_read
         let (client_read, bridge_write) = UnixStream::pair()?;
@@ -119,6 +123,8 @@ impl SshAgentTransport {
 
         // writer-relay が shutdown フラグをポーリングできるよう read timeout を設定
         bridge_read.set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))?;
+        // 手元が読む側の時間切れ（時間切れは応答なしの `接続断` として運ばれる）
+        client_read.set_read_timeout(Some(read_timeout))?;
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let (write_tx, write_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();

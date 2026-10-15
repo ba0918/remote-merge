@@ -57,6 +57,17 @@ fn lost(what: &str, disconnection: Disconnection) -> anyhow::Error {
     .into()
 }
 
+/// 応答を読めなかった理由の文言。読みの時間切れ（`接続断` の時間切れ。REQ-ssh-003）は、何が
+/// 起きたかが分かる文にする（OS の "Resource temporarily unavailable" はそのまま出さない）
+fn answer_lost(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+            "the agent did not answer within the timeout".to_string()
+        }
+        _ => error.to_string(),
+    }
+}
+
 /// 尋ねたパスと答えが一つずつ対応しない応答（D20: 接続断として扱う）
 pub(crate) fn mismatch(request: &str) -> anyhow::Error {
     lost(
@@ -115,7 +126,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     fn receive(&mut self) -> Result<AgentResponse> {
         let frame = framing::read_frame(&mut self.reader)
-            .map_err(|error| lost("receive", Disconnection::NoAnswer(error.to_string())))?;
+            .map_err(|error| lost("receive", Disconnection::NoAnswer(answer_lost(&error))))?;
         protocol::deserialize_response(&frame).map_err(|error| {
             lost(
                 "receive",
