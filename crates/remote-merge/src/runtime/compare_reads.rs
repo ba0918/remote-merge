@@ -54,12 +54,17 @@ impl CoreRuntime {
             self.ask_by_role(&sides, &to_hash, cache, request, |rt, side, paths| {
                 rt.hash_contents(side, paths)
             })?;
+        let lost_hash_paths: BTreeSet<&str> = lost
+            .iter()
+            .flat_map(|lost| &to_hash[&lost.role])
+            .map(String::as_str)
+            .collect();
         let mut paths = Paths::new();
         for (path, states) in table {
             let hashed = take(&mut hashes, &path);
             let unanswered = lost
                 .as_ref()
-                .filter(|lost| to_hash[&lost.role].contains(&path));
+                .filter(|_| lost_hash_paths.contains(path.as_str()));
             let pairs = settle_or_lost(&judged[&path], &hashed, unanswered)
                 .map_err(|lost| disconnected(&path, lost))?;
             let comparison = PathComparison {
@@ -83,6 +88,11 @@ impl CoreRuntime {
             self.ask_by_role(&sides, &to_read, cache, request, |rt, side, paths| {
                 rt.read_contents(side, paths, limit)
             })?;
+        let lost_read_paths: BTreeSet<&str> = lost_read
+            .iter()
+            .flat_map(|lost| &to_read[&lost.role])
+            .map(String::as_str)
+            .collect();
         for (path, comparison) in &mut paths {
             comparison.contents = take(&mut contents, path);
             let failures: Vec<SideFailure> = comparison
@@ -98,7 +108,7 @@ impl CoreRuntime {
             let pairs = std::mem::take(&mut comparison.pairs);
             comparison.pairs = match lost_read
                 .as_ref()
-                .filter(|lost| to_read[&lost.role].contains(path))
+                .filter(|_| lost_read_paths.contains(path.as_str()))
             {
                 // 読めなかったまとめに入っていたパスは、その側との組を読み込みの失敗にする
                 Some(lost) => lose_pairs(pairs, lost),
