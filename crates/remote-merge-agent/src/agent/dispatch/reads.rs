@@ -45,7 +45,7 @@ pub(super) fn read_files_into(
     let mut pending: Vec<FileReadResult> = Vec::new();
     let mut pending_size = 0;
     for entry in &entries {
-        for result in read_one(root, entry, chunk_size_limit, limit) {
+        read_one(root, entry, chunk_size_limit, limit, &mut |result| {
             let size = result_size(&result);
             if !pending.is_empty() && pending_size + size > RESPONSE_BUDGET {
                 send(contents(std::mem::take(&mut pending), false, Vec::new()))?;
@@ -53,7 +53,8 @@ pub(super) fn read_files_into(
             }
             pending_size += size;
             pending.push(result);
-        }
+            Ok(())
+        })?;
     }
     send(contents(pending, true, refused))
 }
@@ -76,37 +77,34 @@ fn read_one(
     entry: &EntryPath,
     chunk_size_limit: usize,
     limit: SizeLimit,
-) -> Vec<FileReadResult> {
+    send: &mut dyn FnMut(FileReadResult) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     let path = entry.as_typed().to_string();
     let content = match machine_ops::read(root, entry, limit) {
         Ok(content) => content,
         Err(failure) => {
-            return vec![FileReadResult::Failed {
+            return send(FileReadResult::Failed {
                 path,
                 failure: wire(&failure),
-            }];
+            });
         }
     };
-    let size = if chunk_size_limit == 0 {
-        content.len().max(1)
-    } else {
-        chunk_size_limit
-    };
-    let pieces: Vec<&[u8]> = if content.is_empty() {
-        vec![&[]]
-    } else {
-        content.chunks(size).collect()
-    };
-    let last = pieces.len() - 1;
-    pieces
-        .into_iter()
-        .enumerate()
-        .map(|(index, piece)| FileReadResult::Ok {
+    if chunk_size_limit == 0 || content.len() <= chunk_size_limit {
+        return send(FileReadResult::Ok {
+            path,
+            content,
+            more_to_follow: false,
+        });
+    }
+    let mut pieces = content.chunks(chunk_size_limit).peekable();
+    while let Some(piece) = pieces.next() {
+        send(FileReadResult::Ok {
             path: path.clone(),
             content: piece.to_vec(),
-            more_to_follow: index < last,
-        })
-        .collect()
+            more_to_follow: pieces.peek().is_some(),
+        })?;
+    }
+    Ok(())
 }
 
 /// 応答に載せる結果の大きさの見積もり

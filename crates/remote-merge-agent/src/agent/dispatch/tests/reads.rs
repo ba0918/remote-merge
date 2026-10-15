@@ -106,20 +106,27 @@ fn inspect_path_answers_with_the_cause_when_the_path_cannot_be_resolved() {
 #[test]
 fn read_files_streaming_last_chunk_has_is_last_true() {
     let (tmp, mut d) = setup();
-    fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
+    fs::write(tmp.path().join("a.txt"), vec![0u8; 8 * 1024 * 1024]).unwrap();
     fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
 
     let resps = d
         .dispatch(AgentRequest::ReadFiles {
             paths: vec!["a.txt".into(), "b.txt".into()],
-            chunk_size_limit: 4096,
+            chunk_size_limit: 4 * 1024 * 1024,
             size_limit: None,
         })
         .unwrap();
 
-    // 最後のチャンクだけ is_last=true
+    let final_flags: Vec<_> = resps
+        .iter()
+        .map(|response| match response {
+            AgentResponse::FileContents { is_last, .. } => *is_last,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(final_flags, [false, true]);
     let results = collect_file_contents(&resps);
-    assert_eq!(results.len(), 2);
+    assert_eq!(results.len(), 3);
 }
 
 #[test]
@@ -217,6 +224,29 @@ fn read_files_sends_each_answer_before_reading_the_next_files() {
 
     assert!(open);
     assert!(sent.len() > 1, "{}", sent.len());
+    let a_chunks: Vec<_> = sent
+        .iter()
+        .flat_map(|response| match response {
+            AgentResponse::FileContents { results, .. } => results.as_slice(),
+            other => panic!("{other:?}"),
+        })
+        .filter_map(|result| match result {
+            FileReadResult::Ok {
+                path,
+                content,
+                more_to_follow,
+            } if path == "a.bin" => Some((content.len(), *more_to_follow)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        a_chunks,
+        [
+            (4 * 1024 * 1024, true),
+            (4 * 1024 * 1024, true),
+            (1024 * 1024, false)
+        ]
+    );
     let b = collect_file_contents(&sent)
         .into_iter()
         .find_map(|result| match result {
