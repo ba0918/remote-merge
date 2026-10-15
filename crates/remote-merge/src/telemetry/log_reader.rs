@@ -5,6 +5,8 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader};
 
 /// JSONL ログ1行の構造
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,47 +46,57 @@ pub fn read_logs(path: &std::path::Path, filter: &LogFilter) -> std::io::Result<
         return Ok(vec![]);
     }
 
-    let content = std::fs::read_to_string(path)?;
-    let entries = filter_log_lines(&content, filter);
-
-    Ok(entries)
+    read_filtered_logs(BufReader::new(std::fs::File::open(path)?), filter)
 }
 
 /// ログ文字列をパース + フィルタリングする（純粋関数、I/O なし）
 pub fn filter_log_lines(content: &str, filter: &LogFilter) -> Vec<LogEntry> {
-    let mut entries: Vec<LogEntry> = content
-        .lines()
-        .filter(|line| !line.is_empty())
-        .filter_map(|line| serde_json::from_str::<LogEntry>(line).ok())
-        .filter(|entry| {
-            // レベルフィルタ: 指定した水準とそれより重い水準だけを残す（REQ-cli-093）
-            if let Some(ref level) = filter.level {
-                let heavier_or_equal = level_rank(&entry.level)
-                    .zip(level_rank(level))
-                    .is_some_and(|(entry, wanted)| entry <= wanted);
-                if !heavier_or_equal {
-                    return false;
-                }
-            }
-            // 時刻フィルタ
-            if let Some(since) = filter.since
-                && let Ok(ts) = entry.timestamp.parse::<DateTime<Utc>>()
-                && ts < since
-            {
-                return false;
-            }
-            true
-        })
-        .collect();
+    read_filtered_logs(content.as_bytes(), filter)
+        .expect("Reading a valid UTF-8 string through a byte slice cannot fail")
+}
 
-    // tail フィルタ
-    if let Some(n) = filter.tail
-        && entries.len() > n
-    {
-        entries = entries.split_off(entries.len() - n);
+fn read_filtered_logs(reader: impl BufRead, filter: &LogFilter) -> std::io::Result<Vec<LogEntry>> {
+    let mut reader = reader;
+    let mut entries = VecDeque::new();
+    let mut line = String::new();
+    // tail が 0 でも、ファイル全体の UTF-8 と I/O の失敗を見落とさない。
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        let Ok(entry) = serde_json::from_str::<LogEntry>(&line) else {
+            continue;
+        };
+        if !matches_filter(&entry, filter) || filter.tail == Some(0) {
+            continue;
+        }
+        if filter.tail == Some(entries.len()) {
+            entries.pop_front();
+        }
+        entries.push_back(entry);
     }
+    Ok(entries.into())
+}
 
-    entries
+fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
+    // レベルフィルタ: 指定した水準とそれより重い水準だけを残す（REQ-cli-093）
+    if let Some(ref level) = filter.level {
+        let heavier_or_equal = level_rank(&entry.level)
+            .zip(level_rank(level))
+            .is_some_and(|(entry, wanted)| entry <= wanted);
+        if !heavier_or_equal {
+            return false;
+        }
+    }
+    // 時刻フィルタ
+    if let Some(since) = filter.since
+        && let Ok(ts) = entry.timestamp.parse::<DateTime<Utc>>()
+        && ts < since
+    {
+        return false;
+    }
+    true
 }
 
 /// LogEntry を人間向けテキスト行に整形する（純粋関数）
@@ -221,6 +233,111 @@ mod tests {
         let path = dir.path().join("nonexistent.log");
         let entries = read_logs(&path, &LogFilter::default()).unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn tail_keeps_the_last_matching_entries_in_input_order() {
+        let content = format!("{}\ninvalid json\n", sample_jsonl());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("debug.log");
+        std::fs::write(&path, &content).unwrap();
+        for tail in [0, 1, 2, 100, usize::MAX] {
+            let filter = LogFilter {
+                level: Some("warn".into()),
+                since: Some("2026-03-07T10:00:02Z".parse().unwrap()),
+                tail: Some(tail),
+            };
+            let expected = ["merge skipped", "reconnect failed"];
+            let expected = &expected[expected.len().saturating_sub(tail)..];
+            for entries in [
+                filter_log_lines(&content, &filter),
+                read_logs(&path, &filter).unwrap(),
+            ] {
+                assert_eq!(
+                    entries
+                        .iter()
+                        .map(|entry| entry.message.as_str())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn crlf_and_final_lines_preserve_entries_with_unparseable_timestamps() {
+        let entry = r#"{"timestamp":"unknown","level":"ERROR","target":"app","message":"kept"}"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("debug.log");
+        let filter = LogFilter {
+            since: Some("2026-03-07T10:00:02Z".parse().unwrap()),
+            ..Default::default()
+        };
+        for ending in ["", "\n", "\r\n", "\r"] {
+            let content = format!("\r\nnot json\r\n{entry}{ending}");
+            std::fs::write(&path, &content).unwrap();
+            let expected = filter_log_lines(entry, &filter);
+            assert_eq!(expected.len(), 1);
+            assert_eq!(filter_log_lines(&content, &filter), expected);
+            assert_eq!(read_logs(&path, &filter).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_anywhere_is_an_error_even_with_an_empty_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("debug.log");
+        let valid = sample_jsonl();
+        for bytes in [
+            [b"\xff\n".as_slice(), valid.as_bytes()].concat(),
+            [valid.as_bytes(), b"\xff\n".as_slice()].concat(),
+        ] {
+            std::fs::write(&path, bytes).unwrap();
+            for tail in [Some(0), Some(1), None] {
+                let filter = LogFilter {
+                    tail,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    read_logs(&path, &filter).unwrap_err().kind(),
+                    std::io::ErrorKind::InvalidData
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_existing_unreadable_input_is_not_an_empty_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let filter = LogFilter {
+            tail: Some(0),
+            ..Default::default()
+        };
+        assert!(read_logs(dir.path(), &filter).is_err());
+    }
+
+    #[test]
+    fn a_read_failure_after_matching_entries_is_still_reported() {
+        use std::io::Read;
+
+        struct FailingRead;
+        impl Read for FailingRead {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("synthetic read failure"))
+            }
+        }
+
+        for tail in [Some(0), Some(1), None] {
+            let content = sample_jsonl();
+            let reader = BufReader::new(content.as_bytes().chain(FailingRead));
+            let filter = LogFilter {
+                tail,
+                ..Default::default()
+            };
+            let error = read_filtered_logs(reader, &filter).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::Other);
+            assert_eq!(error.to_string(), "synthetic read failure");
+        }
     }
 
     #[test]
