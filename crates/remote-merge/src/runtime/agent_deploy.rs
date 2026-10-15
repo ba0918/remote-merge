@@ -22,7 +22,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<deploy::InstalledBinary> {
         let local_hash = super::agent_local_hash::local_agent_hash(
             deploy::resolve_agent_binary(remote_target).map(|resolved| resolved.path),
-            |path| std::fs::read(path),
+            |path| std::fs::File::open(path),
         )?;
         let Some(local_hash) = local_hash else {
             tracing::info!(
