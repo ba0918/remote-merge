@@ -1,7 +1,7 @@
 //! エージェントへの操作の要求。複数のパスの要求は、尋ねたパスのすべてに一つずつ答えがあることを
 //! 確かめ、欠けや余りは要求と合わない応答（接続断）にする
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 
 use anyhow::Result;
@@ -28,9 +28,23 @@ pub(super) fn check_answered<'a>(
     asked: &[EntryPath],
     answered: impl Iterator<Item = &'a str>,
 ) -> Result<()> {
-    let asked: HashSet<String> = entries_as_typed(asked).into_iter().collect();
-    let answered: HashSet<&str> = answered.collect();
-    if answered.len() == asked.len() && answered.iter().all(|path| asked.contains(*path)) {
+    let mut expected = HashMap::new();
+    for path in entries_as_typed(asked) {
+        let (count, _) = expected.entry(path).or_insert((0usize, false));
+        *count += 1;
+    }
+    for path in answered {
+        let Some((remaining, seen)) = expected.get_mut(path) else {
+            return Err(mismatch(request));
+        };
+        if *remaining == 0 {
+            return Err(mismatch(request));
+        }
+        *remaining -= 1;
+        *seen = true;
+    }
+    // 同じパスを複数回求める既存の呼び出しは、まとめられた一つの答えも受け取れる。
+    if expected.values().all(|(_, seen)| *seen) {
         return Ok(());
     }
     Err(mismatch(request))

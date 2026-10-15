@@ -123,6 +123,51 @@ fn an_answer_that_leaves_out_a_path_is_a_disconnection() {
 }
 
 #[test]
+fn hash_answers_with_duplicate_unexpected_or_missing_paths_are_disconnections() {
+    for names in [vec!["a", "b", "b"], vec!["a", "c"], vec!["a"]] {
+        let response = AgentResponse::FileHashes {
+            results: names
+                .iter()
+                .map(|path| protocol::FileHashResult::Ok {
+                    path: (*path).into(),
+                    hash: "a".repeat(64),
+                })
+                .collect(),
+            is_last: true,
+            refused: vec![],
+        };
+        for contents in [false, true] {
+            let mut client = answering(&response);
+            let result = if contents {
+                client.hash_contents(&rels(&["a", "b"]))
+            } else {
+                client.hash_files(&rels(&["a", "b"]))
+            };
+            let error = result.expect_err("each requested path needs exactly one answer");
+            assert!(is_no_answer(&error), "{names:?}: {error:#}");
+        }
+    }
+}
+
+#[test]
+fn repeated_hash_requests_accept_one_or_the_requested_number_of_answers() {
+    for count in [1, 2] {
+        let response = AgentResponse::FileHashes {
+            results: (0..count)
+                .map(|_| protocol::FileHashResult::Ok {
+                    path: "a".into(),
+                    hash: "a".repeat(64),
+                })
+                .collect(),
+            is_last: true,
+            refused: vec![],
+        };
+        let results = answering(&response).hash_files(&rels(&["a", "a"])).unwrap();
+        assert_eq!(results.len(), count);
+    }
+}
+
+#[test]
 fn a_closed_stream_is_a_disconnection() {
     let mut client = answering_bytes(b"");
     client.ping().ok();
