@@ -213,10 +213,9 @@ impl SshClient {
     ) -> Arc<client::Config> {
         // inactivity_timeout は接続タイムアウト(timeout_sec)とは独立。
         // timeout_sec が短い(10秒等)場合にセッションごと切れるのを防ぐため、
-        // 最低でも keepalive_interval × keepalive_max + マージン 以上にする。
-        let inactivity_secs = ssh_config.timeout_sec.max(120);
+        // 最低でも keepalive_interval × keepalive_max + マージン 以上にする（silence_timeout）
         let mut config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(inactivity_secs)),
+            inactivity_timeout: Some(crate::silence_timeout(ssh_config.timeout_sec)),
             keepalive_interval: Some(Duration::from_secs(10)),
             keepalive_max: 5,
             ..Default::default()

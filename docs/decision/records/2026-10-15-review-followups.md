@@ -30,7 +30,10 @@ A1・A2 は反映済み。
   「ちょうど上限で残りがなければ truncated にしない」「上限の後に行が残れば truncated にする」を
   足した。
 - A2: `SshAgentTransport::start` が読みの時間切れを受け取り `client_read` に設定する。
-  `agent_start.rs` が `max(timeout_sec, 120)` を渡す。`AgentClient::receive` は時間切れを
-  "the agent did not answer within the timeout" の文言で `接続断`（応答なし）にする。
+  `agent_start.rs` が `remote_merge_ssh::silence_timeout(timeout_sec)` を渡す。`AgentClient::receive`
+  は時間切れを "the agent did not answer within the timeout" の文言で `接続断`（応答なし）にする。
   `client/tests/failures.rs` に、答えない相手でハングせず接続断になるテストを足した。
-  A2 の実装は ssh と agent のレビュアーに確かめてもらう。
+  ssh と agent のレビュアーに確かめてもらった（round 3。直っている）。その再確認の指摘 2 件も
+  反映した: 挨拶の読みの時間切れの文言（sa-r2-1）、黙っていてよい時間の下限を当てる規則を
+  ssh クレートの `silence_timeout` にまとめ、inactivity_timeout と読みの時間切れで同じ値を使う
+  こと（sa-r2-2。REQ-ssh-025 に明記し、契約テストを足した）。

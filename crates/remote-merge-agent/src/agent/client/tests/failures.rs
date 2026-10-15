@@ -49,6 +49,25 @@ fn a_read_timeout_is_a_disconnection() {
     );
 }
 
+// 挨拶の読みの時間切れも、OS の文言でなく何が起きたかが分かる文になる（接続の誤りとして止まる）
+#[test]
+fn a_handshake_read_timeout_names_the_timeout() {
+    use std::time::Duration;
+
+    let (reader, _peer) = UnixStream::pair().unwrap();
+    reader
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    let writer = reader.try_clone().unwrap();
+
+    let error = AgentClient::connect(reader, writer).expect_err("the handshake times out");
+
+    assert!(
+        format!("{error:#}").contains("did not answer within the timeout"),
+        "{error:#}"
+    );
+}
+
 #[test]
 fn an_answer_that_cannot_be_read_is_a_disconnection() {
     let error = answering_bytes(b"\xff\x00 not a message")

@@ -397,6 +397,8 @@ mod ssh_lost_destination_checks;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_lost_destination_hashes.rs"]
 mod ssh_lost_destination_hashes;
+#[path = "contract/ssh_silence_timeout.rs"]
+mod ssh_silence_timeout;
 #[cfg(feature = "test-utils")]
 use common::server_faults;
 #[cfg(feature = "test-utils")]

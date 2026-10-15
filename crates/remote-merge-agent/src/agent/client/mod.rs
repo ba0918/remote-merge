@@ -60,13 +60,31 @@ fn lost(what: &str, disconnection: Disconnection) -> anyhow::Error {
 /// 応答を読めなかった理由の文言。読みの時間切れ（`接続断` の時間切れ。REQ-ssh-003）は、何が
 /// 起きたかが分かる文にする（OS の "Resource temporarily unavailable" はそのまま出さない）
 fn answer_lost(error: &io::Error) -> String {
-    match error.kind() {
-        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
-            "the agent did not answer within the timeout".to_string()
-        }
-        _ => error.to_string(),
+    match is_timeout(error) {
+        true => TIMEOUT_TEXT.to_string(),
+        false => error.to_string(),
     }
 }
+
+/// 挨拶を読めなかった誤り。時間切れは、何が起きたかが分かる文にする（接続の誤りとして止まる。
+/// REQ-ssh-005）
+fn handshake_lost(error: anyhow::Error) -> anyhow::Error {
+    match error.downcast_ref::<io::Error>().is_some_and(is_timeout) {
+        true => anyhow::anyhow!("{TIMEOUT_TEXT} (the handshake)"),
+        false => error,
+    }
+}
+
+/// 読みの時間切れか（read timeout の OS の誤り）
+fn is_timeout(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
+}
+
+/// 読みの時間切れの文言
+const TIMEOUT_TEXT: &str = "the agent did not answer within the timeout";
 
 /// 尋ねたパスと答えが一つずつ対応しない応答（D20: 接続断として扱う）
 pub(crate) fn mismatch(request: &str) -> anyhow::Error {
@@ -93,7 +111,7 @@ pub(crate) fn unexpected(request: &str, response: &AgentResponse) -> anyhow::Err
 impl<R: Read, W: Write> AgentClient<R, W> {
     /// ハンドシェイクを読み、通信の版が手元と同じエージェントにだけつなぐ
     pub fn connect(mut reader: R, writer: W) -> Result<Self> {
-        let line = read_handshake_line(&mut reader)?;
+        let line = read_handshake_line(&mut reader).map_err(handshake_lost)?;
         let version = protocol::parse_handshake(&line)?;
         protocol::check_protocol_version(version)?;
         Ok(Self {

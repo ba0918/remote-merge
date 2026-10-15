@@ -139,10 +139,10 @@ impl CoreRuntime {
 
         // ブリッジスレッドを起動し、UnixStream ペアを取得
         let handle = self.rt.handle().clone();
-        // 読みの時間切れは、ssh の接続の時間切れと同じ値に、inactivity_timeout と同じ下限（120 秒）を
-        // 当てる。大きな走査の間はエージェントが黙って計算するので、短くすると健全な処理を切ってしまう
-        // （`接続断` の時間切れ。REQ-ssh-003）
-        let read_timeout = std::time::Duration::from_secs(self.config.ssh.timeout_sec.max(120));
+        // 読みの時間切れは、ssh の接続の時間切れと同じ値に、黙っていてよい時間の下限を当てる
+        // （大きな走査の間はエージェントが黙って計算するので、短くすると健全な処理を切ってしまう。
+        // `接続断` の時間切れ。REQ-ssh-003・REQ-ssh-025）
+        let read_timeout = remote_merge_ssh::silence_timeout(self.config.ssh.timeout_sec);
         let transport = SshAgentTransport::start(handle, channel, read_timeout)
             .map_err(|error| cannot_start(&error))?;
         let (read_stream, write_stream, guard) = transport.into_streams();

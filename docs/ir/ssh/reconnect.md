@@ -12,6 +12,14 @@
 リモートの読み取りだけの操作（ファイルの読み込み、ツリーの走査、パスの確認、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で `接続断` が起きたとき、つなぎ直して（エージェントは起動し直して）その操作を一度だけ試し、再び失敗したら（つなぎ直せないときを含む）、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。
 merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理（比べるときに書き込み先のハッシュと中身をまとめて取る処理、変更の前に書き込み先のパスをまとめて確かめる処理、バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理を含む）で止めたときは、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出し、1 ファイルずつ読み直さない。
 
+### REQ-ssh-025: リモートが黙っていてよい時間の時間切れ
+- kind: event_driven
+- source: docs/decision/records/2026-10-15-review-followups.md#A2
+- verification: unit
+
+セッションの inactivity_timeout と、手元がエージェントの答えを読むときの時間切れ（読みの時間切れ）は、[ssh] の timeout_sec に下限（120 秒）を当てた同じ値にする。timeout_sec が短くても、keepalive の間隔と、エージェントが黙って計算する時間（大きな走査・ハッシュ）で切らないようにする。
+読みの時間切れは `接続断`（結果を受け取れなかった）とし、REQ-ssh-003 の一度だけの再試行の対象にする。文言は OS の誤りの文ではなく、答えが時間切れになったことが分かる文にする。挨拶（ハンドシェイク）の読みの時間切れは、まだ要求を送っていないので `接続断` とせず、エージェントを起動できないものとして止める（REQ-ssh-005）。
+
 ### REQ-ssh-004: 結果不明の変更を自動反復しない
 - kind: prohibition
 - source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-12-foundation-3.md#D11
