@@ -11,15 +11,15 @@ use super::known_hosts_io;
 
 /// known_hosts のエントリ
 #[derive(Debug, Clone)]
-pub(crate) struct KnownHost {
+struct KnownHost<'a> {
     /// ホスト名パターン（平文またはハッシュ形式 `|1|salt|hash`）
-    pub hostname_pattern: String,
+    hostname_pattern: &'a str,
     /// キータイプ（例: "ssh-rsa", "ssh-ed25519"）
-    pub key_type: String,
+    key_type: &'a str,
     /// キーのbase64エンコードされたデータ
-    pub key_base64: String,
+    key_base64: &'a str,
     /// known_hosts ファイルでの行番号（1始まり）
-    pub line_number: usize,
+    line_number: usize,
 }
 
 /// russh の Handler 実装
@@ -179,20 +179,18 @@ pub(crate) fn judge_host_key(
 ) -> HostKeyJudgement {
     let host_entry = format_host_entry(host, port);
     // 同じ鍵の通常の行があっても失効を優先する
-    let revoked = parse_revoked_keys(known_hosts_content)
-        .into_iter()
-        .find(|kh| {
-            host_matches(&kh.hostname_pattern, &host_entry, host, port)
-                && kh.key_type == key_type
-                && kh.key_base64 == key_base64
-        });
+    let revoked = parse_revoked_keys(known_hosts_content).find(|kh| {
+        host_matches(kh.hostname_pattern, &host_entry, host, port)
+            && kh.key_type == key_type
+            && kh.key_base64 == key_base64
+    });
     if let Some(kh) = revoked {
         return HostKeyJudgement::Revoked {
             line: kh.line_number,
         };
     }
-    for kh in parse_known_hosts(known_hosts_content) {
-        if !host_matches(&kh.hostname_pattern, &host_entry, host, port) || kh.key_type != key_type {
+    for kh in known_host_entries(known_hosts_content) {
+        if !host_matches(kh.hostname_pattern, &host_entry, host, port) || kh.key_type != key_type {
             continue;
         }
         if kh.key_base64 == key_base64 {
@@ -253,24 +251,26 @@ impl SshHandler {
 }
 
 /// known_hosts のテキスト内容をパースする（"@" で始まる印付きの行は除く）
-pub(crate) fn parse_known_hosts(content: &str) -> Vec<KnownHost> {
+#[cfg(test)]
+fn parse_known_hosts(content: &str) -> Vec<KnownHost<'_>> {
+    known_host_entries(content).collect()
+}
+
+fn known_host_entries(content: &str) -> impl Iterator<Item = KnownHost<'_>> {
     entry_lines(content)
         .filter(|(_, line)| !line.starts_with('@'))
         .filter_map(|(line_number, line)| parse_entry(line, line_number))
-        .collect()
 }
 
 /// "@revoked" の印が付いた行だけをパースする
-pub(crate) fn parse_revoked_keys(content: &str) -> Vec<KnownHost> {
-    entry_lines(content)
-        .filter_map(|(line_number, line)| {
-            let rest = line.strip_prefix("@revoked")?;
-            if !rest.starts_with([' ', '\t']) {
-                return None;
-            }
-            parse_entry(rest.trim_start(), line_number)
-        })
-        .collect()
+fn parse_revoked_keys(content: &str) -> impl Iterator<Item = KnownHost<'_>> {
+    entry_lines(content).filter_map(|(line_number, line)| {
+        let rest = line.strip_prefix("@revoked")?;
+        if !rest.starts_with([' ', '\t']) {
+            return None;
+        }
+        parse_entry(rest.trim_start(), line_number)
+    })
 }
 
 /// 空行とコメントを除いた行を、1始まりの行番号と前後の空白を除いた内容で返す
@@ -285,13 +285,13 @@ fn entry_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 /// "ホスト 種別 鍵 [コメント]" の一行をパースする
 ///
 /// OpenSSH と同じく、フィールドはタブや連続した空白で区切られていてもよい。
-fn parse_entry(line: &str, line_number: usize) -> Option<KnownHost> {
+fn parse_entry(line: &str, line_number: usize) -> Option<KnownHost<'_>> {
     let mut fields = line.split_whitespace();
     let (hostname_pattern, key_type, key_base64) = (fields.next()?, fields.next()?, fields.next()?);
     Some(KnownHost {
-        hostname_pattern: hostname_pattern.to_string(),
-        key_type: key_type.to_string(),
-        key_base64: key_base64.to_string(),
+        hostname_pattern,
+        key_type,
+        key_base64,
         line_number,
     })
 }
@@ -528,7 +528,7 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         // ポート22のエントリはポート22にマッチする
         let entry_22 = format_host_entry("example.com", 22);
         assert!(host_matches(
-            &entries[0].hostname_pattern,
+            entries[0].hostname_pattern,
             &entry_22,
             "example.com",
             22
@@ -536,7 +536,7 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
 
         // "[example.com]:2222" パターンはポート22の host_entry にはマッチしない
         assert!(!host_matches(
-            &entries[1].hostname_pattern,
+            entries[1].hostname_pattern,
             &entry_22,
             "example.com",
             22
@@ -545,7 +545,7 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         // ポート2222のエントリはポート2222にマッチする
         let entry_2222 = format_host_entry("example.com", 2222);
         assert!(host_matches(
-            &entries[1].hostname_pattern,
+            entries[1].hostname_pattern,
             &entry_2222,
             "example.com",
             2222
@@ -619,6 +619,26 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
     // ── judge_host_key ──
 
     const ED25519_KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIKxx";
+
+    #[test]
+    fn the_first_same_host_and_key_type_still_decides_between_trusted_and_changed() {
+        for (keys, expected) in [
+            (
+                ["other-key", ED25519_KEY],
+                HostKeyJudgement::Changed { line: 1 },
+            ),
+            ([ED25519_KEY, "other-key"], HostKeyJudgement::Trusted),
+        ] {
+            let content = format!(
+                "example.com ssh-ed25519 {}\nexample.com ssh-ed25519 {}\n",
+                keys[0], keys[1]
+            );
+            assert_eq!(
+                judge_host_key(&content, "example.com", 22, "ssh-ed25519", ED25519_KEY),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn a_host_registered_only_with_another_key_type_presents_an_unknown_key() {
