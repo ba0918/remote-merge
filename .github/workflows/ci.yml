@@ -76,6 +76,9 @@ jobs:
       - name: Run tests
         env:
           REMOTE_MERGE_TEST_REQUIRE_FISH: "1"
+          # 配置テストはこの CLI をエージェントに使うため、デバッグ情報で 100MB 上限を超えないようにする。
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           test_home=$(mktemp -d)
