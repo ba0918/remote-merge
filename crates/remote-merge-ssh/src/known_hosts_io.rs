@@ -127,14 +127,19 @@ mod tests {
     use super::*;
     use crate::known_hosts::{HostKeyJudgement, judge_host_key};
 
+    const OLD_KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea";
+    const NEW_KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAID1AF8PoQ4lakrcKp00bfrycmCzPLsSWjMDNVfEq9GYM";
+
     #[test]
     fn appending_preserves_and_separates_an_unterminated_host_entry() {
-        assert_append_preserves_entries("old.example ssh-ed25519 old-key");
+        assert_append_preserves_entries(&format!("old.example ssh-ed25519 {OLD_KEY}"));
     }
 
     #[test]
     fn appending_separates_an_unterminated_final_comment() {
-        assert_append_preserves_entries("old.example ssh-ed25519 old-key\n# final comment");
+        assert_append_preserves_entries(&format!(
+            "old.example ssh-ed25519 {OLD_KEY}\n# final comment"
+        ));
     }
 
     #[test]
@@ -152,16 +157,19 @@ mod tests {
     }
 
     fn assert_append_preserves_entries(original: &str) {
+        for key in [OLD_KEY, NEW_KEY] {
+            russh::keys::PublicKey::from_openssh(&format!("ssh-ed25519 {key}")).unwrap();
+        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("known_hosts");
         std::fs::write(&path, original).unwrap();
-        append_known_hosts_entry(Some(&path), "new.example", 22, "ssh-ed25519", "new-key");
+        append_known_hosts_entry(Some(&path), "new.example", 22, "ssh-ed25519", NEW_KEY);
         let content = std::fs::read_to_string(path).unwrap();
         assert_eq!(
             content,
-            format!("{original}\nnew.example ssh-ed25519 new-key\n")
+            format!("{original}\nnew.example ssh-ed25519 {NEW_KEY}\n")
         );
-        for (host, key) in [("old.example", "old-key"), ("new.example", "new-key")] {
+        for (host, key) in [("old.example", OLD_KEY), ("new.example", NEW_KEY)] {
             assert_eq!(
                 judge_host_key(&content, host, 22, "ssh-ed25519", key),
                 HostKeyJudgement::Trusted
