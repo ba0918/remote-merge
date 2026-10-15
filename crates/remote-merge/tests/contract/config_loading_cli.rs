@@ -41,10 +41,15 @@ impl Workspace {
     }
 
     fn global_config_path(&self) -> PathBuf {
-        self.home()
-            .join(".config")
+        self.xdg_config_home()
             .join("remote-merge")
             .join("config.toml")
+    }
+
+    /// OS の設定ディレクトリ（XDG_CONFIG_HOME）。ホームの ".config" とは別の場所にして、どちらを
+    /// 読んだかをテストが見分けられるようにする（REQ-config-045）
+    fn xdg_config_home(&self) -> PathBuf {
+        self.root().join("xdg-config")
     }
 
     /// 一時ディレクトリの下にディレクトリを作って返す
@@ -104,13 +109,30 @@ impl Workspace {
 
     /// cwd で `status --left local --right develop` を起動する。config があれば --config に渡す
     fn status(&mut self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
+        self.status_with_env(cwd, config, format, true)
+    }
+
+    /// [`status`](Self::status) の、XDG_CONFIG_HOME を置かないもの（REQ-config-045 の既定の場所）
+    fn status_without_xdg(&mut self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
+        self.status_with_env(cwd, config, format, false)
+    }
+
+    fn status_with_env(
+        &mut self,
+        cwd: &Path,
+        config: Option<&str>,
+        format: &[&str],
+        xdg: bool,
+    ) -> Output {
         for (path, local_root) in self.written.clone() {
             self.dirs.assert_isolated_config_at(&path, &local_root);
         }
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
         cmd.env_clear();
         cmd.env("HOME", self.home());
-        cmd.env("XDG_CONFIG_HOME", self.home().join(".config"));
+        if xdg {
+            cmd.env("XDG_CONFIG_HOME", self.xdg_config_home());
+        }
         cmd.env("XDG_DATA_HOME", self.root().join("xdg-data"));
         if let Ok(path) = std::env::var("PATH") {
             cmd.env("PATH", path);
@@ -252,6 +274,28 @@ fn the_global_config_is_read_from_the_os_config_directory() {
     assert_eq!(listed_paths(&json), ["from-global.txt"]);
 }
 
+// XDG_CONFIG_HOME がないときは、ホームの ".config" の下から読む
+// @kotowari[REQ-config-045]
+#[cfg(target_os = "linux")]
+#[test]
+fn the_global_config_is_read_from_the_home_config_directory_without_xdg() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("global-local", "from-home.txt");
+    let path = workspace
+        .home()
+        .join(".config")
+        .join("remote-merge")
+        .join("config.toml");
+    workspace.write_config(&path, &local);
+
+    let output = workspace.status_without_xdg(&cwd, None, &["--format", "json"]);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(listed_paths(&json), ["from-home.txt"]);
+}
+
 // @kotowari[REQ-config-007]
 #[test]
 fn config_option_naming_a_missing_file_stops_with_its_absolute_path() {
@@ -382,7 +426,10 @@ fn a_config_without_a_local_root_dir_stops() {
 
     let output = workspace.status(&cwd, None, &[]);
 
-    assert_stops_with(&output, "[local] section is required");
+    // 文言は IR が定めていないので固めない。止まることと、何も出さないことを確かめる
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert!(!combined_output(&output).is_empty(), "{output:?}");
 }
 
 // @kotowari[REQ-config-040]
