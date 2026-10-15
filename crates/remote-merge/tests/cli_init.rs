@@ -76,10 +76,10 @@ fn test_init_creates_config_file() {
         "config should contain root_dir '/var/www', got: {}",
         content
     );
-    // デフォルトのサーバー名 "develop" が反映されている
+    // デフォルトのサーバー名 "develop" のセクションが反映されている（値は contract/init.rs が確かめる）
     assert!(
-        content.contains("[servers.develop]") || content.contains("develop"),
-        "config should contain server name 'develop', got: {}",
+        content.contains("[servers.develop]"),
+        "config should contain the [servers.develop] section, got: {}",
         content
     );
 }

@@ -77,7 +77,18 @@ pub fn prompt_input<R: BufRead, W: Write>(
     input.server_name = prompt_with_default(reader, writer, "Server name", &input.server_name)?;
     input.host = prompt_required(reader, writer, "Hostname")?;
     input.user = prompt_with_default(reader, writer, "Username", &input.user)?;
-    input.auth = prompt_with_default(reader, writer, "Auth method [key/password]", &input.auth)?;
+    loop {
+        let answer =
+            prompt_with_default(reader, writer, "Auth method [key/password]", &input.auth)?;
+        // ツール自身が読める値（"key" か "password"）だけを受け付ける。大文字小文字は問わない
+        // （"Password" をそのまま書くと、次のコマンドが設定を読めない）
+        let normalized = answer.trim().to_ascii_lowercase();
+        if normalized == "key" || normalized == "password" {
+            input.auth = normalized;
+            break;
+        }
+        writeln!(writer, "Please answer 'key' or 'password'.")?;
+    }
 
     if input.auth == "key" {
         let key = prompt_with_default(reader, writer, "SSH key path", "~/.ssh/id_rsa")?;

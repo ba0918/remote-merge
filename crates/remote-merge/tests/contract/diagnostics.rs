@@ -26,6 +26,68 @@ fn logs_command_reads_a_saved_diagnostic_entry() {
     assert_eq!(first["level"], "ERROR");
 }
 
+// 読み手が先に閉じても panic せず、終了コード 101 にしない
+// @kotowari[REQ-cli-014]
+#[cfg(unix)]
+#[test]
+fn logs_does_not_panic_when_the_reader_closes_the_pipe() {
+    use std::io::Read as _;
+    use std::os::unix::process::ExitStatusExt as _;
+    use std::process::Stdio;
+
+    let home = TempDir::new().unwrap();
+    let cache = home.path().join("cache");
+    let log_dir = cache.join("remote-merge");
+    fs::create_dir_all(&log_dir).unwrap();
+    let entry = r#"{"timestamp":"2026-01-01T00:00:00Z","level":"ERROR","target":"remote_merge::ssh","message":"Connection lost during read","fields":{}}
+"#;
+    // パイプの緩衝より長くして、読み手が閉じた後に書き込みが続くようにする
+    fs::write(log_dir.join("debug.log"), entry.repeat(2000)).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", &cache)
+        .args(["logs"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        // 1 行だけ読んで、パイプを閉じる
+        let stdout = child.stdout.as_mut().unwrap();
+        let mut byte = [0u8; 1];
+        stdout.read_exact(&mut byte).unwrap();
+    }
+    drop(child.stdout.take());
+    let status = child.wait().unwrap();
+
+    assert_ne!(status.code(), Some(101), "panicked: {status:?}");
+    // SIGPIPE（13）で終わるのが既定の扱い（読み手が先に閉じたことを静かに受け取る）
+    assert_eq!(status.signal(), Some(13), "{status:?}");
+}
+
+// logs は --format に text と json だけを受け付ける（"diff" は知らない値。REQ-cli-014）
+// @kotowari[REQ-cli-014]
+#[test]
+fn logs_rejects_the_diff_format() {
+    let home = TempDir::new().unwrap();
+    let cache = home.path().join("cache");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", &cache)
+        .args(["logs", "--format", "diff"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unknown format: 'diff' (expected text or json)"),
+        "{stderr}"
+    );
+}
+
 /// SSH の試験サーバーに password 認証でつなぐ設定と、診断ログの置き場を一時ディレクトリへ向けた
 /// 実行ファイルの起動を用意する
 #[cfg(all(unix, feature = "test-utils"))]

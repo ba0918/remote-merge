@@ -53,7 +53,7 @@ fn resolve_target(target: Option<&str>, is_list: bool) -> anyhow::Result<Side> {
 
 /// rollback サブコマンドを実行する
 pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32> {
-    let format = OutputFormat::parse(&args.format)?;
+    let format = OutputFormat::parse_text_or_json(&args.format)?;
     let result = execute_rollback(args, config, RuntimeTargets::production())?;
     print_rollback_result(&result.output, format)?;
     Ok(result.exit_code)
@@ -68,7 +68,7 @@ pub fn execute_rollback(
     config: AppConfig,
     targets: RuntimeTargets,
 ) -> anyhow::Result<RollbackCommandResult> {
-    OutputFormat::parse(&args.format)?;
+    OutputFormat::parse_text_or_json(&args.format)?;
     let side = resolve_target(args.target.as_deref(), args.list)?;
     let now = targets.now();
     let retention_days = config.backup.retention_days;

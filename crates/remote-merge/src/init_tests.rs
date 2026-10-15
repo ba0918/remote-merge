@@ -116,6 +116,37 @@ fn test_prompt_input_custom_values() {
     assert_eq!(result.exclude, vec!["*.log", "*.tmp"]);
 }
 
+// auth の答えは大文字小文字を問わず受け付け、ツールが読める値（小文字）にする。
+// 読めない値は問い直す（"Password" をそのまま書くと、次のコマンドが設定を読めない）
+// @kotowari[REQ-cli-012]
+#[test]
+fn test_prompt_input_normalizes_the_auth_answer() {
+    let input_text = "staging\nstaging.example.com\nweb\nPassword\n/opt/app\n\n\n";
+    let mut reader = io::Cursor::new(input_text);
+    let mut writer = Vec::new();
+
+    let result = prompt_input(&mut reader, &mut writer).unwrap();
+
+    assert_eq!(result.auth, "password");
+}
+
+// @kotowari[REQ-cli-012]
+#[test]
+fn test_prompt_input_asks_again_for_an_unknown_auth_answer() {
+    let input_text = "staging\nstaging.example.com\nweb\nfoo\nkey\n\n/opt/app\n\n\n";
+    let mut reader = io::Cursor::new(input_text);
+    let mut writer = Vec::new();
+
+    let result = prompt_input(&mut reader, &mut writer).unwrap();
+
+    assert_eq!(result.auth, "key");
+    let shown = String::from_utf8(writer).unwrap();
+    assert!(
+        shown.contains("Please answer 'key' or 'password'."),
+        "{shown}"
+    );
+}
+
 // 入力が途中で終わったら、同じ問いを繰り返さずに止める（書く設定がそろわないので書かない）
 // @kotowari[REQ-cli-012]
 #[test]

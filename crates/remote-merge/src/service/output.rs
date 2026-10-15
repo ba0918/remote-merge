@@ -20,12 +20,22 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    /// 文字列からパースする
+    /// 文字列からパースする（"diff" を text と同じに扱う。status・merge・diff の値）
     pub fn parse(s: &str) -> anyhow::Result<Self> {
         match s {
             "text" | "diff" => Ok(Self::Text),
             "json" => Ok(Self::Json),
             other => anyhow::bail!("Unknown format: '{}' (expected text, json, or diff)", other),
+        }
+    }
+
+    /// 文字列からパースする（"diff" を受け付けない。rollback・logs・sync の値。help も text と
+    /// json だけを示す）
+    pub fn parse_text_or_json(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "text" => Ok(Self::Text),
+            "json" => Ok(Self::Json),
+            other => anyhow::bail!("Unknown format: '{}' (expected text or json)", other),
         }
     }
 }

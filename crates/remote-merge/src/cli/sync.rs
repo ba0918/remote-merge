@@ -62,7 +62,7 @@ fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<Vec<RelPath>> {
 
 /// sync サブコマンドを実行する
 pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
-    let format = OutputFormat::parse(&args.format)?;
+    let format = OutputFormat::parse_text_or_json(&args.format)?;
     let result = execute_sync(args, config, RuntimeTargets::production())?;
     print_sync_result(&result, format)?;
     Ok(result.exit_code)
@@ -78,7 +78,7 @@ pub fn execute_sync(
     targets: RuntimeTargets,
 ) -> anyhow::Result<SyncCommandResult> {
     let paths = validate_sync_args(&args)?;
-    OutputFormat::parse(&args.format)?;
+    OutputFormat::parse_text_or_json(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
     let servers: Vec<String> = config.servers.keys().cloned().collect();
     let (source, destinations) =

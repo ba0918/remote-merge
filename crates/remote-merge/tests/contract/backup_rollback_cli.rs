@@ -17,6 +17,28 @@ use super::backup_support::{
     store_entries, targets,
 };
 
+// rollback は --format に text と json だけを受け付ける（"diff" は知らない値。REQ-backup-037）
+// @kotowari[REQ-backup-037]
+#[test]
+fn rollback_rejects_the_diff_format() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let config = config(&local, &develop, true);
+    let mut args = rollback_list_args("develop");
+    args.format = "diff".into();
+
+    let error = match execute_rollback(args, config, targets(&develop, &store)) {
+        Ok(_) => panic!("the format is rejected"),
+        Err(error) => error,
+    };
+
+    assert!(
+        format!("{error:#}").contains("Unknown format: 'diff' (expected text or json)"),
+        "{error:#}"
+    );
+}
+
 /// 戻せるもの・スキップするもの・失敗するものを一つずつ含むセッションを作り、
 /// 書き戻しの結果を返す。
 fn restored_skipped_and_failed() -> (RollbackOutput, i32) {

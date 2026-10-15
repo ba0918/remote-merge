@@ -22,7 +22,7 @@ pub struct LogsArgs {
 
 /// logs サブコマンドを実行する
 pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
-    let format = OutputFormat::parse(&args.format)?;
+    let format = OutputFormat::parse_text_or_json(&args.format)?;
     if let Some(level) = &args.level
         && log_reader::level_rank(level).is_none()
     {

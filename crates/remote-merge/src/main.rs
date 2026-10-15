@@ -1,5 +1,4 @@
 #![warn(clippy::unwrap_used)]
-#![forbid(unsafe_code)]
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -52,10 +51,10 @@ enum Commands {
         /// Right side of comparison [default: first server in config, alphabetical]
         #[arg(long)]
         right: Option<String>,
-        /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
+        /// Reference server for 3-way comparison (shows [ref≠] badges and ref counts; the diff itself is shown by `diff`)
         #[arg(long)]
         r#ref: Option<String>,
-        /// Output format (text, json)
+        /// Output format (text, json, diff)
         #[arg(long, default_value = "text")]
         format: String,
         /// Show only summary counts instead of file list
@@ -86,7 +85,7 @@ enum Commands {
         /// Reference server for 3-way comparison (shows ref vs left diff and conflicts)
         #[arg(long)]
         r#ref: Option<String>,
-        /// Output format (text, json)
+        /// Output format (text, json, diff)
         #[arg(long, default_value = "text")]
         format: String,
         /// Maximum number of change lines (added/removed) per file diff. Context lines are not counted. Use 0 for unlimited.
@@ -135,7 +134,7 @@ enum Commands {
         /// Compare file contents within directories even when metadata matches
         #[arg(long)]
         checksum: bool,
-        /// Output format (text, json)
+        /// Output format (text, json, diff)
         #[arg(long, default_value = "text")]
         format: String,
         /// Maximum number of entries to scan (1-1,000,000). Overrides config.
@@ -238,12 +237,31 @@ enum Commands {
 }
 
 fn main() {
+    sigpipe::restore_default();
     if let Err(e) = try_main() {
         eprintln!(
             "Error: {}",
             remote_merge::runtime::command_error_message(&e)
         );
         std::process::exit(remote_merge::service::types::exit_code::ERROR);
+    }
+}
+
+/// 壊れたパイプで panic しないように、SIGPIPE の扱いを既定（プロセスを終える）に戻す。
+/// Rust は起動時に SIGPIPE を無視するので、`head` や `less` のように読み手が先に閉じたときに
+/// `println!` が EPIPE で panic し、終了コード 101 になる（利用者が記録を絞って読む入口を壊す。
+/// REQ-cli-014）。安全のため、起動の直後（ほかのスレッドが動く前）に一度だけ呼ぶ
+mod sigpipe {
+    #![expect(
+        unsafe_code,
+        reason = "SIGPIPE の扱いを既定に戻すのに signal(2) を呼ぶ。このモジュールだけに閉じる"
+    )]
+
+    pub(super) fn restore_default() {
+        // SAFETY: 渡すのは固定の定数だけで、起動の直後でほかのスレッドは動いていない
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
     }
 }
 
