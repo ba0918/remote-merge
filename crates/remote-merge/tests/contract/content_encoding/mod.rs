@@ -435,3 +435,31 @@ fn ex_merge_073_first_line_merge_keeps_destination_bom() {
         b"\xef\xbb\xbfnew\r\nend"
     );
 }
+
+// @kotowari[REQ-content-002, REQ-merge-032, REQ-merge-046]
+#[test]
+fn req_merge_046_carriage_returns_keep_display_selection_aligned_with_source_bytes() {
+    for codec in [Encoding::Utf8, Encoding::EucJp, Encoding::ShiftJis] {
+        for (source, destination, expected) in [
+            (
+                b"new\rsame\r\nend\n".as_slice(),
+                b"old\rsame\r\nend\n".as_slice(),
+                b"new\rsame\r\nend\n".as_slice(),
+            ),
+            (b"new\rsame\r", b"old\rsame\r", b"new\rsame\r"),
+        ] {
+            let fixture = fixture();
+            fixture.write_bytes("local", "a", source);
+            fixture.write_bytes("develop", "a", destination);
+            let overrides = encodings(codec, codec);
+            let (value, code) = diff(&fixture, &["a"], overrides, false);
+            assert_eq!(code, 1);
+            assert_eq!(entry(&value, "a")["hunks"].as_array().unwrap().len(), 1);
+            let mut args = merge_args(&["a"]);
+            args.encodings = overrides;
+            args.hunks = Some(vec![0]);
+            assert_eq!(fixture.merge_json(args).1, 0);
+            assert_eq!(fixture.read_bytes("develop", "a"), expected);
+        }
+    }
+}

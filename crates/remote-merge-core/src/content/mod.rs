@@ -89,7 +89,8 @@ fn line_ranges(bytes: &[u8], offset: usize) -> Vec<Range<usize>> {
     let mut start = offset;
     let mut ranges = Vec::new();
     for (index, byte) in bytes.iter().enumerate().skip(offset) {
-        if *byte == b'\n' {
+        // similar treats a lone CR as a line ending too; LF-only spans misalign its indices.
+        if *byte == b'\n' || (*byte == b'\r' && bytes.get(index + 1) != Some(&b'\n')) {
             ranges.push(start..index + 1);
             start = index + 1;
         }
