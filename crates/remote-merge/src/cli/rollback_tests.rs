@@ -27,6 +27,7 @@ fn test_invalid_format_rejected() {
         agent: crate::config::AgentConfig::default(),
         defaults: crate::config::DefaultsConfig::default(),
         max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        content: Default::default(),
     };
     let args = RollbackArgs {
         target: Some("local".into()),

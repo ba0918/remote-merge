@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawConfig {
+    pub(crate) content: Option<crate::content::RawContent>,
     pub(crate) servers: Option<HashMap<String, RawServerConfig>>,
     pub(crate) local: Option<RawLocalConfig>,
     pub(crate) filter: Option<RawFilterConfig>,

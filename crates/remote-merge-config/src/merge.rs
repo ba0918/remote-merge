@@ -173,7 +173,10 @@ pub(crate) fn merge_configs(
         raw_val
     };
 
+    let content =
+        crate::content::merge_content(global.content, project.and_then(|p| p.content), &servers)?;
     Ok(AppConfig {
+        content,
         servers,
         local,
         filter,

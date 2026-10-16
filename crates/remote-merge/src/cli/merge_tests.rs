@@ -59,6 +59,7 @@ fn dummy_config() -> crate::config::AppConfig {
         agent: crate::config::AgentConfig::default(),
         defaults: crate::config::DefaultsConfig::default(),
         max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        content: Default::default(),
     }
 }
 

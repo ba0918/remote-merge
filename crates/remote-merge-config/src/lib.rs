@@ -3,6 +3,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 use remote_merge_core::{error, filter};
 
+pub mod content;
 mod loading;
 mod merge;
 mod parse_error;

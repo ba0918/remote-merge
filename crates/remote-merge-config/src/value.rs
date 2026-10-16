@@ -18,6 +18,7 @@ use std::path::PathBuf;
 /// アプリケーション全体の設定
 #[derive(Debug, Clone)]
 pub struct AppConfig {
+    pub content: crate::content::ContentConfig,
     pub servers: BTreeMap<String, ServerConfig>,
     pub local: LocalConfig,
     pub filter: FilterConfig,
@@ -1741,6 +1742,7 @@ include = ["src/lib", "ja/Back"]
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
+            content: Default::default(),
         }
     }
 

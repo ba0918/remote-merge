@@ -20,6 +20,13 @@ use std::path::{Component, Path};
 ///
 /// セキュリティ: `../` を含むパターンはスキップされる（パストラバーサル防止）。
 pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
+    patterns
+        .iter()
+        .any(|pattern| matches_path_pattern(path, pattern))
+}
+
+pub fn matches_path_pattern(path: &str, pattern: &str) -> bool {
+    let patterns = [pattern];
     if patterns.is_empty() {
         return false;
     }
