@@ -1,6 +1,6 @@
 [package]
 name = "remote-merge"
-version = "0.3.1"
+version = "0.3.2"
 edition.workspace = true
 rust-version.workspace = true
 description = "CLI tool for comparing and merging files between local and remote servers via SSH"
