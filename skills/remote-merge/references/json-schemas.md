@@ -100,6 +100,25 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
+### Content interpretation
+
+Text file entries add `encodings` with canonical `utf-8`, `euc-jp`, or `shift_jis` names for each decoded, present side. Missing and binary sides are omitted. For example, a UTF-8 file and an EUC-JP file containing the same text have:
+
+```json
+{
+  "encodings": {"left": "utf-8", "right": "euc-jp"},
+  "byte_only_difference": true,
+  "hunks": [],
+  "left_hash": "raw-left-sha256...",
+  "right_hash": "raw-right-sha256...",
+  "note": "byte-only representation difference; decoded text is equal"
+}
+```
+
+This is counted as a changed file (exit 1), not binary. BOM-only differences have the same shape.
+LF/CRLF differences and final-newline differences are line changes, not byte-only differences.
+Explicit decoding failures produce top-level `errors` entries with `path` and a `reason` naming the role and codec, and exit 2. Left/right failures exclude that file from `files` and changed counts; reference-only failures retain the left/right diff but omit `ref_hunks`, `ref_hash` and conflict results. Other files continue, including within output limits.
+
 ### Symlink
 
 ```json
@@ -128,6 +147,8 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `--max-lines` also applies to `ref_hunks`; the file's `truncated` is true when either diff was cut.
 
 ## merge
+
+Whole-file dry-run entries in `merged` add `copy_note`: `"Copies source bytes unchanged, without encoding conversion"`. Sync uses the same field in each target's `merged` entries. It is absent for hunk previews, which select raw source spans while preserving unselected destination bytes, and for actual writes. Encoding settings never transcode whole-file copies, backups or rollback.
 
 ```json
 {

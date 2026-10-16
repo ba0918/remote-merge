@@ -216,7 +216,7 @@ Duration shorthand for `--since`: `30s`, `5m`, `1h`, `2d`.
 
 ## Configuration
 
-Two config files (project overrides global; `[filter]` sections are merged as union):
+Two config files (project overrides global; `[filter]` sections are merged as union; `[content]` follows the content-selection rules below):
 - **Global:** `remote-merge/config.toml` under the OS config directory (`$XDG_CONFIG_HOME` or `~/.config` on Linux, `~/Library/Application Support` on macOS)
 - **Project:** `.remote-merge.toml`
 
@@ -303,6 +303,43 @@ Keys and sections the tool does not know are errors: a config file that has one 
 
 - **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
 - **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
+
+### Content encodings
+
+When non-UTF-8 files need text diffs, configure content separately from SSH:
+
+```toml
+[content.defaults]
+develop = "euc-jp"
+
+[[content.rules]]
+side = "develop"
+path = "old/**"
+encoding = "cp932"
+
+[[content.rules]]
+side = "develop"
+path = "new/**"
+encoding = "utf-8"
+```
+
+`side` is `local` or a configured server name. `path` uses the exclude-pattern matching rules.
+Names are case-insensitive: `utf-8`, `euc-jp`, `shift_jis`, `cp932`, `windows-31j`, `binary`.
+The three Shift_JIS names use encoding_rs's CP932 / Windows-31J mapping, not strict JIS Shift_JIS.
+Project defaults override only keys they contain. Rules concatenate global then project; the last matching rule wins, even over project defaults.
+For diff and merge, `--left-encoding`, `--right-encoding`, and `--ref-encoding` override only that role, above all rules and defaults. Use the same selections for diff and hunk merge:
+
+```bash
+remote-merge diff old/a.php --left local --right develop --left-encoding cp932 --right-encoding cp932 --format json
+remote-merge merge old/a.php --left local --right develop --left-encoding cp932 --right-encoding cp932 --hunks 1 --dry-run --format json
+```
+
+Without a selection, invalid UTF-8 remains binary. A NUL in the first 8,192 bytes is binary regardless of codec; explicit `binary` disables text interpretation.
+Explicit decoding failures are errors, never replacement text. A reference-only failure leaves the left/right diff but suppresses reference hunks and conflict results; do not treat this as conflict-free.
+Hunk merge requires matching codecs on both existing files, preserves destination bytes in unselected/equal lines and its BOM, and takes selected byte spans from the source. Missing files have no codec; a new destination inherits source bytes and BOM.
+`--force` skips reference conflict checks, not decoding or the same-codec requirement.
+Whole-file merge and sync copy source bytes unchanged, without encoding conversion. Their dry-run entries carry `copy_note`; hunk previews do not. Backup and rollback preserve raw bytes even after encoding settings change.
+For per-side `encodings`, `byte_only_difference`, hashes and errors, read [references/json-schemas.md](references/json-schemas.md#content-interpretation).
 
 A `.remote-merge-backup/` directory that earlier versions left in a write target is no longer skipped: it is scanned, compared, merged, synced and deleted like any other directory. To keep it out, add `".remote-merge-backup"` to `exclude`.
 

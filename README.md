@@ -106,7 +106,7 @@ Options:
 | グローバル | OS の設定ディレクトリの下の `remote-merge/config.toml`（Linux は `$XDG_CONFIG_HOME` か `~/.config`、macOS は `~/Library/Application Support`） |
 | プロジェクト | `.remote-merge.toml`（カレントディレクトリ） |
 
-プロジェクト設定はグローバル設定を上書きする（`[filter]` セクションのみ和集合でマージ）。
+プロジェクト設定はグローバル設定を上書きする（`[filter]` は和集合、`[content]` は下記の規則で合成する）。
 
 ```toml
 [local]
@@ -131,6 +131,51 @@ strict_host_key_checking = "ask"  # "yes", "no", "ask"
 enabled = true
 retention_days = 7
 ```
+
+### ファイル内容の文字コード
+
+diff と部分マージは、接続先と相対パスごとに文字コードを指定できる。
+SSH の接続設定には加えず、内容の設定として書く。
+
+```toml
+[content.defaults]
+develop = "euc-jp"
+
+[[content.rules]]
+side = "develop"
+path = "old/**"
+encoding = "cp932"
+
+[[content.rules]]
+side = "develop"
+path = "new/**"
+encoding = "utf-8"
+```
+
+指定できる名前は、大文字小文字を区別せず `utf-8`、`euc-jp`、`shift_jis`、`cp932`、`windows-31j`、`binary`。
+Shift_JIS 系の三つの名前は encoding_rs の CP932（Windows-31J 相当）を使い、厳密な JIS 版ではない。
+`side` は `local` または設定にあるサーバ名で、`path` は exclude と同じ照合方法を使う。
+
+既定値はプロジェクトにあるキーだけを優先する。
+ルールはグローバル、プロジェクトの順につなぎ、最後の一致を使う。
+そのため、継承したパスルールもプロジェクトの既定値より優先する。
+diff と merge の `--left-encoding`、`--right-encoding`、`--ref-encoding` は、その側だけを全ルールより優先して上書きする。
+
+```bash
+remote-merge diff old/a.php --left local --right develop --right-encoding cp932 --format json
+remote-merge merge old/a.php --left local --right develop --left-encoding cp932 --right-encoding cp932 --hunks 1 --dry-run
+```
+
+未指定時は従来どおり、非 UTF-8 と先頭 8,192 バイトに NUL がある内容をバイナリとして扱う。
+明示した文字コードでデコードできない場合は、置換せずエラーにする。
+部分マージは既存の左右が同じ文字コードのテキストのときだけ使え、選んだ変更には読み込み元のバイトを使い、それ以外の文字と改行と BOM は書き込み先のまま残す。
+ない側には文字コードを持たせず、新規作成先には読み込み元のバイトと BOM を引き継ぐ。
+全体の merge と sync は文字コードを変換せず元バイトをそのまま転送し、バックアップと rollback も元バイトを保存、復元する。
+
+JSON の diff は `encodings` に実際に使った側ごとの文字コードを示す。
+本文が同じで元バイトだけが違う場合は `byte_only_difference: true`、空の `hunks`、元バイトのハッシュと説明を出す。
+全体コピーの dry-run の `merged` 項目には、変換しないことを示す `copy_note` が入る（部分マージには入らない）。
+出力の詳細は [JSON の手引き](skills/remote-merge/references/json-schemas.md#diff) を参照。
 
 ## License
 
