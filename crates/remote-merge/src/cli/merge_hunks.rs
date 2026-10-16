@@ -4,10 +4,10 @@
 
 use std::collections::BTreeSet;
 
-use remote_merge_core::compare::{Role, SideFailure, SideState, Undecidable, Verdict};
-use remote_merge_core::diff::engine::is_binary;
+use remote_merge_core::compare::{Role, SideState, Undecidable, Verdict};
 use remote_merge_core::relative_path::RelPath;
-use remote_merge_engine::treat::hunk_merge::{HunkError, HunkMerge, merge_selected_hunks};
+use remote_merge_engine::treat::content::{Context, prepare};
+use remote_merge_engine::treat::hunk_merge::{HunkError, merge_prepared};
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::HunkUses;
@@ -80,48 +80,35 @@ pub(super) fn merge_hunks(
     {
         return Ok(failed(&path, why.to_string()));
     }
-    // 読めなかった側はどれも、ファイル全体の merge と同じ形の理由に並べる（REQ-compare-014）
-    let mut unread = Vec::new();
-    let mut body = |role: Role| -> anyhow::Result<&[u8]> {
-        match (state(role), compared.contents.get(&role)) {
-            (Some(SideState::Absent), _) => Ok(&[]),
-            (_, Some(Ok(content))) => Ok(content.as_slice()),
-            (_, Some(Err(failure))) => {
-                unread.push(SideFailure {
-                    role,
-                    failure: failure.clone(),
-                });
-                Ok(&[])
-            }
-            (_, None) => anyhow::bail!("'{path}' is not a regular file on both sides"),
-        }
+    let context = Context {
+        config: &core.config.content,
+        sides: [
+            (Role::Left, sides.left.clone()),
+            (Role::Right, sides.right.clone()),
+        ]
+        .into_iter()
+        .chain(sides.reference.clone().map(|side| (Role::Ref, side)))
+        .collect(),
+        overrides: args.encodings,
     };
-    let (left, right) = match (body(Role::Left), body(Role::Right)) {
-        (Ok(left), Ok(right)) => (left, right),
-        (Err(error), _) | (_, Err(error)) => return Ok(failed(&path, format!("{error:#}"))),
-    };
-    if !unread.is_empty() {
-        return Ok(failed(&path, Undecidable::ReadFailed(unread).to_string()));
-    }
-    if is_binary(left) || is_binary(right) {
-        anyhow::bail!("Hunk merge is not supported for binary files: '{path}'");
-    }
-    let (left, right) = (std::str::from_utf8(left)?, std::str::from_utf8(right)?);
-    let reference = match (reference_check, compared.contents.get(&Role::Ref)) {
-        (true, Some(Ok(reference))) => Some(reference.as_slice()),
-        // 参照先を読めなければ、競合がないことを確かめられない
-        (true, Some(Err(failure))) => {
-            anyhow::bail!("three-way comparison incomplete: {path}: {failure}")
-        }
-        (true, None) | (false, _) => None,
-    };
-    let (merged, total) = match merge_selected_hunks(left, right, reference, hunks) {
-        Ok(HunkMerge::NoChanges) => return Ok(no_changes(&path)),
-        Ok(HunkMerge::Merged { content, total }) => (content, total),
+    let view = prepare(compared, &path, &context, reference_check);
+    let (merged, total) = match merge_prepared(&view, hunks, reference_check) {
+        Ok(None) => return Ok(no_changes(&path)),
+        Ok(Some(result)) => result,
         Err(HunkError::OutOfRange { index, total }) => {
             anyhow::bail!("Hunk index {index} is out of range (total hunks: {total})")
         }
         Err(HunkError::Conflict) => anyhow::bail!("three-way conflict: {path}"),
+        Err(HunkError::Binary) => {
+            anyhow::bail!("Hunk merge is not supported for binary files: '{path}'")
+        }
+        Err(HunkError::NotRegular) => {
+            return Ok(failed(
+                &path,
+                format!("'{path}' is not a regular file on both sides"),
+            ));
+        }
+        Err(HunkError::Invalid(reason)) => anyhow::bail!("{path}: {reason}"),
     };
     let info = HunkMergeInfo {
         hunks_applied: hunks
@@ -137,7 +124,7 @@ pub(super) fn merge_hunks(
         path: &path,
         comparison: compared,
         kind: ChangeKind::WriteFile,
-        content: Some(merged.as_bytes()),
+        content: Some(&merged),
     };
     if !args.dry_run {
         // 期限切れのバックアップは、--dry-run でない merge の初めに整理する（REQ-backup-025）

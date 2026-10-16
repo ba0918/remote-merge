@@ -132,6 +132,7 @@ fn req_cli_091_a_dry_run_merge_with_a_failure_exits_with_2() {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
 
     let result = execute_merge(args, fixture.config.clone(), fixture.targets.clone()).unwrap();

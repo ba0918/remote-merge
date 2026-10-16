@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use remote_merge_core::compare::{PathComparison, Role, SideState, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
+use super::content::{Context, Overrides, prepare};
 use super::diff::{DiffEntry, diff_entry};
-use super::diff_file::{Sources, diff_file};
+use super::diff_file::{Sources, prepared_file};
 use crate::service::types::{DiffError, MultiDiffOutput, MultiDiffSummary};
 
 /// root_dir の外へ解決される symlink を --follow-external-links なしで比べたときの理由
@@ -43,6 +44,22 @@ pub fn diff_listing(
     limits: Limits,
     coverage: &Coverage,
 ) -> MultiDiffOutput {
+    let config = Default::default();
+    let context = Context {
+        config: &config,
+        sides: Default::default(),
+        overrides: Overrides::default(),
+    };
+    diff_listing_with_content(paths, sources, limits, coverage, &context)
+}
+
+pub fn diff_listing_with_content(
+    paths: &BTreeMap<String, PathComparison>,
+    sources: &Sources,
+    limits: Limits,
+    coverage: &Coverage,
+    context: &Context<'_>,
+) -> MultiDiffOutput {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let (mut scanned, mut changed, mut shown) = (0, 0, 0);
@@ -64,6 +81,20 @@ pub fn diff_listing(
             DiffEntry::Changed(change) => Some(change),
         };
         scanned += 1;
+        let view = prepare(comparison, path, context, sources.reference.is_some());
+        let failed_sides: Vec<_> = [&view.left, &view.right]
+            .into_iter()
+            .filter_map(|result| result.as_ref().err().map(String::as_str))
+            .collect();
+        if !failed_sides.is_empty() {
+            errors.push(error(path, failed_sides.join("; ")));
+            continue;
+        }
+        if let Err(reason) = &view.reference
+            && reference_error(comparison).is_none()
+        {
+            errors.push(error(path, reason.clone()));
+        }
         let not_compared = not_compared(comparison);
         if let Some(reason) = not_compared {
             errors.push(error(path, reason.to_string()));
@@ -86,12 +117,13 @@ pub fn diff_listing(
         } else if not_compared.is_none() {
             continue;
         }
-        files.push(diff_file(
+        files.push(prepared_file(
             path,
             comparison,
             change,
             sources,
             limits.max_lines,
+            &view,
         ));
     }
     let truncated = limits.max_files != 0 && changed > limits.max_files;

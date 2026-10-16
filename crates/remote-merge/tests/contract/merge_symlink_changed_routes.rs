@@ -205,6 +205,7 @@ fn merge_after_change(
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     let output = merge_with_a_change_between(core, &args, || change.apply(destination_root));
     if let Some(skipped) = output.skipped.first() {

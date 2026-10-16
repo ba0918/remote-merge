@@ -109,6 +109,7 @@ fn diff_without_paths(fixture: ScopeFixture) -> anyhow::Result<()> {
         max_files: 0,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: Some(LIMIT),
     };
     let (output, _) = execute_diff(args, fixture.config, fixture.targets)?;
@@ -138,6 +139,7 @@ fn merge_dry_run(paths: &[&str], delete: bool) -> anyhow::Result<BTreeSet<String
         format: "json".into(),
         max_entries: Some(LIMIT),
         hunks: None,
+        encodings: Default::default(),
     };
     let result = execute_merge(args, fixture.config, fixture.targets)?;
     assert_eq!(result.exit_code, 0);

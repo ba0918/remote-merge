@@ -47,6 +47,7 @@ enabled = false
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
 
     let result = execute_merge(args, config, targets).unwrap();

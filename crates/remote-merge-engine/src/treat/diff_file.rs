@@ -4,11 +4,11 @@
 
 use remote_merge_core::compare::{PathComparison, Role, SideState};
 use remote_merge_core::diff::binary::compute_sha256;
-use remote_merge_core::diff::engine::is_binary;
+use remote_merge_core::diff::engine::PairScript;
 
+use super::content::{Context, Overrides, Prepared, View, empty_text, prepare};
 use super::diff::Change;
-use super::diff_conflicts::{Body, conflicts};
-use super::diff_hunks::shown_hunks;
+use super::diff_hunks::shown_script;
 use crate::service::types::{DiffOutput, LinkTargets, SourceInfo};
 
 /// 項目に載せる左右と参照先の名前と root_dir
@@ -29,12 +29,41 @@ pub fn diff_file(
     sources: &Sources,
     max_lines: Option<usize>,
 ) -> DiffOutput {
-    let left = body(comparison, Role::Left);
-    let right = body(comparison, Role::Right);
+    let config = Default::default();
+    let context = Context {
+        config: &config,
+        sides: Default::default(),
+        overrides: Overrides::default(),
+    };
+    let view = prepare(comparison, path, &context, sources.reference.is_some());
+    prepared_file(path, comparison, change, sources, max_lines, &view)
+}
+
+pub fn prepared_file(
+    path: &str,
+    comparison: &PathComparison,
+    change: Option<Change>,
+    sources: &Sources,
+    max_lines: Option<usize>,
+    view: &View<'_>,
+) -> DiffOutput {
+    let empty = empty_text();
+    let texts = view
+        .left
+        .as_ref()
+        .ok()
+        .and_then(|side| side.text_or_empty(&empty))
+        .zip(
+            view.right
+                .as_ref()
+                .ok()
+                .and_then(|side| side.text_or_empty(&empty)),
+        );
     let symlink = is_link(comparison, Role::Left) || is_link(comparison, Role::Right);
     let reference = shown_reference(comparison, sources);
-    let texts = text_of(left).zip(text_of(right));
     let mut output = DiffOutput {
+        encodings: view.encodings(),
+        byte_only_difference: false,
         path: path.to_string(),
         left: sources.left.clone(),
         right: sources.right.clone(),
@@ -65,50 +94,48 @@ pub fn diff_file(
     };
     match texts {
         Some((left_text, right_text)) => {
-            let shown = shown_hunks(left_text, right_text, max_lines);
+            let shown = shown_script(PairScript::new(left_text, right_text).display(), max_lines);
             output.hunks = shown.hunks;
             output.truncated = shown.truncated;
+            if left_text.text() == right_text.text() && left_text.raw() != right_text.raw() {
+                output.byte_only_difference = true;
+                output.left_hash = Some(compute_sha256(left_text.raw()));
+                output.right_hash = Some(compute_sha256(right_text.raw()));
+                output.note =
+                    Some("byte-only representation difference; decoded text is equal".into());
+            }
         }
         None => {
-            output.left_hash = hash(left);
-            output.right_hash = hash(right);
+            output.left_hash = view
+                .left
+                .as_ref()
+                .ok()
+                .and_then(Prepared::raw)
+                .map(compute_sha256);
+            output.right_hash = view
+                .right
+                .as_ref()
+                .ok()
+                .and_then(Prepared::raw)
+                .map(compute_sha256);
         }
     }
     if reference.is_some() && !symlink && files_only(comparison) {
-        with_reference(&mut output, comparison, (left, right), max_lines);
-    }
-    output
-}
-
-/// 参照先との差（左右と参照先がテキストなら左からの差、どれかがバイナリならハッシュ）と競合を足す。参照先が左右のファイルと
-/// 種類の違うものか、読めなかったときは、"ref" だけにする
-fn with_reference(
-    output: &mut DiffOutput,
-    comparison: &PathComparison,
-    (left, right): (Body, Body),
-    max_lines: Option<usize>,
-) {
-    let reference = match comparison.states.states.get(&Role::Ref) {
-        Some(SideState::Absent) => Body::Absent,
-        Some(SideState::File { .. }) => match body(comparison, Role::Ref) {
-            Body::Bytes(bytes) => Body::Bytes(bytes),
-            Body::Absent => return,
-        },
-        _ => return,
-    };
-    if let Body::Bytes(bytes) = reference {
-        match (text_of(left), text_of(Body::Bytes(bytes))) {
-            (Some(left_text), Some(ref_text)) if !output.binary => {
-                let shown = shown_hunks(left_text, ref_text, max_lines);
+        if let Ok(Prepared::Text(reference)) = &view.reference {
+            if let Some((left, _)) = texts {
+                let shown = shown_script(PairScript::new(left, reference).display(), max_lines);
                 output.ref_hunks = Some(shown.hunks);
                 output.truncated |= shown.truncated;
+            } else {
+                output.ref_hash = Some(compute_sha256(reference.raw()));
             }
-            // 左右か参照先のどれかがバイナリなら、参照先のハッシュで違いを示す（REQ-cli-100）
-            _ => output.ref_hash = Some(compute_sha256(bytes)),
+        } else if let Ok(Prepared::Binary(reference)) = &view.reference {
+            output.ref_hash = Some(compute_sha256(reference));
         }
+        output.conflict_regions = view.conflicts();
+        output.conflict_count = output.conflict_regions.len();
     }
-    output.conflict_regions = conflicts(left, right, reference);
-    output.conflict_count = output.conflict_regions.len();
+    output
 }
 
 /// 参照先を項目に付けるか。参照先の状態を集め、どの側も root_dir の外へ解決されないときだけ付ける
@@ -129,30 +156,6 @@ fn files_only(comparison: &PathComparison) -> bool {
             Some(SideState::File { .. } | SideState::Absent)
         )
     })
-}
-
-/// 比べる流れが読んだ `role` の中身
-fn body(comparison: &PathComparison, role: Role) -> Body<'_> {
-    match comparison.contents.get(&role) {
-        Some(Ok(bytes)) => Body::Bytes(bytes),
-        Some(Err(_)) | None => Body::Absent,
-    }
-}
-
-/// テキストとして示せる中身（ない側は空）。バイナリなら（REQ-cli-061）ない
-fn text_of(body: Body<'_>) -> Option<&str> {
-    match body {
-        Body::Absent => Some(""),
-        Body::Bytes(bytes) if is_binary(bytes) => None,
-        Body::Bytes(bytes) => std::str::from_utf8(bytes).ok(),
-    }
-}
-
-fn hash(body: Body<'_>) -> Option<String> {
-    match body {
-        Body::Bytes(bytes) => Some(compute_sha256(bytes)),
-        Body::Absent => None,
-    }
 }
 
 fn is_link(comparison: &PathComparison, role: Role) -> bool {

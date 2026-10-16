@@ -54,6 +54,7 @@ fn answer(child: Child) {
         max_files: 100,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     };
     let (diffed, diff_code) =

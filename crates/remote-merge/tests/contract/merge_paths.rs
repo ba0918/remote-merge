@@ -551,6 +551,7 @@ fn directory_merge_with_checksum_updates_equal_metadata_but_different_contents()
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         config,
         targets,
@@ -692,6 +693,7 @@ fn explicit_merge_checks_readability_even_when_file_sizes_differ() {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         config,
         targets,
@@ -748,6 +750,7 @@ fn unreadable_source_fails_one_file_without_blocking_the_other_merge() {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -804,6 +807,7 @@ fn two_unreadable_sides_are_not_reported_as_identical_empty_files() {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         config,
         targets,
@@ -883,6 +887,7 @@ fn a_deleted_regular_file_is_backed_up_and_recreated_by_rollback() {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     let result = execute_merge(args, config.clone(), targets.clone()).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -1293,6 +1298,7 @@ fn delete_does_not_remove_a_destination_only_symlink() {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -1783,6 +1789,7 @@ fn merge_args(path: &str) -> MergeArgs {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     }
 }
 

@@ -320,6 +320,7 @@ fn merge_creates_a_new_file_with_the_server_then_defaults_then_default_mode() {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         };
         let result = execute_merge(args, fixture.config(source), fixture.targets()).unwrap();
         let MergeCommandOutput::Files(output) = result.output else {
@@ -431,6 +432,7 @@ fn diff_max_entries_outside_its_range_stops() {
             max_files: 100,
             force: false,
             follow_external_links: false,
+            encodings: Default::default(),
             max_entries: Some(value),
         };
         let Err(err) = execute_diff(args, fixture.config.clone(), fixture.targets()) else {

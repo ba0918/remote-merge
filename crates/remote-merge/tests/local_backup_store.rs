@@ -26,6 +26,7 @@ fn merge_args(path: &str) -> MergeArgs {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     }
 }
 

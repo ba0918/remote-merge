@@ -5,9 +5,10 @@
 
 use remote_merge_core::compare::{Command, Follow, Incomplete, Role, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
+use remote_merge_engine::treat::content::{Context, Overrides};
 use remote_merge_engine::treat::diff::exit_code;
 use remote_merge_engine::treat::diff_file::Sources;
-use remote_merge_engine::treat::diff_listing::{Coverage, Limits, diff_listing};
+use remote_merge_engine::treat::diff_listing::{Coverage, Limits, diff_listing_with_content};
 use remote_merge_engine::treat::diff_names::{DiffScope, diff_scope, missing_names_of_complete};
 use remote_merge_engine::treat::incomplete::incomplete_errors;
 use remote_merge_engine::treat::sides::{Reference, compared_sides, reference_side};
@@ -26,6 +27,7 @@ use crate::side::Side;
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
+    pub encodings: Overrides,
     pub paths: Vec<String>,
     pub left: Option<String>,
     pub right: Option<String>,
@@ -179,7 +181,19 @@ fn compare_and_show(
         named: &compared.named,
         incomplete: incomplete.iter().copied().collect(),
     };
-    let mut output = diff_listing(&compared.paths, &sources, limits, &coverage);
+    let context = Context {
+        config: &core.config.content,
+        sides: [
+            (Role::Left, sides.left.clone()),
+            (Role::Right, sides.right.clone()),
+        ]
+        .into_iter()
+        .chain(sides.reference.clone().map(|side| (Role::Ref, side)))
+        .collect(),
+        overrides: args.encodings,
+    };
+    let mut output =
+        diff_listing_with_content(&compared.paths, &sources, limits, &coverage, &context);
     let mut errors = compared.unlistable.clone();
     errors.append(&mut output.errors);
     errors.extend(incomplete_errors(&compared.incomplete));

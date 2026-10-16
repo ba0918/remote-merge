@@ -26,42 +26,18 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
 }
 
 pub fn matches_path_pattern(path: &str, pattern: &str) -> bool {
-    let patterns = [pattern];
-    if patterns.is_empty() {
+    if pattern.contains("../") {
         return false;
     }
-
-    for pattern in patterns {
-        // セキュリティ: パターン側に ../ が含まれる場合はスキップ。設定の読み込みで警告して
-        // 捨てているので、ここでは警告しない
-        if pattern.contains("../") {
-            continue;
-        }
-
-        if pattern.contains('/') {
-            // パス全体マッチ
-            if glob_match::glob_match(pattern, path) {
-                return true;
-            }
-            // ディレクトリ枝刈り: パターンが `dir/**` 形式の場合、
-            // path が `dir` 自体ならディレクトリごとマッチ（配下を全て除外）。
-            // 例: パターン "vendor/legacy/**" に対して path "vendor/legacy" → マッチ
-            if let Some(prefix) = pattern.strip_suffix("/**")
-                && (path == prefix || glob_match::glob_match(prefix, path))
-            {
-                return true;
-            }
-        } else {
-            // セグメント単位マッチ
-            for segment in path.split('/') {
-                if !segment.is_empty() && glob_match::glob_match(pattern, segment) {
-                    return true;
-                }
-            }
-        }
+    if pattern.contains('/') {
+        glob_match::glob_match(pattern, path)
+            || pattern
+                .strip_suffix("/**")
+                .is_some_and(|prefix| path == prefix || glob_match::glob_match(prefix, path))
+    } else {
+        path.split('/')
+            .any(|segment| !segment.is_empty() && glob_match::glob_match(pattern, segment))
     }
-
-    false
 }
 
 /// 設定の include の値を整えた結果

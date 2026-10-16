@@ -15,6 +15,7 @@ fn make_args(left: Option<&str>, right: Option<&str>) -> MergeArgs {
         format: "text".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     }
 }
 
@@ -78,6 +79,7 @@ fn test_run_merge_rejects_invalid_format_early() {
         format: "yaml".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     // run_merge は config 読み込みより前に format をパースするため、
     // 不正な format 値で即座にエラーを返す
@@ -104,6 +106,7 @@ fn test_empty_paths_returns_error() {
         format: "text".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
     let err = validate_merge_args(&args).unwrap_err();
     assert!(

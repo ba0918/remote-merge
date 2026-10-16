@@ -127,6 +127,7 @@ fn hunk_merge_scans_with_the_explicit_limit_instead_of_the_configured_one() {
             format: "json".into(),
             max_entries: Some(1),
             hunks: Some(vec![0]),
+            encodings: Default::default(),
         },
         fixture.config,
         fixture.targets,

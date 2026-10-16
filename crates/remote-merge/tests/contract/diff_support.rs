@@ -90,6 +90,7 @@ pub(super) fn args(paths: &[&str]) -> DiffArgs {
         max_files: 100,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     }
 }

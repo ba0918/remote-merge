@@ -145,11 +145,17 @@ impl Fixture {
         );
     }
 
-    fn config(&self) -> AppConfig {
+    pub(super) fn append_config(&self, text: &str) {
+        let mut config = fs::read_to_string(&self.config_path).unwrap();
+        config.push_str(text);
+        fs::write(&self.config_path, config).unwrap();
+    }
+
+    pub(super) fn config(&self) -> AppConfig {
         load_config_from_paths(Some(&self.config_path), None).unwrap()
     }
 
-    fn runtime_targets(&self) -> RuntimeTargets {
+    pub(super) fn runtime_targets(&self) -> RuntimeTargets {
         self.servers
             .iter()
             .fold(RuntimeTargets::production(), |targets, (name, root)| {
@@ -200,6 +206,7 @@ impl Fixture {
             max_files: 100,
             force: false,
             follow_external_links: false,
+            encodings: Default::default(),
             max_entries: None,
         };
         let (output, _) = execute_diff(args, self.config(), self.runtime_targets()).unwrap();
@@ -249,6 +256,7 @@ pub fn args(paths: &[&str]) -> MergeArgs {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     }
 }
 

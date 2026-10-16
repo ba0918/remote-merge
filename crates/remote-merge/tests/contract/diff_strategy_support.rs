@@ -125,6 +125,7 @@ impl Fixture {
             max_files: 100,
             force: false,
             follow_external_links: false,
+            encodings: Default::default(),
             max_entries,
         };
         let (output, code) = execute_diff(args, config, targets).expect("diff failed");

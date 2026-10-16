@@ -116,6 +116,7 @@ fn excluded_file_is_absent_from_status_and_unmodified_by_merge() {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         fixture.config,
         fixture.targets,

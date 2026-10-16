@@ -95,6 +95,10 @@ fn is_zero(n: &usize) -> bool {
 /// diff コマンドの出力
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiffOutput {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub encodings: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub byte_only_difference: bool,
     pub path: String,
     pub left: SourceInfo,
     pub right: SourceInfo,
@@ -249,7 +253,7 @@ pub struct HunkMergeInfo {
 }
 
 /// マージ成功結果
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct MergeFileResult {
     pub path: String,
     pub status: String,
@@ -260,6 +264,37 @@ pub struct MergeFileResult {
     /// hunk merge 時のメタデータ（全体マージ時は None）
     #[serde(skip_serializing_if = "Option::is_none", flatten)]
     pub hunk_info: Option<HunkMergeInfo>,
+}
+
+impl MergeFileResult {
+    pub fn copy_note(&self) -> Option<&'static str> {
+        (self.status == "would merge" && self.hunk_info.is_none())
+            .then_some("Copies source bytes unchanged, without encoding conversion")
+    }
+}
+
+impl Serialize for MergeFileResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("path", &self.path)?;
+        map.serialize_entry("status", &self.status)?;
+        if let Some(backup) = &self.backup {
+            map.serialize_entry("backup", backup)?;
+        }
+        if let Some(badge) = &self.ref_badge {
+            map.serialize_entry("ref_badge", badge)?;
+        }
+        if let Some(info) = &self.hunk_info {
+            map.serialize_entry("hunks_applied", &info.hunks_applied)?;
+            map.serialize_entry("hunks_total", &info.hunks_total)?;
+            map.serialize_entry("direction", &info.direction)?;
+        }
+        if let Some(note) = self.copy_note() {
+            map.serialize_entry("copy_note", note)?;
+        }
+        map.end()
+    }
 }
 
 /// マージスキップ
@@ -551,6 +586,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -707,6 +744,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -739,6 +778,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
@@ -855,6 +896,8 @@ mod tests {
                 conflict_count: 0,
                 conflict_regions: vec![],
                 one_sided: false,
+                encodings: Default::default(),
+                byte_only_difference: false,
             }],
             errors: vec![],
             summary: MultiDiffSummary {
@@ -914,6 +957,8 @@ mod tests {
             ref_hash: None,
             note: None,
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
             conflict_count: 1,
             conflict_regions: vec![ConflictArea::Lines(ConflictRegion {
                 ref_range: 0..1,

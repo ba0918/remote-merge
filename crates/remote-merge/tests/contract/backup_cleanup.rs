@@ -122,6 +122,7 @@ fn merge_into_configured_server(fixture: &CleanupFixture) {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         fixture.current_config.clone(),
         fixture.targets.clone(),

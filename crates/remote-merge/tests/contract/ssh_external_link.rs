@@ -48,6 +48,7 @@ fn verify_local_external_link() {
             format: "json".into(),
             max_entries: None,
             hunks: None,
+            encodings: Default::default(),
         },
         config,
         targets,

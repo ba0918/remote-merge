@@ -98,6 +98,7 @@ fn diff(fixture: DiffFixture, paths: &[&str], max_files: usize) -> MultiDiffOutp
         max_files,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     };
     execute_diff(args, fixture.config, fixture.targets)
@@ -225,6 +226,7 @@ fn req_cli_055_unchanged_dotenv_file_is_not_counted() {
         max_files: 1,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     };
 

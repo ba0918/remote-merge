@@ -369,6 +369,9 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
             "{}: {}{}{}{}",
             prefix, result.path, hunk_info, backup_info, ref_badge_str
         ));
+        if let Some(note) = result.copy_note() {
+            lines.push(format!("  {note}"));
+        }
     }
 
     // 削除したファイルと、--dry-run で消す予定のファイル（REQ-merge-027）
@@ -581,6 +584,9 @@ pub fn format_sync_text(output: &SyncOutput) -> String {
                 "ok"
             };
             let mut line = format!("  {:<6} {}", badge, file.path);
+            if let Some(note) = file.copy_note() {
+                line.push_str(&format!(" ({note})"));
+            }
             if let Some(ref backup) = file.backup {
                 line.push_str(&format!(" (backup: {})", backup));
             }
@@ -787,6 +793,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -822,6 +830,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -1003,6 +1013,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -1036,6 +1048,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
@@ -1068,6 +1082,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -1107,6 +1123,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Symbolic link targets differ"));
@@ -1268,6 +1286,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         }
     }
 
@@ -1406,6 +1426,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains(
@@ -1440,6 +1462,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
@@ -1471,6 +1495,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -1503,6 +1529,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = format_json(&output).unwrap();
         assert!(json.contains("\"left_hash\""));
@@ -1538,6 +1566,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("left_hash"));
@@ -1649,6 +1679,8 @@ mod tests {
             conflict_count: 2,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Conflicts: 2 region(s)"));
@@ -1680,6 +1712,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("Conflicts"));
@@ -1745,6 +1779,8 @@ mod tests {
             conflict_count: 0,
             conflict_regions: vec![],
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("conflict_count"));
@@ -1888,6 +1924,8 @@ mod tests {
             ref_hash: None,
             note: None,
             one_sided: false,
+            encodings: Default::default(),
+            byte_only_difference: false,
             conflict_count: 1,
             conflict_regions: vec![crate::service::types::ConflictArea::Lines(ConflictRegion {
                 ref_range: 10..15,

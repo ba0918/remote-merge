@@ -86,7 +86,13 @@ fn dry_run_reports_the_planned_file_as_would_merge() {
     let output = merge(&env, &["--dry-run"]);
 
     assert_exit_success(&output);
-    assert_eq!(stdout_lines(&output), ["Would merge: file.txt"]);
+    assert_eq!(
+        stdout_lines(&output),
+        [
+            "Would merge: file.txt",
+            "  Copies source bytes unchanged, without encoding conversion"
+        ]
+    );
     assert_eq!(develop_file(&env), "develop old\n");
 }
 

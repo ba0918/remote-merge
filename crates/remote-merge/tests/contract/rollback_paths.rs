@@ -612,6 +612,7 @@ fn symlink_merge_args(paths: Vec<&str>) -> MergeArgs {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     }
 }
 

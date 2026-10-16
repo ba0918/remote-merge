@@ -19,6 +19,7 @@ use remote_merge_core::relative_path::RelPath;
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
+    pub encodings: remote_merge_engine::treat::content::Overrides,
     pub paths: Vec<String>,
     pub left: Option<String>,
     pub right: Option<String>,

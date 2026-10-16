@@ -26,6 +26,10 @@ fn selected_changes_keep_destination_alias_bytes_and_full_terminators() {
         script.apply(&HashSet::new(), HunkDirection::LeftToRight),
         right.raw()
     );
+    assert_eq!(
+        script.apply(&HashSet::from([0]), HunkDirection::RightToLeft),
+        b"\x87\x54\nold\n"
+    );
 }
 
 #[test]
@@ -42,6 +46,50 @@ fn selected_final_newline_and_destination_bom_are_preserved() {
         script.apply(&HashSet::from([0]), HunkDirection::LeftToRight),
         b"\xef\xbb\xbfA\n"
     );
+}
+
+#[test]
+fn explicit_legacy_codecs_do_not_switch_on_utf8_bom_bytes() {
+    assert!(interpret(b"\xef\xbb\xbfA", Interpretation::Text(Encoding::EucJp)).is_err());
+    match interpret(b"\xef\xbb\xbfA", Interpretation::Text(Encoding::ShiftJis)) {
+        Ok(Content::Text(text)) => {
+            assert!(text.bom().is_empty());
+            assert_ne!(text.text(), "A");
+        }
+        Err(error) => assert_eq!(error.encoding, Encoding::ShiftJis),
+        Ok(Content::Binary) => panic!("a BOM without NUL does not select binary"),
+    }
+}
+
+#[test]
+fn repeated_lines_retain_direction_specific_full_line_alignment() {
+    for (old, new) in [
+        (b"A\nA\r\nB".as_slice(), b"A\r\nA\nB\n".as_slice()),
+        (b"x\nx\ny\n", b"x\ny\nx\n"),
+    ] {
+        let Content::Text(left) = interpret(old, Interpretation::Unspecified).unwrap() else {
+            panic!()
+        };
+        let Content::Text(right) = interpret(new, Interpretation::Unspecified).unwrap() else {
+            panic!()
+        };
+        for (source, target) in [(&left, &right), (&right, &left)] {
+            let script = PairScript::new(source, target);
+            let remote_merge_core::diff::engine::DiffResult::Modified { hunks, .. } =
+                script.display()
+            else {
+                panic!()
+            };
+            assert_eq!(
+                script.apply(&(0..hunks.len()).collect(), HunkDirection::LeftToRight),
+                source.raw()
+            );
+            assert_eq!(
+                script.apply(&HashSet::new(), HunkDirection::LeftToRight),
+                target.raw()
+            );
+        }
+    }
 }
 
 #[test]
@@ -77,6 +125,10 @@ fn unspecified_invalid_tail_is_binary_but_explicit_utf8_fails() {
 
 #[test]
 fn nul_boundary_and_bom_preserve_original_line_spans() {
+    assert!(matches!(
+        interpret(b"valid text", Interpretation::Binary).unwrap(),
+        Content::Binary
+    ));
     let mut bytes = vec![b'a'; 8192];
     bytes.push(0);
     assert!(matches!(

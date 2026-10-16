@@ -42,3 +42,4 @@ pub(crate) fn only_directories(comparison: &PathComparison) -> bool {
             .iter()
             .all(|state| matches!(state, SideState::Directory))
 }
+pub mod content;

@@ -214,6 +214,7 @@ fn req_scan_012_diff_reports_a_file_whose_name_is_not_utf8_in_errors() {
         max_files: 100,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     };
 
@@ -249,6 +250,7 @@ fn req_scan_012_merge_reports_a_file_whose_name_is_not_utf8_as_failed() {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+        encodings: Default::default(),
     };
 
     let result = execute_merge(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
@@ -329,6 +331,7 @@ fn req_scan_012_diff_of_the_root_and_a_named_file_keeps_a_file_whose_name_is_not
         max_files: 100,
         force: false,
         follow_external_links: false,
+        encodings: Default::default(),
         max_entries: None,
     };
 

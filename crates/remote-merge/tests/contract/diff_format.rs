@@ -36,7 +36,7 @@ fn req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys(
         .collect();
     assert_eq!(
         keys,
-        BTreeSet::from(["path", "left", "right", "truncated", "hunks"]),
+        BTreeSet::from(["path", "left", "right", "truncated", "hunks", "encodings"]),
         "{json}"
     );
     assert_eq!(file["left"]["label"], "local");
@@ -86,7 +86,7 @@ fn req_cli_053_dotenv_and_a_link_to_it_show_their_content_diff_with_or_without_f
         .collect();
     assert_eq!(
         keys,
-        BTreeSet::from(["path", "left", "right", "truncated", "hunks"]),
+        BTreeSet::from(["path", "left", "right", "truncated", "hunks", "encodings"]),
         "{json}"
     );
 

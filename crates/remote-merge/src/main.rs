@@ -73,6 +73,8 @@ enum Commands {
 
     /// Show diff for file(s) or directory
     Diff {
+        #[command(flatten)]
+        encodings: EncodingArgs,
         /// File or directory paths to diff (use "." for all files)
         #[arg(num_args = 0..)]
         paths: Vec<String>,
@@ -105,8 +107,10 @@ enum Commands {
         max_entries: Option<usize>,
     },
 
-    /// Merge files
+    /// Merge files (whole-file copies transfer source bytes unchanged, without encoding conversion)
     Merge {
+        #[command(flatten)]
+        encodings: EncodingArgs,
         /// File or directory paths to merge (use "." for all files)
         #[arg(required = true, num_args = 1..)]
         paths: Vec<String>,
@@ -145,7 +149,7 @@ enum Commands {
         hunks: Option<Vec<usize>>,
     },
 
-    /// Sync files to multiple servers (1:N synchronization)
+    /// Sync files to multiple servers (source bytes unchanged, without encoding conversion)
     Sync {
         /// File or directory paths to sync (use "." for all files)
         #[arg(required = true, num_args = 1..)]
@@ -247,6 +251,29 @@ fn main() {
     }
 }
 
+#[derive(clap::Args, Debug)]
+struct EncodingArgs {
+    /// Interpret left file content (utf-8, euc-jp, shift_jis, cp932, windows-31j, binary)
+    #[arg(long)]
+    left_encoding: Option<remote_merge_core::content::Interpretation>,
+    /// Interpret right file content without converting whole-file copies
+    #[arg(long)]
+    right_encoding: Option<remote_merge_core::content::Interpretation>,
+    /// Interpret reference file content only
+    #[arg(long)]
+    ref_encoding: Option<remote_merge_core::content::Interpretation>,
+}
+
+impl From<EncodingArgs> for remote_merge_engine::treat::content::Overrides {
+    fn from(args: EncodingArgs) -> Self {
+        Self {
+            left: args.left_encoding,
+            right: args.right_encoding,
+            reference: args.ref_encoding,
+        }
+    }
+}
+
 /// 壊れたパイプで panic しないように、SIGPIPE の扱いを既定（プロセスを終える）に戻す。
 /// Rust は起動時に SIGPIPE を無視するので、`head` や `less` のように読み手が先に閉じたときに
 /// `println!` が EPIPE で panic し、終了コード 101 になる（利用者が記録を絞って読む入口を壊す。
@@ -344,6 +371,7 @@ fn try_main() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         Commands::Diff {
+            encodings,
             paths,
             left,
             right,
@@ -366,6 +394,7 @@ fn try_main() -> anyhow::Result<()> {
                 cfg.and_then(|cfg| {
                     remote_merge::cli::diff::run_diff(
                         remote_merge::cli::diff::DiffArgs {
+                            encodings: encodings.into(),
                             paths,
                             left,
                             right,
@@ -384,6 +413,7 @@ fn try_main() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         Commands::Merge {
+            encodings,
             paths,
             left,
             right,
@@ -408,6 +438,7 @@ fn try_main() -> anyhow::Result<()> {
                 cfg.and_then(|cfg| {
                     remote_merge::cli::merge::run_merge(
                         remote_merge::cli::merge::MergeArgs {
+                            encodings: encodings.into(),
                             paths,
                             left,
                             right,

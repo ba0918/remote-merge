@@ -14,11 +14,15 @@ pub struct ShownHunks {
 
 /// `old` から `new` への差分の hunk。`max_lines` は追加と削除の行の数の上限（0 と None は無制限）
 pub fn shown_hunks(old: &str, new: &str, max_lines: Option<usize>) -> ShownHunks {
+    shown_script(compute_diff(old, new), max_lines)
+}
+
+pub fn shown_script(script: DiffResult, max_lines: Option<usize>) -> ShownHunks {
     let mut shown = ShownHunks {
         hunks: Vec::new(),
         truncated: false,
     };
-    let DiffResult::Modified { hunks, lines, .. } = compute_diff(old, new) else {
+    let DiffResult::Modified { hunks, lines, .. } = script else {
         return shown;
     };
     let limit = max_lines.filter(|limit| *limit > 0);
