@@ -2,6 +2,7 @@
 #![warn(clippy::unwrap_used)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 pub mod compare;
+pub mod content;
 pub mod diff;
 pub mod error;
 pub mod filter;

@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use super::engine::{DiffResult, DiffTag, compute_diff};
+use super::engine::{DiffResult, DiffTag, PairScript};
+use crate::content::{Content, Interpretation, Text, interpret};
 
 /// コンフリクト領域（ref を基準に left/right 両方が変更した行範囲）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,11 +200,27 @@ pub fn detect_conflicts(
         None => return ConflictInfo::default(),
     };
 
-    let ref_to_left = compute_diff(ref_content, left_content);
-    let ref_to_right = compute_diff(ref_content, right_content);
+    let texts: Option<Vec<_>> = [ref_content, left_content, right_content]
+        .iter()
+        .map(
+            |value| match interpret(value.as_bytes(), Interpretation::Unspecified) {
+                Ok(Content::Text(text)) => Some(text),
+                Ok(Content::Binary) | Err(_) => None,
+            },
+        )
+        .collect();
+    let Some(texts) = texts else {
+        return ConflictInfo::default();
+    };
+    text_conflicts(&texts[0], &texts[1], &texts[2])
+}
 
-    let left_changes = extract_changes(&ref_to_left);
-    let right_changes = extract_changes(&ref_to_right);
+pub fn text_conflicts(reference: &Text<'_>, left: &Text<'_>, right: &Text<'_>) -> ConflictInfo {
+    let ref_to_left = PairScript::new(reference, left);
+    let ref_to_right = PairScript::new(reference, right);
+
+    let left_changes = extract_changes(ref_to_left.full());
+    let right_changes = extract_changes(ref_to_right.full());
 
     // 各変更を (ref_start, ref_end, &ChangeInfo) のタプルに変換
     let left_ranges: Vec<(usize, usize, &ChangeInfo)> = left_changes
@@ -261,12 +278,12 @@ pub fn detect_conflicts(
         region.left_lines = region
             .left_file_lines
             .iter()
-            .map(|index| left_lines[index].clone())
+            .map(|index| left_lines[index].trim_end_matches('\n').to_owned())
             .collect();
         region.right_lines = region
             .right_file_lines
             .iter()
-            .map(|index| right_lines[index].clone())
+            .map(|index| right_lines[index].trim_end_matches('\n').to_owned())
             .collect();
     }
 

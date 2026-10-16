@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::ops::Range;
 
+use crate::content::{Content, Interpretation, Text, interpret};
 use similar::{ChangeTag, TextDiff};
 
 /// ハンク適用の方向
@@ -107,9 +108,6 @@ pub struct DiffStats {
     pub equal: usize,
 }
 
-/// NUL バイトを探す範囲（先頭からのバイト数）
-const NUL_CHECK_LEN: usize = 8192;
-
 /// バイナリファイルかどうかを判定する。
 ///
 /// 先頭 8KB に NUL バイトを含むか、全体が正しい UTF-8 でなければバイナリとする。
@@ -117,8 +115,10 @@ const NUL_CHECK_LEN: usize = 8192;
 /// 置き換えて比べたり書き戻したりしないため。NUL は先頭 8KB だけを見るので、
 /// 8KB 以降にのみ NUL があるファイルはテキストとして扱われる。
 pub fn is_binary(content: &[u8]) -> bool {
-    let nul_check_len = content.len().min(NUL_CHECK_LEN);
-    content[..nul_check_len].contains(&0) || std::str::from_utf8(content).is_err()
+    !matches!(
+        interpret(content, Interpretation::Unspecified),
+        Ok(Content::Text(_))
+    )
 }
 
 /// 2つのテキストの行単位 diff を計算する
@@ -136,6 +136,82 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
         };
     }
 
+    let Ok(Content::Text(old)) = interpret(old.as_bytes(), Interpretation::Unspecified) else {
+        unreachable!("binary checked above")
+    };
+    let Ok(Content::Text(new)) = interpret(new.as_bytes(), Interpretation::Unspecified) else {
+        unreachable!("binary checked above")
+    };
+    PairScript::new(&old, &new).display()
+}
+
+pub struct PairScript<'a, 'b> {
+    old: &'b Text<'a>,
+    new: &'b Text<'a>,
+    full: DiffResult,
+}
+
+impl<'a, 'b> PairScript<'a, 'b> {
+    pub fn new(old: &'b Text<'a>, new: &'b Text<'a>) -> Self {
+        Self {
+            old,
+            new,
+            full: build_script(old.text(), new.text()),
+        }
+    }
+
+    pub fn display(&self) -> DiffResult {
+        let mut result = self.full.clone();
+        if let DiffResult::Modified { lines, .. } = &mut result {
+            for line in lines {
+                line.value = line.value.trim_end_matches('\n').to_owned();
+            }
+        }
+        result
+    }
+
+    pub(super) fn full(&self) -> &DiffResult {
+        &self.full
+    }
+
+    pub fn apply(&self, selected: &HashSet<usize>, direction: HunkDirection) -> Vec<u8> {
+        let target = match direction {
+            HunkDirection::LeftToRight => self.new,
+            HunkDirection::RightToLeft => self.old,
+        };
+        let DiffResult::Modified {
+            lines,
+            hunks,
+            merge_hunks,
+            ..
+        } = &self.full
+        else {
+            return target.raw().to_vec();
+        };
+        let chosen = merge_hunks_in_display_hunks(hunks, merge_hunks, selected);
+        let mut result = target.bom().to_vec();
+        for (line, old) in selected_lines(lines, merge_hunks, &chosen, direction) {
+            let (text, index) = if old {
+                (
+                    self.old,
+                    line.old_index.expect("selected old line has its index"),
+                )
+            } else {
+                (
+                    self.new,
+                    line.new_index.expect("selected new line has its index"),
+                )
+            };
+            result.extend_from_slice(text.raw_line(index));
+        }
+        result
+    }
+}
+
+fn build_script(old: &str, new: &str) -> DiffResult {
+    if old == new {
+        return DiffResult::Equal;
+    }
     let text_diff = TextDiff::from_lines(old, new);
 
     let mut lines = Vec::new();
@@ -171,7 +247,7 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
 
         lines.push(DiffLine {
             tag,
-            value: change.value().trim_end_matches('\n').to_string(),
+            value: change.value().to_string(),
             old_index,
             new_index,
         });
@@ -296,10 +372,6 @@ pub fn apply_hunk_to_text(
 ///
 /// - LeftToRight: ソース=left、ターゲット=right。keep_tag=Delete（left の行を採用）、replace_tag=Insert（right の行をスキップ）
 /// - RightToLeft: ソース=right、ターゲット=left。keep_tag=Insert（right の行を採用）、replace_tag=Delete（left の行をスキップ）
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "DiffTag は3種で、残りは keep_tag/replace_tag の枝が受け、この枝へは到達しない"
-)]
 pub fn apply_selected_hunks_single_pass(
     all_lines: &[DiffLine],
     merge_hunks: &[DiffHunk],
@@ -307,47 +379,36 @@ pub fn apply_selected_hunks_single_pass(
     direction: HunkDirection,
     target_trailing_newline: bool,
 ) -> String {
-    // direction から keep_tag / replace_tag を決定
-    let (keep_tag, replace_tag) = match direction {
-        HunkDirection::LeftToRight => (DiffTag::Delete, DiffTag::Insert),
-        HunkDirection::RightToLeft => (DiffTag::Insert, DiffTag::Delete),
-    };
-
-    // 選択された hunk に属する行インデックスを HashSet に展開
-    let mut selected_line_indices = HashSet::new();
-    for &hunk_idx in selected {
-        if hunk_idx < merge_hunks.len() {
-            for line_idx in merge_hunks[hunk_idx].line_range.clone() {
-                selected_line_indices.insert(line_idx);
-            }
-        }
-    }
-
-    let mut result: Vec<&str> = Vec::new();
-
-    for (i, line) in all_lines.iter().enumerate() {
-        let in_selected = selected_line_indices.contains(&i);
-        match line.tag {
-            DiffTag::Equal => {
-                result.push(&line.value);
-            }
-            tag if tag == keep_tag => {
-                if in_selected {
-                    result.push(&line.value);
-                }
-            }
-            tag if tag == replace_tag => {
-                if !in_selected {
-                    result.push(&line.value);
-                }
-            }
-            // DiffTag は Equal/Delete/Insert の3 variant のみ。
-            // keep_tag と replace_tag で Delete/Insert を網羅するため到達しない。
-            _ => unreachable!("unexpected DiffTag variant"),
-        }
-    }
-
+    let result: Vec<&str> = selected_lines(all_lines, merge_hunks, selected, direction)
+        .map(|(line, _)| line.value.as_str())
+        .collect();
     join_lines(&result, target_trailing_newline)
+}
+
+fn selected_lines<'a>(
+    lines: &'a [DiffLine],
+    hunks: &[DiffHunk],
+    selected: &HashSet<usize>,
+    direction: HunkDirection,
+) -> impl Iterator<Item = (&'a DiffLine, bool)> {
+    let selected_indices: HashSet<usize> = selected
+        .iter()
+        .filter_map(|index| hunks.get(*index))
+        .flat_map(|hunk| hunk.line_range.clone())
+        .collect();
+    lines.iter().enumerate().filter_map(move |(index, line)| {
+        let chosen = selected_indices.contains(&index);
+        let old = match direction {
+            HunkDirection::LeftToRight => chosen,
+            HunkDirection::RightToLeft => !chosen,
+        };
+        match line.tag {
+            DiffTag::Equal => Some((line, matches!(direction, HunkDirection::RightToLeft))),
+            DiffTag::Delete if old => Some((line, true)),
+            DiffTag::Insert if !old => Some((line, false)),
+            DiffTag::Delete | DiffTag::Insert => None,
+        }
+    })
 }
 
 /// 選んだ表示用ハンク（コンテキスト3行）の番号から、その行の範囲に入る操作用ハンク
