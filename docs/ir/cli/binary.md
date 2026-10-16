@@ -20,10 +20,10 @@
 
 ### REQ-cli-061: バイナリの判定と差分の出し方
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A8, docs/decision/records/2026-10-05-size-limit.md#A13
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A8, docs/decision/records/2026-10-05-size-limit.md#A13, docs/decision/records/2026-10-16-content-encoding.md#A13
 - verification: unit
 
-先頭 8,192 バイトに NUL を含むか、ファイル全体が正しい UTF-8 でないファイルをバイナリとし（先頭 8,192 バイトの境目で切れた多バイトの文字は不正としない）、diff のテキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出してない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。読めない側があるときは unreadable.md の REQ-cli-089 のとおり扱う。
+バイナリの判定は content/interpretation.md の REQ-content-001 に従い、diff のテキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出してない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。読めない側があるときは unreadable.md の REQ-cli-089 のとおり扱い、明示した文字コードのデコード失敗は REQ-content-006 に従う。
 
 ## Examples
 
@@ -51,9 +51,9 @@ Scenario: 無効なテキスト符号のバイト列を転送する
 Given 読み込み元のバイナリファイルにテキストとして解釈できないバイトがある
 When そのファイルをマージする
 Then 書き込み先のバイト列は欠落せず読み込み元と一致する
-@id=EX-cli-079 @about=REQ-cli-061 @source=docs/decision/records/2026-10-05-quality-cli.md#A8,docs/decision/records/2026-09-29-adopt-diff-output.md#A9
+@id=EX-cli-079 @about=REQ-cli-061 @source=docs/decision/records/2026-10-05-quality-cli.md#A8,docs/decision/records/2026-09-29-adopt-diff-output.md#A9,docs/decision/records/2026-10-16-content-encoding.md#A13
 Scenario: 8,192 バイトより後ろにだけ不正なバイトがある
-Given 先頭 8,192 バイトは正しい UTF-8 で、それより後ろにだけ不正な UTF-8 のバイトがあるファイルがある
+Given 文字コードが未設定で先頭 8,192 バイトは正しい UTF-8 で、それより後ろにだけ不正な UTF-8 のバイトがあるファイルがある
 When diff を実行する
 Then そのファイルはバイナリとして SHA-256 のハッシュで比べられる
 

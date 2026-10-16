@@ -93,7 +93,7 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 ## Decision tables
 
 ### TBL-config-004: 製品の知っているセクションとキー
-- source: docs/decision/records/2026-10-11-drop-compat-consistency.md#A1
+- source: docs/decision/records/2026-10-11-drop-compat-consistency.md#A1, docs/decision/records/2026-10-16-content-encoding.md#D2
 
 | セクション | キー |
 |---|---|
@@ -106,6 +106,8 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 | [backup] | enabled、retention_days |
 | [agent] | enabled、deploy_dir |
 | [defaults] | file_permissions、dir_permissions |
+| [content.defaults] | 接続先名ごとの文字コード |
+| [[content.rules]] | side、path、encoding |
 
 ## Examples
 

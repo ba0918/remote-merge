@@ -23,6 +23,7 @@ merge の取り込みで、書き込み先の変更を黙って失う疑いが�
 - A4 「競合」は、参照先に対して左右が同じ箇所を異なる内容に変えたことだけを指す。同じ箇所とは、参照先からの変更の行の範囲が重なることで、バイナリや UTF-8 として読めないファイルはファイル全体を一つの箇所とする。左右の両方が参照先から変わっていても、変わった箇所が重ならなければ競合と呼ばない。
   - why: 差分表示の REQ-cli-016 はこの意味で競合を示しており、A1 の規則を「競合」と呼ぶと同じ言葉が二つの意味になる。
   - decided_by: user (took the recommendation)
+  - superseded_by: [文字コード対応 A16](./2026-10-16-content-encoding.md#A16)（非 UTF-8 の扱いのみ改訂）
 - A5 今回は FLAG-cli-025 と FLAG-merge-015 だけを直し、--dry-run で競合を確かめないこと（FLAG-cli-024）、--hunks が確認を出さないこと（FLAG-merge-016）、--hunks に書き込み直前の確認がないこと（FLAG-merge-017）は FLAG のまま残す。
   - why: 残す三つはデータを黙って失う問題とは別で、--dry-run の予告を変えると --dry-run の終了コード（FLAG-cli-017）にも触れるため、別の回でまとめて決める。
   - decided_by: user (took the recommendation)

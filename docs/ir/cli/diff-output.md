@@ -20,12 +20,13 @@ diff は、パスの引数に絶対パスか ".." の要素を含むパスがあ
 
 ### REQ-cli-053: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E14, docs/decision/records/2026-10-15-flag-resolution.md#A4
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E14, docs/decision/records/2026-10-15-flag-resolution.md#A4, docs/decision/records/2026-10-16-content-encoding.md#D3
 - verification: unit
 
 diff の JSON は files と summary を持ち、--max-files で打ち切ったときだけ truncated と changed_files_total を、比べられなかったパスがあるときだけ path と reason を持つ errors を持つ。files の各項目は path、label と root を持つ left と right、truncated、index・left_start・right_start と type が "context"・"added"・"removed" の lines と content を持つ hunks を持ち、binary・left_hash・right_hash・note は該当するときだけ持つ。
 summary の files_with_changes は、compare/judgement.md の判定が違う・片側だけ・種類の違いになったファイル（ハッシュの違うバイナリとリンク文字列か辿った先の違う symlink を含む）の数とする。
 hunks の left_start・right_start は 0 始まりの行番号とする。
+文字コードの情報と表現だけの差は content/interpretation.md の REQ-content-005 と REQ-content-007 に従う。
 
 ### REQ-cli-054: 変更の行数で打ち切る
 - kind: state_driven

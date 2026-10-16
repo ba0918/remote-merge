@@ -6,11 +6,11 @@
 
 ### REQ-cli-016: 三者間の競合を明示する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A39, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A11, docs/decision/records/2026-10-12-foundation-4.md#E16
+- source: docs/decision/records/2026-09-25-spec-migration.md#A39, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A11, docs/decision/records/2026-10-12-foundation-4.md#E16, docs/decision/records/2026-10-16-content-encoding.md#A16, docs/decision/records/2026-10-16-content-encoding.md#A18
 - verification: unit
 
 参照先に対して左右が同じ箇所を異なる内容に変えた競合があるとき、比較結果に競合を示す。
-バイナリと UTF-8 として読めないファイルは、用語の `競合` のとおりファイル全体を一つの箇所とし、左右がともに参照先から変わり左右の中身が違えば一つの競合として示す。
+内容の解釈は content/interpretation.md に従い、三者のどれかがバイナリなら、用語の `競合` のとおりファイル全体を一つの箇所とし、元バイトで左右がともに参照先から変わり左右の中身が違えば一つの競合として示す。
 
 ### REQ-cli-017: 競合を勝手に解消しない
 - kind: prohibition
@@ -47,10 +47,10 @@
 
 ### REQ-cli-099: ファイル全体の競合の形
 - kind: state_driven
-- source: docs/decision/records/2026-10-12-foundation-4.md#E28, docs/decision/records/2026-10-12-foundation-4.md#E16
+- source: docs/decision/records/2026-10-12-foundation-4.md#E28, docs/decision/records/2026-10-12-foundation-4.md#E16, docs/decision/records/2026-10-12-foundation-5.md#F8, docs/decision/records/2026-10-15-flag-resolution.md#A5, docs/decision/records/2026-10-16-content-encoding.md#A16
 - verification: unit
 
-ファイル全体で一つの競合（バイナリと UTF-8 として読めないファイルの競合、REQ-cli-097 の競合）は、JSON の "conflict_regions" に要素を一つだけ出し、その "ref_range" をファイル全体を表す {"whole_file": true} にして、行の範囲と行の内容の欄を出さず、"conflict_count" を 1 とする。
+ファイル全体で一つの競合（バイナリの競合、REQ-cli-097 の競合）は、JSON の "conflict_regions" に要素を一つだけ出し、その "ref_range" をファイル全体を表す {"whole_file": true} にして、行の範囲と行の内容の欄を出さず、"conflict_count" を 1 とする。
 
 ## Examples
 

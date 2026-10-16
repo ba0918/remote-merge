@@ -43,10 +43,37 @@
 
 ### REQ-merge-032: --hunks の番号は diff の hunk で数える
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A3
+- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A3, docs/decision/records/2026-10-16-content-encoding.md#A3
 - verification: unit
 
---hunks の番号は、同じ --left・--right・パスで実行した diff --format json の hunks と同じ区切り（変更の前後 3 行の文脈でまとめたもの）を 0 から数えたものとし、hunk の数と番号の範囲外の判定もこの区切りで数え、一つの区切りに複数の変更のかたまりが入るとき、その番号を選べばその全てを適用する。
+--hunks の番号は、同じ --left・--right・パスと同じ文字コード指定で実行した diff --format json の hunks と同じ区切り（変更の前後 3 行の文脈でまとめたもの）を 0 から数えたものとし、hunk の数と番号の範囲外の判定もこの区切りで数え、一つの区切りに複数の変更のかたまりが入るとき、その番号を選べばその全てを適用する。
+
+### REQ-merge-045: 部分マージは解釈可能な同じ文字コード間に限る
+- kind: state_driven
+- source: docs/decision/records/2026-10-16-content-encoding.md#A5, docs/decision/records/2026-10-16-content-encoding.md#A6, docs/decision/records/2026-10-16-content-encoding.md#A16, docs/decision/records/2026-10-16-content-encoding.md#A18, docs/decision/records/2026-10-16-content-encoding.md#P1
+- verification: unit
+
+左右の両方に通常ファイルがある部分マージは、content/interpretation.md の解釈で両側がテキストとなり、使用する文字コードが同じ場合に限る。
+文字コードの別名は同じ文字コードとし、異なる文字コードの組とデコード失敗では --force でも書き込まず、--dry-run でも同じように止める。
+参照先を使うときはその側の文字コードで解釈し、参照先の文字コードが左右と異なるだけでは拒否しない。
+参照先がバイナリなら REQ-cli-016 のファイル全体の競合判定を使い、競合があれば --dry-run でも止める。--force は参照先の確認だけを省略でき、左右の解釈の制約は省略しない。
+
+### REQ-merge-046: 未選択箇所の元バイトと改行を保持する
+- kind: invariant
+- source: docs/decision/records/2026-10-16-content-encoding.md#A5, docs/decision/records/2026-10-16-content-encoding.md#A11
+- verification: unit
+
+部分マージは選んだ変更に読み込み元のバイト列を使い、選んでいない箇所には書き込み先の元バイト列を残す。
+LF、CRLF、混在した改行、末尾改行の有無を含めて、全文の再エンコードや改行の正規化で未変更箇所を書き換えない。
+BOM は REQ-content-003 に従う。
+
+### REQ-merge-047: 存在しない側に文字コードを仮定しない
+- kind: state_driven
+- source: docs/decision/records/2026-10-16-content-encoding.md#A14
+- verification: unit
+
+片側のファイルがない部分マージは、ない側には文字コードを持たせず、存在する側の文字コードで空の内容として比較する。
+新規作成する書き込み先には読み込み元の文字コードと BOM を引き継ぎ、存在しない書き込み先に別の文字コードの設定があっても変換しない。
 
 ## Decision tables
 
@@ -93,4 +120,34 @@ Scenario: 離れた二つの変更は別々の hunk になる
 Given 変わらない行を 7 行以上挟んだ二つの変更があるテキストのファイルがある
 When --hunks 1 で merge する
 Then 二つ目の変更だけが書き込み先に適用される
+
+@id=EX-merge-069 @about=REQ-merge-045,REQ-merge-046,REQ-merge-032 @source=docs/decision/records/2026-10-16-content-encoding.md#A3,docs/decision/records/2026-10-16-content-encoding.md#A5
+Scenario: EUC-JP の表示番号で部分マージする
+Given 左右は EUC-JP と指定され独立した変更が二つある
+When JSON の diff で調べた二つ目の hunk だけを部分マージする
+Then その変更だけが EUC-JP の元バイトで適用され未選択箇所の元バイトは変わらない
+
+@id=EX-merge-070 @about=REQ-merge-045 @source=docs/decision/records/2026-10-16-content-encoding.md#A5,docs/decision/records/2026-10-16-content-encoding.md#P1
+Scenario: 異なる文字コード間の部分マージを拒否する
+Given 左右の既存ファイルはそれぞれ UTF-8 と EUC-JP と指定されている
+When --force または --dry-run を指定して部分マージする
+Then 異なる文字コードである理由を示して止まりファイルは変わらない
+
+@id=EX-merge-071 @about=REQ-merge-046 @source=docs/decision/records/2026-10-16-content-encoding.md#A5
+Scenario: 混在改行と未選択の拡張文字を保持する
+Given 左右は CP932 と指定され書き込み先の未選択箇所には拡張文字と LF と CRLF の混在がある
+When 別の箇所の hunk を部分マージする
+Then 未選択箇所の拡張文字と改行を含む元バイト列がそのまま残る
+
+@id=EX-merge-072 @about=REQ-merge-047 @source=docs/decision/records/2026-10-16-content-encoding.md#A14
+Scenario: 未作成の書き込み先に読み込み元の文字コードを引き継ぐ
+Given 読み込み元は EUC-JP で書き込み先にファイルはなくその接続先の既定値は UTF-8 である
+When 全ての hunk を部分マージする
+Then 読み込み元の EUC-JP の元バイト列でファイルが作られる
+
+@id=EX-merge-073 @about=REQ-content-003,REQ-merge-046 @source=docs/decision/records/2026-10-16-content-encoding.md#A5,docs/decision/records/2026-10-16-content-encoding.md#A11
+Scenario: 最初の変更を選んでも既存の BOM を変えない
+Given 左右は UTF-8 で読み込み元には BOM がなく書き込み先には BOM がある
+When 最初の行の変更を部分マージする
+Then 書き込み先の BOM が残り本文の選んだ変更だけが適用される
 ```
