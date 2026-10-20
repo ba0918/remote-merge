@@ -212,19 +212,18 @@ impl SshClient {
         ssh_config: &SshConfig,
         server_config: &ServerConfig,
     ) -> Arc<client::Config> {
+        // ssh_options のないサーバにも、russh の既定でなく製品の既定（SHA-1 の MAC を最後に足したもの）で申し出る
+        let options = server_config.ssh_options.clone().unwrap_or_default();
         // inactivity_timeout は接続タイムアウト(timeout_sec)とは独立。
         // timeout_sec が短い(10秒等)場合にセッションごと切れるのを防ぐため、
         // 最低でも keepalive_interval × keepalive_max + マージン 以上にする（silence_timeout）
-        let mut config = client::Config {
+        let config = client::Config {
             inactivity_timeout: Some(crate::silence_timeout(ssh_config.timeout_sec)),
             keepalive_interval: Some(Duration::from_secs(10)),
             keepalive_max: 5,
+            preferred: super::preferred::build_preferred(&options),
             ..Default::default()
         };
-
-        if let Some(ref opts) = server_config.ssh_options {
-            config.preferred = super::preferred::build_preferred(opts);
-        }
 
         Arc::new(config)
     }
