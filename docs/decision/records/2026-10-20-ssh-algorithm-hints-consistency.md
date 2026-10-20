@@ -29,3 +29,7 @@ Position: ヒントの形と並べる方式（A1）、ヒントを出さない�
 - GREEN: 直した後、`cargo nextest run --locked -p remote-merge-ssh -E 'test(/hint::/)'` の 9 件が成功した。製品をつくり直してホスト鍵を DSA だけにした sshd につなぐと、ヒントのない理由だけが出た。
 - 使い捨ての測定（リポジトリに入れない）: testenv-centos5 のイメージで、ホスト鍵を DSA だけにした sshd と、RSA と DSA の sshd を立て、製品の status で接続の失敗の表示を読んだ。KEXINIT は sshd に版の文字列を送って最初の packet の方式の一覧を読んだ。
 - この突き合わせの範囲の外で見つけたこと（決めていない）: host_key_algorithms に "ssh-dss" を書くと、設定は警告なしに受け入れられ、"Wrong server signature" で失敗する（preferred.rs の resolve_key_names は Algorithm::Other だけを除く）。
+
+## Revisions
+
+- 2026-10-21: A1 の why の初めの一文が変更前のヒントを誤って述べていたので、[二度目の突き合わせの A1](./2026-10-20-ssh-algorithm-hints-consistency-2.md#A1) で読み替えた。A1 の決定は変わらない。
