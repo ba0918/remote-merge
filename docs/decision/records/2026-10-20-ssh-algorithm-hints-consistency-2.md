@@ -5,9 +5,9 @@
 [一度目の突き合わせ](./2026-10-20-ssh-algorithm-hints-consistency.md) で、SSH の方式が合わず接続に失敗したときのヒントの形と、ヒントを出さない場合を [REQ-ssh-007](../../ir/ssh/compatibility.md#REQ-ssh-007) に書き、ホスト鍵の "ssh-dss" と鍵交換の "none" を例から外した。
 その後の範囲（9388a2d8 から 3f572f38）のコードと仕様を読み直し、記録した根拠が決定を支えるかも確かめた。
 一度目の A1 の why は、変更前のヒントを誤って述べていた。
-また、テストが固定するヒントの一行の書き方を、REQ-ssh-007 は述べていなかった。
+また、テストが固定するヒントの一行の書き方を、REQ-ssh-007 は述べていなかった。鍵交換の例 [EX-ssh-013](../../ir/ssh/compatibility.md#EX-ssh-013) は、共通の鍵交換方式がなければヒントが出るとしていて、REQ-ssh-007 のヒントを出さない場合と食い違っていた。
 
-Position: A1 で一度目の A1 の根拠を直し、A2 でヒントの一行の書き方を REQ-ssh-007 に書いた。
+Position: A1 で一度目の A1 の根拠を直し、A2 でヒントの一行の書き方を REQ-ssh-007 に書き、A3 で EX-ssh-013 を REQ-ssh-007 に合う一つの場面に絞った。
 
 ## Agreements
 
@@ -16,4 +16,7 @@ Position: A1 で一度目の A1 の根拠を直し、A2 でヒントの一行の
   - decided_by: consistency phase（実装と仕様の整合確認役）
 - A2 ヒントの設定の一行は、設定の名前に " = [" を続け、名前をそれぞれ二重引用符で囲んで ", " で区切って並べ、"]" で閉じる形とし、これを [REQ-ssh-007](../../ir/ssh/compatibility.md#REQ-ssh-007) に書く。コードは変えない。
   - why: コード（crates/remote-merge-ssh/src/hint.rs の ssh_algorithm_hint）は、名前を `format!("{name:?}")` で二重引用符に囲み、`", "` でつないで `{setting} = [...]` に入れる。[EX-ssh-062](../../ir/ssh/compatibility.md#EX-ssh-062) の契約テスト（crates/remote-merge/tests/contract/ssh_compatibility.rs の an_incompatible_cipher_reports_the_reason_and_a_configuration_hint）とヒントの単体テストは、この形の一行（`ciphers = ["aes128-cbc"]`）をそのまま確かめる。REQ-ssh-007 は「TOML の一行」「文字列の配列」とだけ書いていたので、テストが固定する書き方を仕様が約束していなかった（同じ値は `ciphers=['aes128-cbc']` とも書ける）。[一度目の A1](./2026-10-20-ssh-algorithm-hints-consistency.md#A1) は、テストが確かめるこの形の一行を仕様に書いて約束にすると決めていたので、書き方を足すのはその具体化で、TOML の一行で文字列の配列という既存の文と矛盾しない。並べる名前は、russh が名前を知っている方式（鍵交換・暗号・MAC は名前の一覧、ホスト鍵は ssh-key の決まった名前）に限られ、どれも英小文字・数字・"-"・"@"・"." だけなので、`{:?}` の書き出しは TOML の基本文字列と同じになる。
+  - decided_by: consistency phase（実装と仕様の整合確認役）
+- A3 [EX-ssh-013](../../ir/ssh/compatibility.md#EX-ssh-013) を一つの場面に絞り、サーバの鍵交換方式が "diffie-hellman-group14-sha1" だけで、そのサーバの kex_algorithms を設定していないとき、不一致の理由と、kex_algorithms に "diffie-hellman-group14-sha1" だけを並べた設定の例が表示されるとする。その契約テストも、この一行が出ることを確かめる。コードは変えない。
+  - why: EX-ssh-013 は「接続先と共通の鍵交換方式がない」ときに「設定のヒントが表示される」としていた。[一度目の A2](./2026-10-20-ssh-algorithm-hints-consistency.md#A2) で [REQ-ssh-007](../../ir/ssh/compatibility.md#REQ-ssh-007) に、サーバが申し出た方式にこのツールが使えるものがないときはヒントを出さないと書いたので、共通の鍵交換方式がない場面のうち、サーバの申し出が "none" やこのツールの知らない名前だけのときに、例が要件と食い違う（ヒントの単体テスト no_hint_when_the_only_key_exchange_offered_is_none は、その場面でヒントが出ないことを確かめている）。例の目的は鍵交換が合わないときに理由とヒントが出ることなので、契約テストの偽サーバ（crates/remote-merge/tests/contract/ssh_server.rs の TestServer::legacy。鍵交換は "diffie-hellman-group14-sha1" だけ）の場面に絞れば要件の例外に当たらず、ヒントの一行も [EX-ssh-062](../../ir/ssh/compatibility.md#EX-ssh-062) と同じく A2 の書き方で決まる。この偽サーバの申し出は、A1 の測定の理由のとおり "diffie-hellman-group14-sha1" だけである。サーバが申し出に足すことのある拡張の名前（"kex-strict-s-v00@openssh.com" ほか）は russh の鍵交換の名前の一覧（src/kex/mod.rs の KEXES）になく、ヒントに並ばない（ヒントの単体テスト a_key_exchange_mismatch_suggests_the_servers_key_exchanges が確かめる）。測った事実: 契約テスト an_incompatible_key_exchange_reports_the_reason_and_a_configuration_hint の確かめを `message.contains("kex_algorithms")` から `kex_algorithms = ["diffie-hellman-group14-sha1"]` の一行に変えると、基点（9388a2d8）のコードでは決まった一覧の一行（A1 の測定）が出て失敗し、3f572f38 の後のコードでは `cargo nextest run --locked --all-features -p remote-merge --test contract -E 'test(/ssh_compatibility::an_incompatible_/)'` で成功した。
   - decided_by: consistency phase（実装と仕様の整合確認役）
