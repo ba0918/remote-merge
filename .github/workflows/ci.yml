@@ -172,7 +172,7 @@ jobs:
           path: lcov.info
 
   msrv:
-    name: MSRV (1.88.0)
+    name: MSRV (1.89.0)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -182,12 +182,12 @@ jobs:
           persist-credentials: false
 
       - name: Install the MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.89.0 --profile minimal
 
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
-          key: msrv-1.88.0
+          key: msrv-1.89.0
 
       - name: Check with the MSRV toolchain
-        run: cargo +1.88.0 check --workspace --locked
+        run: cargo +1.89.0 check --workspace --locked
