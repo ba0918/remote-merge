@@ -505,7 +505,7 @@ fn two_synchronous_cli_sessions_compare_and_write_only_their_own_remote_files() 
     );
 
     for env in [&first, &second] {
-        let config: toml::Value = fs::read_to_string(&env.config_path)
+        let config: toml::Table = fs::read_to_string(&env.config_path)
             .unwrap()
             .parse()
             .unwrap();
@@ -555,7 +555,7 @@ fn unsafe_ssh_configuration_is_rejected_before_a_cli_process_can_start() {
 
     let env = common::CliEnv::new(&[], &[]);
     let safe = fs::read_to_string(&env.config_path).unwrap();
-    let config: toml::Value = safe.parse().unwrap();
+    let config: toml::Table = safe.parse().unwrap();
     let owned_port = config["servers"]["develop"]["port"].as_integer().unwrap();
     assert_ne!(owned_port, 22);
 
