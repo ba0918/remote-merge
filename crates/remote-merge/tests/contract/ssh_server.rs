@@ -65,6 +65,18 @@ impl TestServer {
         .await
     }
 
+    /// 暗号が aes128-cbc だけの古いサーバ。接続が既定で申し出る暗号に CBC はない
+    pub async fn cbc_cipher_only() -> Self {
+        Self::start_with(
+            Options {
+                cbc_cipher_only: true,
+                ..Options::default()
+            },
+            Faults::default(),
+        )
+        .await
+    }
+
     pub async fn reject_sudo() -> Self {
         Self::start_with(
             Options {
@@ -132,6 +144,7 @@ impl TestServer {
         let Options {
             legacy,
             sha1_mac_only,
+            cbc_cipher_only,
             reject_sudo,
             sandbox_home,
             agent_available,
@@ -150,6 +163,9 @@ impl TestServer {
         if sha1_mac_only {
             config.preferred.cipher = Cow::Owned(vec![russh::cipher::AES_128_CTR]);
             config.preferred.mac = Cow::Owned(vec![russh::mac::HMAC_SHA1]);
+        }
+        if cbc_cipher_only {
+            config.preferred.cipher = Cow::Owned(vec![russh::cipher::AES_128_CBC]);
         }
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let host_key = key.public_key().to_openssh().unwrap();
@@ -198,6 +214,7 @@ impl TestServer {
 struct Options {
     legacy: bool,
     sha1_mac_only: bool,
+    cbc_cipher_only: bool,
     reject_sudo: bool,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,

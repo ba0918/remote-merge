@@ -194,7 +194,7 @@ impl SshClient {
 
                 // 通常のエラー処理
                 let msg = e.to_string();
-                let message = match super::hint::ssh_algorithm_hint(&msg) {
+                let message = match super::hint::ssh_algorithm_hint(&e) {
                     Some(hint) => format!("{}\n\n{}", msg, hint),
                     None => msg,
                 };
@@ -282,7 +282,7 @@ impl SshClient {
         })?
         .map_err(|e2| {
             let msg = e2.to_string();
-            let message = match super::hint::ssh_algorithm_hint(&msg) {
+            let message = match super::hint::ssh_algorithm_hint(&e2) {
                 Some(hint) => format!("{}\n\n{}", msg, hint),
                 None => msg,
             };
