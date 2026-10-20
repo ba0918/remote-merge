@@ -1,8 +1,6 @@
 //! バイナリファイルの比較ロジック。
 //! SHA-256ハッシュとファイルサイズによる同一性判定を行う。
 
-use sha2::{Digest, Sha256};
-
 /// バイナリファイルの情報（サイズ + SHA-256ハッシュ）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryInfo {
@@ -24,9 +22,7 @@ impl BinaryInfo {
 
 /// SHA-256ハッシュを計算する（16進数文字列）
 pub fn compute_sha256(content: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    format!("{:x}", hasher.finalize())
+    crate::sha256::hex_of_bytes(content)
 }
 
 #[cfg(test)]

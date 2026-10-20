@@ -13,6 +13,7 @@ pub mod path_resolution;
 pub mod relative_path;
 pub mod route_choice;
 pub mod scan;
+pub mod sha256;
 #[cfg(all(unix, any(test, feature = "test-utils")))]
 pub mod test_tree;
 pub mod unreadable_name;

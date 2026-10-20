@@ -9,11 +9,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::backup::{local_target_identity, next_session_id, remote_target_identity};
 use crate::side::Side;
 use remote_merge_config::AppConfig;
+use remote_merge_core::sha256;
 
 static TEMP_ENTRY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -133,7 +133,7 @@ impl BackupStore {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
         let description = target_description(config, target, &self.startup_directory)?;
-        let key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let key = sha256::hex_of_bytes(description.as_bytes());
         let target_dir = root.join("targets").join(&key);
         create_dir_owner_only(&target_dir).map_err(|error| store_failure(&target_dir, &error))?;
         let description_file = target_dir.join("target.txt");
@@ -194,11 +194,11 @@ impl BackupStore {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
         let description = target_description(config, target, &self.startup_directory)?;
-        let key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let key = sha256::hex_of_bytes(description.as_bytes());
         let target_dir = root.join("targets").join(&key);
         create_dir_owner_only(&target_dir)?;
         write_file_owner_only(&target_dir.join("target.txt"), description.as_bytes())?;
-        let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
+        let entry_key = sha256::hex_of_bytes(rel_path.as_bytes());
         let target_session_dir = root.join("sessions").join(session_id).join(key);
         let destination = target_session_dir.join("records").join(entry_key);
         let records_dir = destination
@@ -347,7 +347,7 @@ impl BackupStore {
             .join(session_id)
             .join(target_key)
             .join("records");
-        let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
+        let entry_key = sha256::hex_of_bytes(rel_path.as_bytes());
         let record_dir = records_dir.join(entry_key);
         let record_file = record_dir.join("record.json");
         let stored = fs::read(&record_file)
@@ -473,7 +473,7 @@ fn target_key(
     startup_directory: &Path,
 ) -> anyhow::Result<String> {
     let description = target_description(config, target, startup_directory)?;
-    Ok(format!("{:x}", Sha256::digest(description.as_bytes())))
+    Ok(sha256::hex_of_bytes(description.as_bytes()))
 }
 
 fn target_description(

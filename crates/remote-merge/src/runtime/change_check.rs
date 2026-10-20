@@ -124,8 +124,7 @@ pub fn mode_in_listing(entries: &[ListedEntry], path: &str) -> Observed {
 }
 
 fn sha256_hex(content: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(content))
+    remote_merge_core::sha256::hex_of_bytes(content)
 }
 
 /// 確かめた結果が分かる失敗の文言。`cause` は最初の `接続断` の原因
@@ -166,7 +165,6 @@ pub fn describe_unconfirmed(cause: &str, reason: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sha2::{Digest, Sha256};
 
     fn file(text: &str) -> Observed {
         Observed::File(text.as_bytes().to_vec())
@@ -175,7 +173,7 @@ mod tests {
     #[test]
     fn a_write_is_judged_against_the_new_and_the_previous_content() {
         let previous = Before::Content(b"old".to_vec());
-        let old_hash = Before::Hash(format!("{:x}", Sha256::digest(b"old")));
+        let old_hash = Before::Hash(sha256_hex(b"old"));
         let cases = [
             (&previous, file("new"), Outcome::Done),
             (&previous, file("old"), Outcome::NotDone),

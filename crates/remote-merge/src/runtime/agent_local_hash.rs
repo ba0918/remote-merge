@@ -4,8 +4,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
-
 /// 手元の Agent のバイナリの SHA-256。解決できなければ照合しない（None）。解決できたのに読めない
 /// ときは、照合せずに動かさず誤りにする
 pub(super) fn local_agent_hash<R: Read>(
@@ -15,18 +13,14 @@ pub(super) fn local_agent_hash<R: Read>(
     let Ok(path) = resolved else {
         return Ok(None);
     };
-    let hash = (|| -> std::io::Result<String> {
-        let mut reader = open(&path)?;
-        let mut hasher = Sha256::new();
-        std::io::copy(&mut reader, &mut hasher)?;
-        Ok(format!("{:x}", hasher.finalize()))
-    })()
-    .map_err(|error| {
-        anyhow::anyhow!(
-            "cannot read the local agent binary {}: {error}",
-            path.display()
-        )
-    })?;
+    let hash = open(&path)
+        .and_then(remote_merge_core::sha256::hex_of_reader)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "cannot read the local agent binary {}: {error}",
+                path.display()
+            )
+        })?;
     Ok(Some(hash))
 }
 
