@@ -1,6 +1,6 @@
 # 古い SSH サーバへの接続
 
-サーバごとのアルゴリズム指定と、接続に失敗したときの案内。
+サーバごとのアルゴリズム指定、MAC を設定しないときに申し出る既定の MAC、接続に失敗したときの案内。
 
 ## Requirements
 
@@ -17,6 +17,14 @@
 - verification: unit
 
 暗号方式が合わず SSH 接続に失敗したとき、理由と変更できる設定のヒントを表示する。
+
+### REQ-ssh-028: MAC を設定しないときは SHA-1 の MAC を最後に申し出る
+- kind: state_driven
+- source: docs/decision/records/2026-10-20-update-dependencies-consistency.md#A1
+- verification: unit
+
+サーバの mac_algorithms を設定していないとき（[servers.名前.ssh_options] がないときを含む）、接続は "hmac-sha2-" で始まる MAC を先に、"hmac-sha1-etm@openssh.com" と "hmac-sha1" をこの順で最後に申し出る。
+SHA-2 の MAC を持たず "hmac-sha1" を持つサーバ（OpenSSH 5.9 より前）にも、mac_algorithms を設定せずにつながる。
 
 ## Examples
 
@@ -38,4 +46,16 @@ Scenario: 鍵交換が合わない
 Given 接続先と共通の鍵交換方式がない
 When SSH 接続を試す
 Then 不一致の理由と設定のヒントが表示される
+
+@id=EX-ssh-060 @about=REQ-ssh-028 @source=docs/decision/records/2026-10-20-update-dependencies-consistency.md#A1
+Scenario: SHA-2 の MAC を持たない古いサーバ
+Given 接続先のサーバの MAC は "hmac-sha1" だけで、暗号は MAC を使う "aes128-ctr" だけであり、そのサーバの mac_algorithms は設定していない
+When そのサーバに接続してリモートのコマンドを実行する
+Then 接続は成り立ちコマンドの出力が返る
+
+@id=EX-ssh-061 @about=REQ-ssh-028 @source=docs/decision/records/2026-10-20-update-dependencies-consistency.md#A1
+Scenario: 既定の MAC の並び
+Given サーバの mac_algorithms を設定していない
+When そのサーバに接続する
+Then 接続が申し出る MAC は "hmac-sha2-" で始まる名前が先に並び、最後の二つが "hmac-sha1-etm@openssh.com" と "hmac-sha1" である
 ```

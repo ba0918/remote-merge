@@ -52,6 +52,19 @@ impl TestServer {
         Self::start_with(Options::default(), Faults::default()).await
     }
 
+    /// SHA-2 の MAC を持たない古いサーバ（OpenSSH 5.9 より前）。MAC を使わない暗号（AEAD）では MAC を
+    /// 合意しなくてもつながるので、暗号も MAC を使う aes128-ctr だけにする
+    pub async fn sha1_mac_only() -> Self {
+        Self::start_with(
+            Options {
+                sha1_mac_only: true,
+                ..Options::default()
+            },
+            Faults::default(),
+        )
+        .await
+    }
+
     pub async fn reject_sudo() -> Self {
         Self::start_with(
             Options {
@@ -118,6 +131,7 @@ impl TestServer {
     async fn start_with(options: Options, faults: Faults) -> Self {
         let Options {
             legacy,
+            sha1_mac_only,
             reject_sudo,
             sandbox_home,
             agent_available,
@@ -132,6 +146,10 @@ impl TestServer {
         };
         if legacy {
             config.preferred.kex = Cow::Owned(vec![russh::kex::DH_G14_SHA1]);
+        }
+        if sha1_mac_only {
+            config.preferred.cipher = Cow::Owned(vec![russh::cipher::AES_128_CTR]);
+            config.preferred.mac = Cow::Owned(vec![russh::mac::HMAC_SHA1]);
         }
         let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let host_key = key.public_key().to_openssh().unwrap();
@@ -179,6 +197,7 @@ impl TestServer {
 #[derive(Default)]
 struct Options {
     legacy: bool,
+    sha1_mac_only: bool,
     reject_sudo: bool,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
