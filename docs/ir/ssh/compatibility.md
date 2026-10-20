@@ -45,11 +45,11 @@ Given 二つ目の接続先には暗号方式を明示設定していない
 When 二つ目のサーバに接続する
 Then 一つ目のサーバだけの設定は適用されない
 
-@id=EX-ssh-013 @about=REQ-ssh-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A36
+@id=EX-ssh-013 @about=REQ-ssh-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A36,docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency-2.md#A3
 Scenario: 鍵交換が合わない
-Given 接続先と共通の鍵交換方式がない
+Given 接続先のサーバの鍵交換方式は "diffie-hellman-group14-sha1" だけで、そのサーバの kex_algorithms は設定していない
 When SSH 接続を試す
-Then 不一致の理由と設定のヒントが表示される
+Then 不一致の理由と、kex_algorithms に "diffie-hellman-group14-sha1" だけを並べた設定の例が表示される
 
 @id=EX-ssh-062 @about=REQ-ssh-007 @source=docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A1
 Scenario: 暗号が合わない

@@ -74,7 +74,10 @@ async fn an_incompatible_key_exchange_reports_the_reason_and_a_configuration_hin
         message.to_lowercase().contains("kex") || message.to_lowercase().contains("key exchange"),
         "{message}"
     );
-    assert!(message.contains("kex_algorithms"), "{message}");
+    assert!(
+        message.contains("kex_algorithms = [\"diffie-hellman-group14-sha1\"]"),
+        "{message}"
+    );
 }
 
 // @kotowari[EX-ssh-062]
