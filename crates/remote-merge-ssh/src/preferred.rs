@@ -1,7 +1,8 @@
 //! SshOptions から russh::Preferred を構築するモジュール。
 //!
 //! レガシーSSHサーバ向けに、ユーザー設定のアルゴリズムを
-//! Preferred に反映する。不明なアルゴリズム名は警告ログを出して無視する。
+//! Preferred に反映する。このツールが使えないアルゴリズム名（不明な名前と、ホスト鍵の ssh-dss）は
+//! 警告ログを出して無視する。
 
 use std::borrow::Cow;
 
@@ -80,17 +81,39 @@ fn resolve_kex_names(user_list: &[String]) -> Option<Vec<kex::Name>> {
     Some(result)
 }
 
-/// ユーザー指定のホスト鍵の方式を解決し、デフォルトの先頭に追加する。russh は知らない名前も
-/// `Algorithm::Other` として読むので、それは警告して除く。全て不明な場合は None を返す
+/// このツールがホスト鍵の方式の名前を使えない理由
+pub(crate) enum UnusableHostKey {
+    /// russh が知らない名前。russh は知らない名前も `Algorithm::Other` として読む
+    Unknown,
+    /// russh は ssh-dss を知っているが、使う ssh-key は dsa の機能なしで作られ、DSA の署名を確かめられない。
+    /// 申し出ると方式は合っても "Wrong server signature" で失敗する
+    DsaSignatureUnverifiable,
+}
+
+/// ホスト鍵の方式の名前を、このツールが接続に使える方式として読む
+pub(crate) fn usable_host_key(name: &str) -> Result<Algorithm, UnusableHostKey> {
+    match name.parse::<Algorithm>() {
+        Ok(Algorithm::Other(_)) | Err(_) => Err(UnusableHostKey::Unknown),
+        Ok(Algorithm::Dsa) => Err(UnusableHostKey::DsaSignatureUnverifiable),
+        Ok(algorithm) => Ok(algorithm),
+    }
+}
+
+/// ユーザー指定のホスト鍵の方式を解決し、デフォルトの先頭に追加する。使えない方式は警告して除く。
+/// 全て使えない場合は None を返す
 fn resolve_key_names(user_list: &[String]) -> Option<Vec<Algorithm>> {
     let user_names: Vec<Algorithm> = user_list
         .iter()
-        .filter_map(|s| match s.parse::<Algorithm>() {
-            Ok(Algorithm::Other(_)) | Err(_) => {
+        .filter_map(|s| match usable_host_key(s) {
+            Ok(algorithm) => Some(algorithm),
+            Err(UnusableHostKey::Unknown) => {
                 warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown host key algorithm in config, ignoring");
                 None
             }
-            Ok(algorithm) => Some(algorithm),
+            Err(UnusableHostKey::DsaSignatureUnverifiable) => {
+                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unsupported host key algorithm in config (DSA signatures cannot be verified), ignoring");
+                None
+            }
         })
         .collect();
     if user_names.is_empty() {
@@ -235,6 +258,18 @@ mod tests {
             !keys.iter().any(|key| key.as_str() == "no-such-key"),
             "{keys:?}"
         );
+    }
+
+    // ssh-dss を申し出ると、DSA のホスト鍵のサーバとは方式が合っても署名を確かめられずに失敗する
+    // @kotowari[REQ-ssh-006]
+    #[test]
+    fn a_dsa_host_key_algorithm_in_config_is_not_offered() {
+        let opts = SshOptions {
+            host_key_algorithms: Some(vec!["ssh-dss".to_string()]),
+            ..Default::default()
+        };
+        let preferred = build_preferred(&opts);
+        assert_eq!(preferred.key.as_ref(), Preferred::DEFAULT.key.as_ref());
     }
 
     #[test]
