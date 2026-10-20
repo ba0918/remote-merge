@@ -1,7 +1,8 @@
 //! サーバと共通の SSH の方式がなく接続に失敗したときの、設定のヒントを作る。
 
-use russh::keys::Algorithm;
 use russh::{AlgorithmKind, cipher, kex, mac};
+
+use crate::preferred;
 
 /// 接続の失敗が、サーバと共通の方式がないことによるなら、ssh_options に書く設定の例を返す。
 ///
@@ -43,13 +44,9 @@ fn usable_kex(name: &str) -> bool {
     kex::Name::try_from(name).is_ok_and(|name| name != kex::NONE)
 }
 
-/// russh は ssh-dss を知っているが、使う ssh-key は dsa の機能なしで作られ、DSA の署名を確かめられない。
-/// 設定すると方式は合っても "Wrong server signature" で失敗するので勧めない
+/// 設定に書くと無視される方式は勧めない
 fn usable_host_key(name: &str) -> bool {
-    !matches!(
-        name.parse::<Algorithm>(),
-        Ok(Algorithm::Other(_) | Algorithm::Dsa) | Err(_)
-    )
+    preferred::usable_host_key(name).is_ok()
 }
 
 /// 暗号をかけない none は、つながっても中身が平文で流れるので勧めない
