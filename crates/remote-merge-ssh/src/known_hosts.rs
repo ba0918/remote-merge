@@ -4,6 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use hmac::{Hmac, Mac};
 use russh::client;
+use russh::keys::PublicKeyOrCertificate;
 use sha1::Sha1;
 
 use super::host_key_verifier::UnknownHostInfo;
@@ -64,12 +65,22 @@ impl client::Handler for SshHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &russh::keys::PublicKey,
+        server_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
         if self.skip_host_key_check {
             tracing::debug!(target: "remote_merge::ssh::known_hosts", "Skipping known_hosts check: {}", self.host);
             return Ok(true);
         }
+
+        let server_public_key = match server_key {
+            PublicKeyOrCertificate::PublicKey { key, .. } => key,
+            // 証明書を信じるには known_hosts の @cert-authority で認証局を確かめる必要がある。
+            // 中の鍵を取り出して素の鍵として照合すると、認証局を確かめずに信じることになる
+            PublicKeyOrCertificate::Certificate(_) => {
+                tracing::warn!(target: "remote_merge::ssh::known_hosts", "Server presented a host certificate, which is not supported: {}", self.host);
+                return Ok(false);
+            }
+        };
 
         let openssh_str = server_public_key
             .to_openssh()
@@ -686,13 +697,22 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
 
     // ── 承認した鍵での再接続 ──
 
-    fn random_ed25519_key() -> russh::keys::PublicKey {
-        use russh::keys::ssh_key::rand_core::OsRng;
+    fn random_ed25519_private_key() -> russh::keys::PrivateKey {
         use russh::keys::{Algorithm, PrivateKey};
-        PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
-            .unwrap()
-            .public_key()
-            .clone()
+        PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap()
+    }
+
+    fn random_ed25519_key() -> russh::keys::PublicKey {
+        random_ed25519_private_key().public_key().clone()
+    }
+
+    fn host_certificate(subject: &russh::keys::PublicKey) -> russh::keys::Certificate {
+        use russh::keys::ssh_key::certificate::{Builder, CertType};
+        let mut builder =
+            Builder::new_with_random_nonce(&mut rand::rng(), subject, 0, u64::MAX).unwrap();
+        builder.cert_type(CertType::Host).unwrap();
+        builder.valid_principal("example.invalid").unwrap();
+        builder.sign(&random_ed25519_private_key()).unwrap()
     }
 
     fn approved_handler(key: &russh::keys::PublicKey) -> SshHandler {
@@ -707,11 +727,25 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         let approved = random_ed25519_key();
 
         let accepted = approved_handler(&approved)
-            .check_server_key(&approved)
+            .check_server_key(&approved.clone().into())
             .await
             .unwrap();
 
         assert!(accepted);
+    }
+
+    // 接続はホスト証明書の方式を求めない。それでも証明書が届いたら、中の鍵が承認した鍵でも信じない
+    #[tokio::test]
+    async fn a_host_certificate_is_rejected_even_when_it_carries_the_approved_key() {
+        use russh::client::Handler;
+        let approved = random_ed25519_key();
+
+        let accepted = approved_handler(&approved)
+            .check_server_key(&host_certificate(&approved).into())
+            .await
+            .unwrap_or(false);
+
+        assert!(!accepted);
     }
 
     #[tokio::test]
@@ -721,7 +755,7 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         let presented = random_ed25519_key();
 
         let accepted = approved_handler(&approved)
-            .check_server_key(&presented)
+            .check_server_key(&presented.into())
             .await
             .unwrap_or(false);
 

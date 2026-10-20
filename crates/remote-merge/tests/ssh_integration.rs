@@ -14,10 +14,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{Channel, ChannelId, CryptoVec, server};
+use russh::{Channel, ChannelId, server};
 use tempfile::NamedTempFile;
 use tokio::net::TcpListener;
 
@@ -118,9 +117,11 @@ impl server::Handler for TestHandler {
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,
+        reply: server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
     }
 
     async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
@@ -163,8 +164,8 @@ impl server::Handler for TestHandler {
             .map(String::as_str)
             == Some("duplex-upload")
         {
-            session.data(channel, CryptoVec::from("stdout after EOF"))?;
-            session.extended_data(channel, 1, CryptoVec::from("stderr after EOF"))?;
+            session.data(channel, "stdout after EOF")?;
+            session.extended_data(channel, 1, "stderr after EOF")?;
             session.exit_status_request(channel, 23)?;
             session.eof(channel)?;
             session.close(channel)?;
@@ -205,8 +206,8 @@ impl server::Handler for TestHandler {
                 .stdin(std::process::Stdio::null())
                 .output()
                 .await?;
-            session.data(channel, CryptoVec::from_slice(&output.stdout))?;
-            session.extended_data(channel, 1, CryptoVec::from_slice(&output.stderr))?;
+            session.data(channel, output.stdout.clone())?;
+            session.extended_data(channel, 1, output.stderr.clone())?;
             session.exit_status_request(channel, output.status.code().unwrap() as u32)?;
             session.eof(channel)?;
             session.close(channel)?;
@@ -217,12 +218,8 @@ impl server::Handler for TestHandler {
             self.exec_commands.lock().unwrap().insert(channel, command);
             // One large packet would not fill the client's bounded message queue.
             for index in 0..256_u32 {
-                session.data(channel, CryptoVec::from(index.to_le_bytes().as_slice()))?;
-                session.extended_data(
-                    channel,
-                    1,
-                    CryptoVec::from(index.to_be_bytes().as_slice()),
-                )?;
+                session.data(channel, index.to_le_bytes().to_vec())?;
+                session.extended_data(channel, 1, index.to_be_bytes().to_vec())?;
             }
             return Ok(());
         }
@@ -240,7 +237,7 @@ impl server::Handler for TestHandler {
 
         // stdout を送信
         if !stdout.is_empty() {
-            session.data(channel, CryptoVec::from(stdout.as_bytes()))?;
+            session.data(channel, stdout.as_bytes().to_vec())?;
         }
 
         // 終了ステータスを送信
@@ -286,7 +283,7 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
     };
     config
         .keys
-        .push(russh::keys::PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
+        .push(russh::keys::PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap());
     let config = Arc::new(config);
 
     let mut server = TestServer {
@@ -325,7 +322,7 @@ use remote_merge::ssh::client::SshClient;
 
 /// テスト用の一時SSH鍵ファイルを生成する
 fn generate_test_key() -> NamedTempFile {
-    let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+    let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
     let openssh_str = key
         .to_openssh(russh::keys::ssh_key::LineEnding::LF)
         .unwrap();

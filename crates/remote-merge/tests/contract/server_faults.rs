@@ -14,7 +14,7 @@ use remote_merge::agent::protocol::{
     AgentRequest, AgentResponse, deserialize_request, deserialize_response,
 };
 use russh::server::Handle;
-use russh::{ChannelId, CryptoVec, Disconnect};
+use russh::{ChannelId, Disconnect};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin};
 
@@ -265,7 +265,7 @@ impl AgentInbound {
         let mut frame = (body.len() as u32).to_be_bytes().to_vec();
         frame.extend_from_slice(&body);
         self.handle
-            .data(self.channel, CryptoVec::from(frame))
+            .data(self.channel, frame)
             .await
             .expect("the client waits for the answer");
     }
@@ -470,10 +470,7 @@ impl Outbound {
     }
 
     async fn send(&self, bytes: &[u8]) {
-        let _ = self
-            .handle
-            .data(self.channel, CryptoVec::from(bytes.to_vec()))
-            .await;
+        let _ = self.handle.data(self.channel, bytes.to_vec()).await;
     }
 }
 

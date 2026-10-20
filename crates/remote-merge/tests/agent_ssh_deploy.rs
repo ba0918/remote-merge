@@ -41,10 +41,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{ChannelId, CryptoVec, server};
+use russh::{ChannelId, server};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -104,9 +103,11 @@ impl server::Handler for ProcessAgentHandler {
     async fn channel_open_session(
         &mut self,
         _channel: russh::Channel<Msg>,
+        reply: server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
     }
 
     async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
@@ -179,7 +180,7 @@ impl server::Handler for ProcessAgentHandler {
             });
         } else {
             // 不明なコマンド: 固定レスポンスを返す
-            session.data(channel, CryptoVec::from_slice(b"unknown command\n"))?;
+            session.data(channel, b"unknown command\n".to_vec())?;
             session.exit_status_request(channel, 127)?;
             session.eof(channel)?;
             session.close(channel)?;
@@ -246,7 +247,7 @@ async fn pipe_stdout_to_channel(
         match stdout.read(&mut buf).await {
             Ok(0) => break,
             Ok(n) => {
-                let data = CryptoVec::from_slice(&buf[..n]);
+                let data = buf[..n].to_vec();
                 if handle.data(channel, data).await.is_err() {
                     break;
                 }
@@ -295,7 +296,7 @@ async fn start_process_agent_server() -> u16 {
     };
     config
         .keys
-        .push(PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
+        .push(PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap());
     let config = Arc::new(config);
 
     // 一度閉じたポートを開き直すと、負荷の下では開き直す前につなぎに行って断られるので、開いた
@@ -313,7 +314,7 @@ async fn start_process_agent_server() -> u16 {
 
 /// テスト用の一時 SSH 秘密鍵ファイルを生成する。
 fn generate_test_key() -> NamedTempFile {
-    let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+    let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
     let openssh_str = key
         .to_openssh(russh::keys::ssh_key::LineEnding::LF)
         .unwrap();
