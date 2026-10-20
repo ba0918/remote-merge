@@ -9,7 +9,7 @@ publish = false
 glob-match = "0.2"
 thiserror = "2"
 anyhow = "1"
-similar = "2"
+similar = "3"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 tempfile = { version = "3", optional = true }
