@@ -104,7 +104,7 @@ impl Workspace {
     /// 製品も同じ toml クレートで読むため、ここで読めないことを確かめたファイルから接続先を得ることはない。
     fn write_unparsable(&self, path: &Path) {
         let content = "this is not valid toml {{{{\n";
-        assert!(content.parse::<toml::Value>().is_err());
+        assert!(content.parse::<toml::Table>().is_err());
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
     }

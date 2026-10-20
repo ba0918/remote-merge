@@ -227,7 +227,7 @@ pub struct TestDirs {
 
 impl TestDirs {
     fn assert_isolated_config(&self) {
-        let config: toml::Value = fs::read_to_string(&self.config_path)
+        let config: toml::Table = fs::read_to_string(&self.config_path)
             .expect("fixture configuration missing")
             .parse()
             .expect("fixture configuration invalid");
@@ -313,7 +313,7 @@ impl TestDirs {
                 && path.starts_with(temp)
         };
         assert!(inside_temp(home), "HOME escapes fixture");
-        let config: toml::Value = fs::read_to_string(config_path)
+        let config: toml::Table = fs::read_to_string(config_path)
             .expect("fixture configuration missing")
             .parse()
             .expect("fixture configuration invalid");

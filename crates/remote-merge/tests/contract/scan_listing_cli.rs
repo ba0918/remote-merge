@@ -301,7 +301,7 @@ impl AgentFixture {
                     .any(|part| part == std::path::Component::ParentDir)
                 && path.starts_with(temp)
         };
-        let config: toml::Value = fs::read_to_string(config_path)
+        let config: toml::Table = fs::read_to_string(config_path)
             .expect("fixture configuration missing")
             .parse()
             .expect("fixture configuration invalid");
