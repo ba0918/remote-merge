@@ -19,6 +19,7 @@ Position: 版・ツールチェーン・ゲートと A5 は反映済み。A6（u
 - A3 MSRV を 1.88 として workspace に宣言し、CI に 1.88.0 で check するジョブを置く。開発依存（テスト）は約束に含めない（--all-targets を付けない）。
   - why: 1.85（edition 2024 の最小）では依存の home 0.5.12 が rustc 1.88 を要求して check が通らず、1.88.0 で通ることを確かめた。
   - decided_by: AI（実測による）
+  - superseded_by: [A1（MSRV を 1.89 にする）](./2026-10-20-msrv-1-89.md#A1)
 - A4 ゲートを CI と pre-push でそろえる。clippy は --workspace --all-targets --all-features --locked、テストは --workspace --all-features --locked。
   - why: リポジトリ全体とロックファイルの一致を、コマンド行の指定ではなくゲートで保証する。
   - decided_by: AI（ba0918-rust の規則）
