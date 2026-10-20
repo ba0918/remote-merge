@@ -52,8 +52,8 @@ impl Harness {
             .expect("REMOTE_MERGE_AGENT_BINARY must point to the musl agent binary");
         assert!(agent_binary.is_file(), "musl agent binary does not exist");
         let server_toml = fs::read_to_string(&source)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", source.display()))
-            .parse::<toml::Value>()
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", source.display()));
+        let server_toml = toml::from_str::<toml::Value>(&server_toml)
             .unwrap_or_else(|error| panic!("invalid server TOML: {error}"));
         assert!(
             server_toml
