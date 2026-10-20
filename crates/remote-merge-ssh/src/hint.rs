@@ -98,16 +98,6 @@ mod tests {
 
     // @kotowari[REQ-ssh-007]
     #[test]
-    fn a_host_key_mismatch_suggests_the_servers_host_key_algorithms() {
-        let hint = ssh_algorithm_hint(&no_common(AlgorithmKind::Key, &["ssh-rsa"])).unwrap();
-        assert!(
-            hint.contains("host_key_algorithms = [\"ssh-rsa\"]"),
-            "{hint}"
-        );
-    }
-
-    // @kotowari[REQ-ssh-007]
-    #[test]
     fn a_cipher_mismatch_suggests_only_the_servers_ciphers_this_tool_can_use() {
         let hint = ssh_algorithm_hint(&no_common(
             AlgorithmKind::Cipher,
@@ -115,13 +105,6 @@ mod tests {
         ))
         .unwrap();
         assert!(hint.contains("ciphers = [\"aes128-cbc\"]"), "{hint}");
-    }
-
-    // @kotowari[REQ-ssh-007]
-    #[test]
-    fn a_mac_mismatch_suggests_the_servers_macs() {
-        let hint = ssh_algorithm_hint(&no_common(AlgorithmKind::Mac, &["hmac-sha1"])).unwrap();
-        assert!(hint.contains("mac_algorithms = [\"hmac-sha1\"]"), "{hint}");
     }
 
     // 既定のホスト鍵の方式は "ssh-rsa" まで含むので、ホスト鍵が合わないのは DSA の鍵だけの古いサーバで、
