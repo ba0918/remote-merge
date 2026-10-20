@@ -42,8 +42,13 @@ fn usable_kex(name: &str) -> bool {
     kex::Name::try_from(name).is_ok()
 }
 
+/// russh は ssh-dss を知っているが、使う ssh-key は dsa の機能なしで作られ、DSA の署名を確かめられない。
+/// 設定すると方式は合っても "Wrong server signature" で失敗するので勧めない
 fn usable_host_key(name: &str) -> bool {
-    !matches!(name.parse::<Algorithm>(), Ok(Algorithm::Other(_)) | Err(_))
+    !matches!(
+        name.parse::<Algorithm>(),
+        Ok(Algorithm::Other(_) | Algorithm::Dsa) | Err(_)
+    )
 }
 
 /// 暗号をかけない none は、つながっても中身が平文で流れるので勧めない
@@ -116,6 +121,15 @@ mod tests {
     fn a_mac_mismatch_suggests_the_servers_macs() {
         let hint = ssh_algorithm_hint(&no_common(AlgorithmKind::Mac, &["hmac-sha1"])).unwrap();
         assert!(hint.contains("mac_algorithms = [\"hmac-sha1\"]"), "{hint}");
+    }
+
+    // 既定のホスト鍵の方式は "ssh-rsa" まで含むので、ホスト鍵が合わないのは DSA の鍵だけの古いサーバで、
+    // このツールはその署名を確かめられない
+    // @kotowari[REQ-ssh-007]
+    #[test]
+    fn no_hint_when_the_servers_only_host_key_is_dsa() {
+        let error = no_common(AlgorithmKind::Key, &["ssh-dss"]);
+        assert_eq!(ssh_algorithm_hint(&error), None);
     }
 
     #[test]
