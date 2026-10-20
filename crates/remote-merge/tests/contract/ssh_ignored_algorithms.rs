@@ -21,7 +21,7 @@ const IGNORED: [(&str, &str); 4] = [
     ("mac_algorithms", "no-such-mac"),
 ];
 
-// @kotowari[REQ-ssh-006]
+// @kotowari[REQ-ssh-006, EX-ssh-063]
 #[test]
 fn unusable_algorithm_names_are_warned_about_and_the_connection_uses_the_defaults() {
     let env = CliEnv::new(&FILES, &FILES);
