@@ -22,7 +22,6 @@ clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "7"
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-sha2 = "0.11"
 serde_json = "1.0.149"
 libc = "0.2"
 
@@ -31,6 +30,7 @@ libc = "0.2"
 test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
+sha2 = "0.11"
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
 russh = "0.63"
 walkdir = "2"
