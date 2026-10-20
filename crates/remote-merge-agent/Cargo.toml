@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 remote-merge-ssh = { path = "../remote-merge-ssh" }
-dirs = "6"
+dirs = "7"
 remote-merge-core = { path = "../remote-merge-core" }
 remote-merge-protocol = { path = "../remote-merge-protocol" }
 anyhow = "1"
