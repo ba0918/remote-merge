@@ -11,7 +11,7 @@ thiserror = "2"
 anyhow = "1"
 similar = "3"
 serde = { version = "1", features = ["derive"] }
-sha2 = "0.10"
+sha2 = "0.11"
 tempfile = { version = "3", optional = true }
 encoding_rs = { version = "0.8.42", default-features = false, features = ["alloc"] }
 
