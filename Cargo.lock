@@ -1678,7 +1678,6 @@ dependencies = [
  "remote-merge-protocol",
  "remote-merge-ssh",
  "russh",
- "sha2",
  "tempfile",
  "tokio",
  "tracing",
