@@ -38,8 +38,9 @@ pub fn ssh_algorithm_hint(error: &anyhow::Error) -> Option<String> {
     ))
 }
 
+/// 鍵交換をしない none は、共有の秘密がなく鍵を誰でも求められ、ホスト鍵の署名も確かめないので勧めない
 fn usable_kex(name: &str) -> bool {
-    kex::Name::try_from(name).is_ok()
+    kex::Name::try_from(name).is_ok_and(|name| name != kex::NONE)
 }
 
 /// russh は ssh-dss を知っているが、使う ssh-key は dsa の機能なしで作られ、DSA の署名を確かめられない。
@@ -129,6 +130,13 @@ mod tests {
     #[test]
     fn no_hint_when_the_servers_only_host_key_is_dsa() {
         let error = no_common(AlgorithmKind::Key, &["ssh-dss"]);
+        assert_eq!(ssh_algorithm_hint(&error), None);
+    }
+
+    // @kotowari[REQ-ssh-007]
+    #[test]
+    fn no_hint_when_the_only_key_exchange_offered_is_none() {
+        let error = no_common(AlgorithmKind::Kex, &["none"]);
         assert_eq!(ssh_algorithm_hint(&error), None);
     }
 
