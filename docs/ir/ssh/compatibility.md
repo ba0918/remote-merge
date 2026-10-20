@@ -13,10 +13,13 @@
 
 ### REQ-ssh-007: 接続失敗の理由を示す
 - kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A36
+- source: docs/decision/records/2026-09-25-spec-migration.md#A36, docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A1, docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A2, docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A3, docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A4
 - verification: unit
 
 暗号方式が合わず SSH 接続に失敗したとき、理由と変更できる設定のヒントを表示する。
+ヒントは、"[servers.<name>.ssh_options]" の行と、その下に合わなかった方式の設定を書いた TOML の一行からなる設定の例を含む。設定の名前は、鍵交換なら kex_algorithms、ホスト鍵なら host_key_algorithms、暗号なら ciphers、MAC なら mac_algorithms で、値はサーバが申し出た方式のうちこのツールが使えるものの名前を、申し出の順に並べた文字列の配列である。
+このツールが使える方式は、その設定に書いたときに無視されずに接続に使われ、選ばれても接続が守られて成り立つ方式である。鍵交換・暗号・MAC の "none" と、このツールが署名を確かめられないホスト鍵の方式 "ssh-dss" は含めない。
+サーバが申し出た方式にこのツールが使えるものがないとき、また合わなかったのが圧縮の方式のとき（ssh_options に圧縮の設定はない）は、ヒントを出さず理由だけを表示する。
 
 ### REQ-ssh-028: MAC を設定しないときは SHA-1 の MAC を最後に申し出る
 - kind: state_driven
@@ -46,6 +49,12 @@ Scenario: 鍵交換が合わない
 Given 接続先と共通の鍵交換方式がない
 When SSH 接続を試す
 Then 不一致の理由と設定のヒントが表示される
+
+@id=EX-ssh-062 @about=REQ-ssh-007 @source=docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency.md#A1
+Scenario: 暗号が合わない
+Given 接続先のサーバの暗号は "aes128-cbc" だけで、そのサーバの ciphers は設定していない
+When SSH 接続を試す
+Then 不一致の理由と、ciphers に "aes128-cbc" だけを並べた設定の例が表示される
 
 @id=EX-ssh-060 @about=REQ-ssh-028 @source=docs/decision/records/2026-10-20-update-dependencies-consistency.md#A1
 Scenario: SHA-2 の MAC を持たない古いサーバ
