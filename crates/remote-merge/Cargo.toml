@@ -32,11 +32,12 @@ test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
-russh = "0.57"
+russh = "0.63"
 walkdir = "2"
 libc = "0.2"
 tempfile = "3"
 proptest = "1.11.0"
+rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
 
 [[test]]
 name = "ssh_integration"

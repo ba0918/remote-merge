@@ -17,7 +17,10 @@ use crate::config::SshOptions;
 /// ユーザー指定のアルゴリズムはデフォルトの **先頭** に追加される
 /// （優先度が最も高くなる）。デフォルトに既に含まれるものは重複排除する。
 pub fn build_preferred(opts: &SshOptions) -> Preferred {
-    let mut preferred = Preferred::default();
+    let mut preferred = Preferred {
+        mac: Cow::Owned(default_macs()),
+        ..Preferred::default()
+    };
 
     if let Some(ref kex_list) = opts.kex_algorithms
         && let Some(names) = resolve_kex_names(kex_list)
@@ -130,9 +133,23 @@ fn resolve_cipher_names(user_list: &[String]) -> Option<Vec<cipher::Name>> {
     Some(result)
 }
 
+/// 既定の MAC。russh の既定の後ろに SHA-1 の MAC を置く。
+///
+/// russh は既定から SHA-1 の MAC を外したが、OpenSSH 5.9 より前のサーバは SHA-2 の MAC を持たず、
+/// 外したままだと MAC を設定しないとつながらない。SHA-2 を持つサーバでは選ばれないよう最後に置く
+fn default_macs() -> Vec<mac::Name> {
+    let mut macs = Preferred::DEFAULT.mac.to_vec();
+    for name in [mac::HMAC_SHA1_ETM, mac::HMAC_SHA1] {
+        if !macs.contains(&name) {
+            macs.push(name);
+        }
+    }
+    macs
+}
+
 /// ユーザー指定の MAC アルゴリズム名を解決する。
 fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
-    let default_mac: &[mac::Name] = Preferred::DEFAULT.mac.as_ref();
+    let default_mac = default_macs();
 
     let user_names: Vec<mac::Name> = user_list
         .iter()
@@ -149,7 +166,7 @@ fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
     }
 
     let mut result = user_names.clone();
-    for &name in default_mac {
+    for name in default_mac {
         if !result.contains(&name) {
             result.push(name);
         }
@@ -172,7 +189,31 @@ mod tests {
             preferred.cipher.as_ref(),
             Preferred::DEFAULT.cipher.as_ref()
         );
-        assert_eq!(preferred.mac.as_ref(), Preferred::DEFAULT.mac.as_ref());
+    }
+
+    // SHA-2 の MAC を持たない古いサーバ（OpenSSH 5.9 より前）へも、MAC を設定せずにつなげる
+    #[test]
+    fn default_macs_fall_back_to_sha1_after_the_safe_ones() {
+        let preferred = build_preferred(&SshOptions::default());
+        let macs = preferred.mac.as_ref();
+
+        let safe = Preferred::DEFAULT.mac.as_ref();
+        assert_eq!(&macs[..safe.len()], safe);
+        assert_eq!(&macs[safe.len()..], &[mac::HMAC_SHA1_ETM, mac::HMAC_SHA1]);
+    }
+
+    #[test]
+    fn configured_macs_come_before_the_default_ones_including_sha1() {
+        let opts = SshOptions {
+            mac_algorithms: Some(vec!["hmac-sha2-256".to_string()]),
+            ..Default::default()
+        };
+        let preferred = build_preferred(&opts);
+        let macs = preferred.mac.as_ref();
+
+        assert_eq!(macs[0], mac::HMAC_SHA256);
+        assert_eq!(macs.iter().filter(|&&n| n == mac::HMAC_SHA256).count(), 1);
+        assert_eq!(macs.last(), Some(&mac::HMAC_SHA1));
     }
 
     // 設定したホスト鍵の方式を、既定の前に置いて接続に使う（docs/ir/ssh/compatibility.md の REQ-ssh-006）

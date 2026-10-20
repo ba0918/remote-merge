@@ -14,10 +14,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Auth, Msg, Server as _, Session};
-use russh::{Channel, ChannelId, CryptoVec, server};
+use russh::{Channel, ChannelId, server};
 use tokio::net::TcpListener;
 
 use super::server_faults::{self, AgentInbound, FaultState, Faults, SudoAnswer};
@@ -134,7 +133,7 @@ impl TestServer {
         if legacy {
             config.preferred.kex = Cow::Owned(vec![russh::kex::DH_G14_SHA1]);
         }
-        let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+        let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
         let host_key = key.public_key().to_openssh().unwrap();
         config.keys.push(key);
         let config = Arc::new(config);
@@ -300,11 +299,11 @@ impl server::Handler for LocalHandler {
             child.stdin.take().unwrap().write_all(&encoded)?;
             let result = child.wait_with_output()?;
             if !result.stdout.is_empty() {
-                session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+                session.data(channel, result.stdout.clone())?;
             }
             // 本物の SSH と同じく、標準入力を受けたコマンドの標準エラーも返す
             if !result.stderr.is_empty() {
-                session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
+                session.extended_data(channel, 1, result.stderr.clone())?;
             }
             finish(session, channel, result.status.code().unwrap_or(1) as u32)?;
         }
@@ -327,9 +326,11 @@ impl server::Handler for LocalHandler {
     async fn channel_open_session(
         &mut self,
         _: Channel<Msg>,
+        reply: server::ChannelOpenHandle,
         _: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
     }
 
     async fn exec_request(
@@ -346,7 +347,7 @@ impl server::Handler for LocalHandler {
             return finish(session, channel, 1);
         }
         let Some(home) = &self.sandbox_home else {
-            session.data(channel, CryptoVec::from(b"ready\n".as_slice()))?;
+            session.data(channel, b"ready\n".as_slice())?;
             return finish(session, channel, 0);
         };
         let command = script.as_str();
@@ -366,7 +367,7 @@ impl server::Handler for LocalHandler {
         let received = if fake_sudo {
             match server_faults::fake_sudo_answer(command, &received) {
                 SudoAnswer::Reply(answer) => {
-                    session.data(channel, CryptoVec::from(answer.as_bytes()))?;
+                    session.data(channel, answer.as_bytes().to_vec())?;
                     return finish(session, channel, 0);
                 }
                 SudoAnswer::Run(received) => received,
@@ -398,10 +399,10 @@ impl server::Handler for LocalHandler {
         }
         let result = self.shell_command(&received, home).output()?;
         if !result.stdout.is_empty() {
-            session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+            session.data(channel, result.stdout.clone())?;
         }
         if !result.stderr.is_empty() {
-            session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
+            session.extended_data(channel, 1, result.stderr.clone())?;
         }
         finish(session, channel, result.status.code().unwrap_or(1) as u32)
     }

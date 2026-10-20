@@ -15,9 +15,11 @@ impl server::Handler for Peer {
     async fn channel_open_session(
         &mut self,
         _: Channel<server::Msg>,
+        reply: server::ChannelOpenHandle,
         _: &mut server::Session,
-    ) -> Result<bool> {
-        Ok(true)
+    ) -> Result<()> {
+        reply.accept().await;
+        Ok(())
     }
 
     async fn channel_eof(&mut self, channel: ChannelId, _: &mut server::Session) -> Result<()> {
@@ -31,7 +33,7 @@ struct AcceptTestKey;
 impl client::Handler for AcceptTestKey {
     type Error = anyhow::Error;
 
-    async fn check_server_key(&mut self, _: &russh::keys::PublicKey) -> Result<bool> {
+    async fn check_server_key(&mut self, _: &russh::keys::PublicKeyOrCertificate) -> Result<bool> {
         Ok(true)
     }
 }
@@ -82,7 +84,7 @@ async fn closing_stdin_sends_one_eof_and_still_forwards_final_stdout() {
     let repeated = tokio::time::timeout(Duration::from_millis(100), eof_rx.recv()).await;
     let handle = server.handle();
     handle
-        .data(channel_id, b"final stdout".to_vec().into())
+        .data(channel_id, b"final stdout".to_vec())
         .await
         .unwrap();
     handle.eof(channel_id).await.unwrap();
