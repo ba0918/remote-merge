@@ -14,7 +14,7 @@ base64 = "0.22"
 hmac = "0.12"
 sha1 = "0.10"
 sha2 = "0.10"
-dirs = "6"
+dirs = "7"
 remote-merge-settings = { path = "../remote-merge-settings" }
 rpassword = "7"
 zeroize = "1"
