@@ -9,8 +9,6 @@ mod parents;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest as _, Sha256};
-
 #[cfg(unix)]
 pub use change::create_symlink_creating;
 pub use change::{chmod, create_symlink, remove, write};
@@ -61,10 +59,8 @@ pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>,
 pub fn hash(root: &Path, entry: &EntryPath) -> Result<String, OpFailure> {
     let path = full_path(root, entry);
     regular_file(&std::fs::metadata(&path).map_err(|error| failed(&error))?)?;
-    let mut file = open_regular(&path)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|error| failed(&error))?;
-    Ok(hex(&hasher.finalize()))
+    let file = open_regular(&path)?;
+    crate::sha256::hex_of_reader(file).map_err(|error| failed(&error))
 }
 
 /// 通常ファイルでないもの（symlink は辿った先）の中身は読まない（docs/ir/paths/operations.md の
@@ -93,15 +89,6 @@ fn open_regular(path: &Path) -> Result<std::fs::File, OpFailure> {
     let file = options.open(path).map_err(|error| failed(&error))?;
     regular_file(&file.metadata().map_err(|error| failed(&error))?)?;
     Ok(file)
-}
-
-/// 中身の SHA-256（小文字の16進）
-pub fn sha256_hex(content: &[u8]) -> String {
-    hex(&Sha256::digest(content))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// 項目そのものがリンクならリンク文字列を、親を一覧せずに読む
