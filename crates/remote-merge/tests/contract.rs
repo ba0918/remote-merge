@@ -389,6 +389,9 @@ mod ssh_fallback;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_ignored_algorithms.rs"]
+mod ssh_ignored_algorithms;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_login_shell.rs"]
 mod ssh_login_shell;
 #[cfg(feature = "test-utils")]

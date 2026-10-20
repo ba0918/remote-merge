@@ -2,7 +2,8 @@
 //!
 //! レガシーSSHサーバ向けに、ユーザー設定のアルゴリズムを
 //! Preferred に反映する。このツールが使えないアルゴリズム名（不明な名前と、ホスト鍵の ssh-dss）は
-//! 警告ログを出して無視する。
+//! 利用者に向けた警告（target が remote_merge::warning。記録の細かさによらず標準エラーに出る）を出して
+//! 無視する。
 
 use std::borrow::Cow;
 
@@ -60,7 +61,7 @@ fn resolve_kex_names(user_list: &[String]) -> Option<Vec<kex::Name>> {
         .iter()
         .filter_map(|s| {
             kex::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown kex algorithm in config, ignoring");
+                warn!(target: "remote_merge::warning", algorithm = %s, "Unknown kex algorithm in config, ignoring");
                 None
             })
         })
@@ -107,11 +108,11 @@ fn resolve_key_names(user_list: &[String]) -> Option<Vec<Algorithm>> {
         .filter_map(|s| match usable_host_key(s) {
             Ok(algorithm) => Some(algorithm),
             Err(UnusableHostKey::Unknown) => {
-                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown host key algorithm in config, ignoring");
+                warn!(target: "remote_merge::warning", algorithm = %s, "Unknown host key algorithm in config, ignoring");
                 None
             }
             Err(UnusableHostKey::DsaSignatureUnverifiable) => {
-                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unsupported host key algorithm in config (DSA signatures cannot be verified), ignoring");
+                warn!(target: "remote_merge::warning", algorithm = %s, "Unsupported host key algorithm in config (DSA signatures cannot be verified), ignoring");
                 None
             }
         })
@@ -136,7 +137,7 @@ fn resolve_cipher_names(user_list: &[String]) -> Option<Vec<cipher::Name>> {
         .iter()
         .filter_map(|s| {
             cipher::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown cipher algorithm in config, ignoring");
+                warn!(target: "remote_merge::warning", algorithm = %s, "Unknown cipher algorithm in config, ignoring");
                 None
             })
         })
@@ -178,7 +179,7 @@ fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
         .iter()
         .filter_map(|s| {
             mac::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown MAC algorithm in config, ignoring");
+                warn!(target: "remote_merge::warning", algorithm = %s, "Unknown MAC algorithm in config, ignoring");
                 None
             })
         })
