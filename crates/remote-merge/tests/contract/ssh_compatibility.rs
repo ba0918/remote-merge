@@ -77,7 +77,7 @@ async fn an_incompatible_key_exchange_reports_the_reason_and_a_configuration_hin
     assert!(message.contains("kex_algorithms"), "{message}");
 }
 
-// @kotowari[REQ-ssh-007]
+// @kotowari[EX-ssh-062]
 #[tokio::test]
 async fn an_incompatible_cipher_reports_the_reason_and_a_configuration_hint() {
     let old = TestServer::cbc_cipher_only().await;
