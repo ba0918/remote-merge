@@ -141,7 +141,10 @@ pub(super) fn count_changes(lines: &[(String, String)]) -> usize {
 }
 
 pub(super) fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 pub(super) fn last_line(text: &str) -> &str {
