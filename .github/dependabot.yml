@@ -22,3 +22,15 @@ updates:
       cargo-patches:
         patterns: ["*"]
         update-types: ["patch"]
+
+  # 実 OpenSSH の E2E は独立したワークスペースで、本体とは別に Cargo.lock を持つ
+  - package-ecosystem: cargo
+    directory: /tests/container-e2e
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      container-e2e-cargo-patches:
+        patterns: ["*"]
+        update-types: ["patch"]
