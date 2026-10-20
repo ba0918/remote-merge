@@ -77,6 +77,19 @@ async fn an_incompatible_key_exchange_reports_the_reason_and_a_configuration_hin
     assert!(message.contains("kex_algorithms"), "{message}");
 }
 
+// @kotowari[REQ-ssh-007]
+#[tokio::test]
+async fn an_incompatible_cipher_reports_the_reason_and_a_configuration_hint() {
+    let old = TestServer::cbc_cipher_only().await;
+    let error = SshClient::connect_insecure("old", &config(old.port(), false), &ssh_config())
+        .await
+        .err()
+        .expect("cipher mismatch must fail");
+    let message = error.to_string();
+    assert!(message.to_lowercase().contains("cipher"), "{message}");
+    assert!(message.contains("ciphers = [\"aes128-cbc\"]"), "{message}");
+}
+
 // @kotowari[EX-ssh-060]
 #[tokio::test]
 async fn a_server_without_sha2_macs_is_reached_without_a_mac_setting() {

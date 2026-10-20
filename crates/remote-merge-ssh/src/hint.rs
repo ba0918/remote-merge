@@ -1,111 +1,139 @@
-//! SSH接続エラーからレガシーアルゴリズムのヒントを生成する。
+//! サーバと共通の SSH の方式がなく接続に失敗したときの、設定のヒントを作る。
 
-/// SSH接続エラーメッセージを解析し、ssh_options の設定ヒントを返す。
+use russh::keys::Algorithm;
+use russh::{AlgorithmKind, cipher, kex, mac};
+
+/// 接続の失敗が、サーバと共通の方式がないことによるなら、ssh_options に書く設定の例を返す。
 ///
-/// russh が古いサーバのアルゴリズムに対応しておらず接続に失敗した場合、
-/// config.toml に追加すべき ssh_options の例を提示する。
-///
-/// 該当パターンがない場合は `None` を返す。
-pub fn ssh_algorithm_hint(error_message: &str) -> Option<String> {
-    let lower = error_message.to_lowercase();
-    let mut hints: Vec<&str> = Vec::new();
-
-    if lower.contains("no matching key exchange") || lower.contains("kex") {
-        hints.push(
-            "  kex_algorithms = [\"curve25519-sha256\", \"diffie-hellman-group14-sha256\", \"diffie-hellman-group14-sha1\"]",
-        );
-    }
-
-    if lower.contains("no matching host key") || lower.contains("host key algorithm") {
-        hints.push("  host_key_algorithms = [\"ssh-ed25519\", \"rsa-sha2-256\", \"rsa-sha2-512\", \"ssh-rsa\"]");
-    }
-
-    if lower.contains("no matching cipher") || lower.contains("encryption") {
-        hints.push(
-            "  ciphers = [\"aes256-ctr\", \"aes128-ctr\", \"chacha20-poly1305@openssh.com\"]",
-        );
-    }
-
-    if lower.contains("no matching mac") || lower.contains("message authentication code") {
-        hints.push("  mac_algorithms = [\"hmac-sha2-256\", \"hmac-sha2-512\", \"hmac-sha1\"]");
-    }
-
-    if hints.is_empty() {
+/// 例には、サーバが申し出た方式のうちこのツールが使えるものを並べる。どの方式が合わなかったかは
+/// russh の誤りの種類で見る（表示の文言は版で変わりうる）。使えるものがないとき、方式の設定が
+/// ないとき（圧縮）、ほかの失敗のときは `None` を返す。
+pub fn ssh_algorithm_hint(error: &anyhow::Error) -> Option<String> {
+    let Some(russh::Error::NoCommonAlgo { kind, theirs, .. }) =
+        error.downcast_ref::<russh::Error>()
+    else {
+        return None;
+    };
+    let (setting, usable): (&str, fn(&str) -> bool) = match kind {
+        AlgorithmKind::Kex => ("kex_algorithms", usable_kex),
+        AlgorithmKind::Key => ("host_key_algorithms", usable_host_key),
+        AlgorithmKind::Cipher => ("ciphers", usable_cipher),
+        AlgorithmKind::Mac => ("mac_algorithms", usable_mac),
+        AlgorithmKind::Compression => return None,
+    };
+    let names: Vec<String> = theirs
+        .iter()
+        .filter(|name| usable(name))
+        .map(|name| format!("{name:?}"))
+        .collect();
+    if names.is_empty() {
         return None;
     }
 
-    let mut result = String::from(
+    Some(format!(
         "Hint: The remote server may require legacy SSH algorithms.\n\
          Add the following to your config.toml under [servers.<name>]:\n\n\
-         [servers.<name>.ssh_options]\n",
-    );
-    for hint in &hints {
-        result.push_str(hint);
-        result.push('\n');
-    }
+         [servers.<name>.ssh_options]\n  {setting} = [{}]\n",
+        names.join(", ")
+    ))
+}
 
-    Some(result)
+fn usable_kex(name: &str) -> bool {
+    kex::Name::try_from(name).is_ok()
+}
+
+fn usable_host_key(name: &str) -> bool {
+    !matches!(name.parse::<Algorithm>(), Ok(Algorithm::Other(_)) | Err(_))
+}
+
+/// 暗号をかけない none は、つながっても中身が平文で流れるので勧めない
+fn usable_cipher(name: &str) -> bool {
+    cipher::Name::try_from(name).is_ok_and(|name| name != cipher::NONE && name != cipher::CLEAR)
+}
+
+/// none は改ざんを検知できないので勧めない
+fn usable_mac(name: &str) -> bool {
+    mac::Name::try_from(name).is_ok_and(|name| name != mac::NONE)
 }
 
 #[cfg(test)]
 mod tests {
+    use russh::AlgorithmKind;
+
     use super::*;
 
+    /// サーバと共通の方式がなく、サーバが `theirs` を申し出たときの接続の誤り
+    fn no_common(kind: AlgorithmKind, theirs: &[&str]) -> anyhow::Error {
+        russh::Error::NoCommonAlgo {
+            kind,
+            ours: vec!["curve25519-sha256".into()],
+            theirs: theirs.iter().map(|name| name.to_string()).collect(),
+        }
+        .into()
+    }
+
+    // @kotowari[REQ-ssh-007]
     #[test]
-    fn test_kex_hint() {
-        let hint = ssh_algorithm_hint("no matching key exchange method found");
-        assert!(hint.is_some());
-        let text = hint.unwrap();
-        assert!(text.contains("kex_algorithms"));
-        assert!(text.contains("ssh_options"));
+    fn a_key_exchange_mismatch_suggests_the_servers_key_exchanges() {
+        let hint = ssh_algorithm_hint(&no_common(
+            AlgorithmKind::Kex,
+            &[
+                "diffie-hellman-group14-sha1",
+                "kex-strict-s-v00@openssh.com",
+            ],
+        ))
+        .unwrap();
+        assert!(hint.contains("[servers.<name>.ssh_options]"), "{hint}");
+        assert!(
+            hint.contains("kex_algorithms = [\"diffie-hellman-group14-sha1\"]"),
+            "{hint}"
+        );
+    }
+
+    // @kotowari[REQ-ssh-007]
+    #[test]
+    fn a_host_key_mismatch_suggests_the_servers_host_key_algorithms() {
+        let hint = ssh_algorithm_hint(&no_common(AlgorithmKind::Key, &["ssh-rsa"])).unwrap();
+        assert!(
+            hint.contains("host_key_algorithms = [\"ssh-rsa\"]"),
+            "{hint}"
+        );
+    }
+
+    // @kotowari[REQ-ssh-007]
+    #[test]
+    fn a_cipher_mismatch_suggests_only_the_servers_ciphers_this_tool_can_use() {
+        let hint = ssh_algorithm_hint(&no_common(
+            AlgorithmKind::Cipher,
+            &["blowfish-cbc", "aes128-cbc", "none"],
+        ))
+        .unwrap();
+        assert!(hint.contains("ciphers = [\"aes128-cbc\"]"), "{hint}");
+    }
+
+    // @kotowari[REQ-ssh-007]
+    #[test]
+    fn a_mac_mismatch_suggests_the_servers_macs() {
+        let hint = ssh_algorithm_hint(&no_common(AlgorithmKind::Mac, &["hmac-sha1"])).unwrap();
+        assert!(hint.contains("mac_algorithms = [\"hmac-sha1\"]"), "{hint}");
     }
 
     #[test]
-    fn test_host_key_hint() {
-        let hint = ssh_algorithm_hint("no matching host key type found");
-        assert!(hint.is_some());
-        assert!(hint.unwrap().contains("host_key_algorithms"));
+    fn no_hint_when_the_server_offers_nothing_this_tool_can_use() {
+        let error = no_common(AlgorithmKind::Mac, &["hmac-md5", "none"]);
+        assert_eq!(ssh_algorithm_hint(&error), None);
     }
 
     #[test]
-    fn test_cipher_hint() {
-        let hint = ssh_algorithm_hint("no matching cipher found");
-        assert!(hint.is_some());
-        assert!(hint.unwrap().contains("ciphers"));
+    fn no_hint_for_a_compression_mismatch_since_there_is_no_setting_for_it() {
+        let error = no_common(AlgorithmKind::Compression, &["zlib"]);
+        assert_eq!(ssh_algorithm_hint(&error), None);
     }
 
     #[test]
-    fn test_mac_hint() {
-        let hint = ssh_algorithm_hint("no matching MAC found");
-        assert!(hint.is_some());
-        assert!(hint.unwrap().contains("mac_algorithms"));
-    }
-
-    #[test]
-    fn test_no_hint_for_unrelated_error() {
-        let hint = ssh_algorithm_hint("connection refused");
-        assert!(hint.is_none());
-    }
-
-    #[test]
-    fn test_hint_format_contains_config_example() {
-        let hint = ssh_algorithm_hint("no matching key exchange").unwrap();
-        assert!(hint.contains("[servers.<name>.ssh_options]"));
-        assert!(hint.contains("Hint:"));
-    }
-
-    #[test]
-    fn test_multiple_patterns_match() {
-        let hint = ssh_algorithm_hint("no matching key exchange and no matching cipher found");
-        assert!(hint.is_some());
-        let text = hint.unwrap();
-        assert!(text.contains("kex_algorithms"));
-        assert!(text.contains("ciphers"));
-    }
-
-    #[test]
-    fn test_case_insensitive() {
-        let hint = ssh_algorithm_hint("No Matching Key Exchange Method");
-        assert!(hint.is_some());
+    fn no_hint_for_an_unrelated_failure() {
+        let error =
+            anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::ConnectionRefused));
+        assert_eq!(ssh_algorithm_hint(&error), None);
     }
 }
