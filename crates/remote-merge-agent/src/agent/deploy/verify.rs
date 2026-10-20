@@ -1,5 +1,3 @@
-use sha2::{Digest, Sha256};
-
 use super::VersionCheck;
 
 /// リモートのバージョン確認コマンド出力をパースする。
@@ -52,13 +50,7 @@ pub fn verify_checksum(local_hash: &str, remote_hash: &str) -> bool {
 
 /// Compute the SHA-256 hash of a byte slice, returning a lowercase hex string.
 pub fn sha256_of_bytes(data: &[u8]) -> String {
-    use std::fmt::Write;
-    let digest = Sha256::digest(data);
-    let mut s = String::with_capacity(64);
-    for b in digest.iter() {
-        write!(s, "{:02x}", b).expect("String への write! は失敗しない");
-    }
-    s
+    remote_merge_core::sha256::hex_of_bytes(data)
 }
 
 /// Check whether a binary is likely a debug build based on file size.
