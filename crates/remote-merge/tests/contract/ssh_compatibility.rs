@@ -106,14 +106,7 @@ async fn a_server_without_sha2_macs_is_reached_without_a_mac_setting() {
 // @kotowari[EX-ssh-061]
 #[tokio::test]
 async fn without_a_mac_setting_the_sha1_macs_are_offered_last() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let offered = tokio::spawn(offered_client_macs(listener));
-    let _ = SshClient::connect_insecure("offer", &config(port, false), &ssh_config()).await;
-    let macs = tokio::time::timeout(Duration::from_secs(10), offered)
-        .await
-        .expect("the client sends its key exchange offer")
-        .unwrap();
+    let macs = offer_with(None).await.mac;
 
     let (sha2, sha1) = macs.split_at(macs.len().saturating_sub(2));
     assert_eq!(sha1, ["hmac-sha1-etm@openssh.com", "hmac-sha1"], "{macs:?}");
@@ -124,9 +117,74 @@ async fn without_a_mac_setting_the_sha1_macs_are_offered_last() {
     );
 }
 
+// @kotowari[EX-ssh-064]
+#[tokio::test]
+async fn configured_algorithms_are_offered_first_and_the_unconfigured_offer_follows() {
+    let unconfigured = offer_with(None).await;
+    let configured = offer_with(Some(SshOptions {
+        kex_algorithms: Some(vec![
+            "diffie-hellman-group14-sha1".into(),
+            "curve25519-sha256".into(),
+        ]),
+        host_key_algorithms: Some(vec!["ssh-rsa".into()]),
+        ciphers: Some(vec!["no-such-cipher".into(), "aes128-cbc".into()]),
+        mac_algorithms: Some(vec!["hmac-sha1".into()]),
+    }))
+    .await;
+
+    for (written, unconfigured, configured) in [
+        (
+            &["diffie-hellman-group14-sha1", "curve25519-sha256"][..],
+            &unconfigured.kex,
+            &configured.kex,
+        ),
+        (&["ssh-rsa"], &unconfigured.host_key, &configured.host_key),
+        (&["aes128-cbc"], &unconfigured.cipher, &configured.cipher),
+        (&["hmac-sha1"], &unconfigured.mac, &configured.mac),
+    ] {
+        let expected: Vec<&str> = written
+            .iter()
+            .copied()
+            .chain(
+                unconfigured
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|name| !written.contains(name)),
+            )
+            .collect();
+        assert_eq!(*configured, expected, "unconfigured: {unconfigured:?}");
+    }
+}
+
+/// クライアントが最初に送る鍵交換の申し出に、申し出の順に並ぶ方式の名前
+struct Offer {
+    kex: Vec<String>,
+    host_key: Vec<String>,
+    /// クライアントからサーバへの暗号
+    cipher: Vec<String>,
+    /// クライアントからサーバへの MAC
+    mac: Vec<String>,
+}
+
+/// サーバの ssh_options を `ssh_options` にして接続を試み、クライアントの申し出を読む
+async fn offer_with(ssh_options: Option<SshOptions>) -> Offer {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let offered = tokio::spawn(read_offer(listener));
+    let server = ServerConfig {
+        ssh_options,
+        ..config(port, false)
+    };
+    let _ = SshClient::connect_insecure("offer", &server, &ssh_config()).await;
+    tokio::time::timeout(Duration::from_secs(10), offered)
+        .await
+        .expect("the client sends its key exchange offer")
+        .unwrap()
+}
+
 /// 一つの接続を受け、クライアントが最初に送る鍵交換の申し出（SSH_MSG_KEXINIT。暗号化の前なので
-/// 平文）から、クライアントからサーバへの MAC の名前を申し出の順に読む
-async fn offered_client_macs(listener: TcpListener) -> Vec<String> {
+/// 平文）を読む
+async fn read_offer(listener: TcpListener) -> Offer {
     let (stream, _) = listener.accept().await.unwrap();
     let mut stream = BufReader::new(stream);
     stream
@@ -147,14 +205,21 @@ async fn offered_client_macs(listener: TcpListener) -> Vec<String> {
     let payload = &packet[1..];
     assert_eq!(payload[0], 20, "the first packet is SSH_MSG_KEXINIT");
     let mut rest = &payload[17..];
-    let mut lists = Vec::new();
+    let mut lists: Vec<Vec<String>> = Vec::new();
     // 鍵交換・ホスト鍵・暗号（二方向）・MAC（クライアントからサーバ）の順
     for _ in 0..5 {
         let (size, tail) = rest.split_at(4);
         let size = u32::from_be_bytes(size.try_into().unwrap()) as usize;
         let (list, tail) = tail.split_at(size);
-        lists.push(String::from_utf8(list.to_vec()).unwrap());
+        let list = String::from_utf8(list.to_vec()).unwrap();
+        lists.push(list.split(',').map(str::to_string).collect());
         rest = tail;
     }
-    lists[4].split(',').map(str::to_string).collect()
+    let [kex, host_key, cipher, _, mac]: [Vec<String>; 5] = lists.try_into().unwrap();
+    Offer {
+        kex,
+        host_key,
+        cipher,
+        mac,
+    }
 }
