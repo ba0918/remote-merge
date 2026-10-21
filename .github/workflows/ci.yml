@@ -34,6 +34,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test the version declaration check
+        run: scripts/test-version-declarations.sh
+
+      - name: Check the version declarations against the canonical version
+        run: scripts/check-version-declarations.sh
+
       - name: Install the pinned toolchain
         run: rustup show
 
