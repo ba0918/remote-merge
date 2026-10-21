@@ -241,7 +241,7 @@ mod tests {
     }
 
     // 設定したホスト鍵の方式を、既定の前に置いて接続に使う（docs/ir/ssh/compatibility.md の REQ-ssh-006）
-    // @kotowari[REQ-ssh-006, EX-ssh-011]
+    // @kotowari[REQ-ssh-006]
     #[test]
     fn host_key_algorithms_are_prepended_and_unknown_names_are_ignored() {
         let opts = SshOptions {
