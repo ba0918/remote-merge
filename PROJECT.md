@@ -62,6 +62,18 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - `lefthook.yml` は fmt・仕様検査を pre-commit、Clippy・通常テストを pre-push で読み取り専用で実行する。既存の個人フックを置き換えないため `lefthook install` は自動実行しない。既存フックの所有者が内容を確認し、必要なら手動で統合する。未ステージの変更も手動検査する場合は `lefthook run pre-commit --force --no-auto-install` / `lefthook run pre-push --force --no-auto-install` を使う。
 - 旧 OpenSSH の手動負荷試行は `bench/legacy-ssh/setup.sh` から開始する。試行中のシェルを終了すると専用コンテナ・イメージ・鍵・known_hosts・データが破棄され、個人の SSH 設定は変更されない。CI の保証範囲には含めない。
 
+## Release
+
+版の正本・CHANGELOG・タグの決まりは ba0918-release に従う。このリポジトリでの手順は次のとおり。
+
+1. ブランチで、次を一つのコミット（`chore: v<版> リリース準備`）にまとめる。
+   - `crates/remote-merge/Cargo.toml` の `package.version` と、それに合わせた `Cargo.lock`。
+   - `CHANGELOG.md` の `## [Unreleased]` を `## [<版>] - <日付>` にし、末尾の `[Unreleased]` のリンクを `[<版>]: https://github.com/ba0918/remote-merge/compare/v<前の版>...v<版>` に書き換える。次に利用者に見える変更を入れるときに、`## [Unreleased]` と `compare/v<版>...HEAD` のリンクを置き直す。
+   - `README.md` のインストール例が明示している版（mise の `@<版>` と、インストールスクリプトの `VERSION=v<版>`）。
+2. PR を作り、CI が全部通ったら main に入れる。
+3. main の CI がそのコミットで通ってから、そのコミットに `v<版>` のタグを打って push する。
+4. タグの push で `.github/workflows/release.yml` が動く。タグと版の正本の一致を `scripts/check-release-version.sh` で確かめ、配布物を作り、CHANGELOG のその版の節を本文にして GitHub Release を作る（`scripts/create-release.sh`）。その節がないと Release は作られず、タグだけが公開されて残る。Release の本文は CHANGELOG の節のまま保ち、あとから書き換えない。
+
 ## Security boundary
 
 レビューや実装で security の指摘を直すかを判断するときは、この節に照らす。決定は [foundation A11](docs/decision/records/2026-10-12-foundation.md#A11)。
