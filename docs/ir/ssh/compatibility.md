@@ -6,11 +6,12 @@
 
 ### REQ-ssh-006: サーバごとに接続方式を指定できる
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A36, docs/decision/records/2026-10-21-ssh-dss-host-key-config-consistency.md#A1, docs/decision/records/2026-10-21-ssh-dss-host-key-config-consistency.md#A2
+- source: docs/decision/records/2026-09-25-spec-migration.md#A36, docs/decision/records/2026-10-21-ssh-dss-host-key-config-consistency.md#A1, docs/decision/records/2026-10-21-ssh-dss-host-key-config-consistency.md#A2, docs/decision/records/2026-10-21-ssh-configured-algorithm-order.md#A1
 - verification: unit
 
 利用可能な SSH アルゴリズムをサーバごとに明示指定し、その設定を接続に適用できる。
 kex_algorithms・host_key_algorithms・ciphers・mac_algorithms に書いた名前のうち、このツールが実装していない方式の名前（host_key_algorithms ではホスト鍵の証明書の方式の名前を含む）と、host_key_algorithms の "ssh-dss"（このツールは DSA のホスト鍵の署名を確かめられない）は、そのサーバに接続するとき、名前ごとにその名前を含む警告を標準エラーに出して無視し、接続に申し出ない。
+一つの設定に無視されない名前があるときは、その設定の方式として、無視されない名前を書いた順に先に申し出て、その後に、その設定を書かないときに申し出る方式からそれらの名前を除いたものを、その順のまま続けて申し出る。
 一つの設定に書いた名前がすべて無視されるときは、その設定を書かないときと同じ方式を申し出る。
 警告の文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
@@ -53,6 +54,12 @@ Scenario: 使えない方式の名前だけを設定する
 Given 接続先のサーバのホスト鍵は Ed25519 で、そのサーバの host_key_algorithms には "ssh-dss" だけを、kex_algorithms・ciphers・mac_algorithms にはこのツールが実装していない方式の名前を一つずつ書いている
 When そのサーバに接続するコマンドを実行する
 Then 書いた名前ごとにその名前を含む警告が標準エラーに出て、それらの設定を書かないときと同じくそのサーバにつながる
+
+@id=EX-ssh-064 @about=REQ-ssh-006 @source=docs/decision/records/2026-10-21-ssh-configured-algorithm-order.md#A1
+Scenario: 設定した方式を先に申し出る
+Given サーバの kex_algorithms に "diffie-hellman-group14-sha1" と "curve25519-sha256" を、host_key_algorithms に "ssh-rsa" を、ciphers にこのツールが実装していない方式の名前と "aes128-cbc" を、mac_algorithms に "hmac-sha1" を、この順に書いている
+When そのサーバに接続する
+Then 接続が申し出る方式は、四つの設定のどれでも、書いた名前のうち無視されないものが書いた順に先に並び、その後にその設定を書かないときに申し出る方式からそれらの名前を除いたものがその順のまま続く
 
 @id=EX-ssh-013 @about=REQ-ssh-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A36,docs/decision/records/2026-10-20-ssh-algorithm-hints-consistency-2.md#A3
 Scenario: 鍵交換が合わない
