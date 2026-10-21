@@ -70,6 +70,8 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
    - `crates/remote-merge/Cargo.toml` の `package.version` と、それに合わせた `Cargo.lock`。
    - `CHANGELOG.md` の `## [Unreleased]` を `## [<版>] - <日付>` にし、末尾の `[Unreleased]` のリンクを `[<版>]: https://github.com/ba0918/remote-merge/compare/v<前の版>...v<版>` に書き換える。次に利用者に見える変更を入れるときに、`## [Unreleased]` と `compare/v<版>...HEAD` のリンクを置き直す。
    - `README.md` のインストール例が明示している版（mise の `@<版>` と、インストールスクリプトの `VERSION=v<版>`）。
+
+   CHANGELOG と README が版の正本とそろっているかは、CI の Format & Lint が `scripts/check-version-declarations.sh` で確かめる（版の正本は `scripts/canonical-version.sh` で読む）。
 2. PR を作り、CI が全部通ったら main に入れる。
 3. main の CI がそのコミットで通ってから、そのコミットに `v<版>` のタグを打って push する。
 4. タグの push で `.github/workflows/release.yml` が動く。タグと版の正本の一致を `scripts/check-release-version.sh` で確かめ、配布物を作り、CHANGELOG のその版の節を本文にして GitHub Release を作る（`scripts/create-release.sh`）。その節がないと Release は作られず、タグだけが公開されて残る。Release の本文は CHANGELOG の節のまま保ち、あとから書き換えない。
