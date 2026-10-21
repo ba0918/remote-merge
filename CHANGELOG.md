@@ -3,7 +3,7 @@
 このプロジェクトの利用者に見える変更を、版ごとに記録する。版の正本は
 `crates/remote-merge/Cargo.toml` の `package.version`（PROJECT.md）。
 
-## [Unreleased]
+## [0.3.3] - 2026-10-22
 
 ### 変更（互換性に注意）
 
@@ -125,7 +125,7 @@
 - SSH で大きなデータを送信中に相手が大量の出力を返すと、送受信が互いを待って止まる問題を修正しました。
 - エージェントへの標準入力を閉じた後に EOF を送り続け、CPU を消費する問題を修正しました。EOF 後の出力は引き続き受信します。
 
-[Unreleased]: https://github.com/ba0918/remote-merge/compare/v0.3.2...HEAD
+[0.3.3]: https://github.com/ba0918/remote-merge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ba0918/remote-merge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ba0918/remote-merge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ba0918/remote-merge/releases/tag/v0.3.0
