@@ -299,17 +299,19 @@ async fn a_sync_cut_on_one_target_leaves_its_rest_untouched_and_writes_every_fil
 // @kotowari[EX-ssh-047]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_permission_change_cut_after_writing_reports_written_content_and_unchanged_permissions() {
-    // エージェントは新しいファイルを既定の権限で書くので、それと違う読み込み元の権限を写す。
-    // 権限の変更は書き込みの直後
+    // エージェントは新しいファイルを umask に従う既定の権限で書くので、それと違う読み込み元の権限を
+    // 写す。umask によらず違うよう、新しいファイルに付かない実行のビットを持たせる（同じ権限だと、
+    // つなぎ直して確かめたときに済んだ変更になる）。権限の変更は書き込みの直後
     let fixture = AgentFixture::new(
         Setup::default(),
         cut("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     fixture.put("a.txt", Some("new\n"), None);
+    let source_mode = 0o755;
     fs::set_permissions(
         fixture.local().join("a.txt"),
-        fs::Permissions::from_mode(0o600),
+        fs::Permissions::from_mode(source_mode),
     )
     .unwrap();
 
@@ -327,7 +329,7 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
         .unwrap()
         .permissions()
         .mode();
-    assert_ne!(mode & 0o777, 0o600);
+    assert_ne!(mode & 0o777, source_mode);
 }
 
 // @kotowari[EX-ssh-046]
