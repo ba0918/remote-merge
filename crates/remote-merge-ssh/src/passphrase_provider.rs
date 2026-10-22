@@ -33,58 +33,21 @@ pub(crate) const MAX_PASSPHRASE_RETRIES: u32 = 3;
 mod tests {
     use super::*;
 
-    // ── passphrase_env_key テスト ──
-
     #[test]
-    fn test_passphrase_env_key_simple() {
-        assert_eq!(
-            passphrase_env_key("develop"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_DEVELOP"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_hyphen_to_underscore() {
-        assert_eq!(
-            passphrase_env_key("my-server"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_multiple_hyphens() {
-        assert_eq!(
-            passphrase_env_key("my-cool-server"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_MY_COOL_SERVER"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_already_uppercase() {
-        assert_eq!(
-            passphrase_env_key("PROD"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_PROD"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_mixed_case() {
-        assert_eq!(
-            passphrase_env_key("MyServer"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_MYSERVER"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_underscore_preserved() {
-        assert_eq!(
-            passphrase_env_key("my_server"),
-            "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_empty() {
-        assert_eq!(passphrase_env_key(""), "REMOTE_MERGE_KEY_PASSPHRASE_");
+    fn the_env_name_is_the_server_name_uppercased_with_hyphens_as_underscores() {
+        for (server_name, expected) in [
+            ("develop", "REMOTE_MERGE_KEY_PASSPHRASE_DEVELOP"),
+            ("my-server", "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"),
+            (
+                "my-cool-server",
+                "REMOTE_MERGE_KEY_PASSPHRASE_MY_COOL_SERVER",
+            ),
+            ("PROD", "REMOTE_MERGE_KEY_PASSPHRASE_PROD"),
+            ("MyServer", "REMOTE_MERGE_KEY_PASSPHRASE_MYSERVER"),
+            ("my_server", "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"),
+            ("", "REMOTE_MERGE_KEY_PASSPHRASE_"),
+        ] {
+            assert_eq!(passphrase_env_key(server_name), expected, "{server_name:?}");
+        }
     }
 }
