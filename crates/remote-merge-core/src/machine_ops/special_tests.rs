@@ -89,10 +89,22 @@ fn reading_or_hashing_a_directory_fails_as_not_a_regular_file() {
 }
 
 #[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "一時ディレクトリのパスが長くてソケットを作れず、前提を作れなかったことを知らせる"
+)]
 fn reading_or_hashing_a_socket_or_its_symlink_fails_as_not_a_regular_file() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
-    let _listener = std::os::unix::net::UnixListener::bind(root.join("socket")).unwrap();
+    let _listener = match std::os::unix::net::UnixListener::bind(root.join("socket")) {
+        Ok(listener) => listener,
+        // ソケットのパスは sun_path（百バイトほど）に収まらないと作れない
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+            eprintln!("note: the temporary directory is too long for a socket path: {error}");
+            return;
+        }
+        Err(error) => panic!("cannot bind a socket: {error}"),
+    };
     symlink("socket", root.join("link")).unwrap();
     for path in ["socket", "link"] {
         let path = EntryPath::parse(path).unwrap();
