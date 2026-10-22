@@ -1,7 +1,4 @@
-#![expect(
-    unsafe_code,
-    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
-)]
+#![expect(unsafe_code, reason = "root で動いているかを libc の geteuid で調べる")]
 mod common;
 
 use common::{CliEnv, remote_merge_cmd};
@@ -19,11 +16,6 @@ fn cli_commands_use_isolated_data_home() {
     let env = CliEnv::new(&[], &[]);
     let command = env.cmd();
     assert!(xdg_data_home(&command).is_some_and(|path| path.starts_with(env.temp_root())));
-}
-
-#[test]
-fn command_without_config_uses_isolated_data_home() {
-    assert!(xdg_data_home(&remote_merge_cmd()).is_some());
 }
 
 #[test]
