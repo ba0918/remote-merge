@@ -71,33 +71,6 @@ fn reference_env() -> CliEnv {
 
 // @kotowari[REQ-cli-062]
 #[test]
-fn req_cli_062_a_configured_server_as_ref_makes_a_three_way_diff() {
-    let env = reference_env();
-    let output = diff(
-        &env,
-        &[
-            "differs.txt",
-            "--left",
-            "local",
-            "--right",
-            "develop",
-            "--ref",
-            "staging",
-            "--format",
-            "json",
-        ],
-    );
-
-    let json = json(&output);
-    assert_eq!(
-        file(&json, "differs.txt")["ref"]["label"],
-        "staging",
-        "{json}"
-    );
-}
-
-// @kotowari[REQ-cli-062]
-#[test]
 fn req_cli_062_local_as_ref_makes_a_three_way_diff() {
     let env = reference_env();
     let output = diff(
@@ -156,7 +129,7 @@ fn json_with_staging_ref(env: &CliEnv, paths: &[&str]) -> Value {
     json(&diff(env, &args))
 }
 
-// @kotowari[REQ-cli-063]
+// @kotowari[REQ-cli-063, REQ-cli-062]
 #[test]
 fn req_cli_063_json_has_the_ref_and_the_diff_from_left_to_ref() {
     let env = reference_env();
