@@ -3,11 +3,12 @@
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 //! sync は確認のプロンプトで標準入力を読まないよう --force を付けて呼ぶ。
 
-use std::os::unix::fs::MetadataExt;
+use std::fs;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::time::Duration;
 
 use super::args_support::{merge_args, sync_args};
-use super::merge_support::{Fixture, fixture};
+use super::merge_support::{Fixture, fixture, fixture_with_backup};
 
 /// 読めない側を指定したファイルを三つ作る。読めなくできない（root で動く）なら None。
 /// source-locked.txt は local、destination-locked.txt は develop、both-locked.txt は両側が読めない。
@@ -102,6 +103,33 @@ fn sync_reports_which_side_could_not_be_read() {
     assert_eq!(target["failed"].as_array().unwrap().len(), 3, "{json}");
     assert_read_failures(&target["failed"]);
     assert_eq!(target["merged"], serde_json::json!([]), "{json}");
+}
+
+// 読めない書き込み先のファイルだけが失敗になり、一緒に指定したほかのファイルは書かれる
+// @kotowari[REQ-merge-017]
+#[test]
+fn an_unreadable_destination_fails_only_that_file_and_the_other_files_are_written() {
+    let fixture = fixture_with_backup();
+    for path in ["blocked.txt", "writable.txt"] {
+        fixture.write("local", path, &format!("new content for {path}\n"));
+        fixture.write("develop", path, "old\n");
+    }
+    if !fixture.make_unreadable("develop", "blocked.txt") {
+        return;
+    }
+
+    let (json, _) = fixture.merge_json(merge_args(&["blocked.txt", "writable.txt"]));
+
+    assert_eq!(json["failed"].as_array().unwrap().len(), 1, "{json}");
+    let blocked = error_of(&json["failed"], "blocked.txt");
+    assert!(blocked.starts_with("read failed: "), "{json}");
+    assert_eq!(
+        fixture.read("develop", "writable.txt"),
+        "new content for writable.txt\n"
+    );
+    let locked = fixture.root("develop").join("blocked.txt");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(fixture.read("develop", "blocked.txt"), "old\n");
 }
 
 /// folder の下に、--checksum のないディレクトリ指定で書かれないはずの二つと対照のファイルを作る。
