@@ -66,6 +66,23 @@ fn reading_over_the_limit_is_refused_by_the_answered_size() {
     );
 }
 
+// 調べた後に伸びたファイルを、書き手と競わせずに作るため、大きさを 0 と答えて中身を持つ /proc の
+// ファイルを読む
+#[cfg(target_os = "linux")]
+#[test]
+fn content_that_outgrows_the_answered_size_is_refused_at_the_limit() {
+    let result = read(
+        Path::new("/proc/self"),
+        &entry("status"),
+        SizeLimit::Bytes(10),
+    );
+    assert!(
+        matches!(result, Err(OpFailure::TooLarge { size, limit: 10 }) if size > 10),
+        "{:?}",
+        result.map(|content| content.len())
+    );
+}
+
 #[test]
 fn a_write_rewrites_the_destination_in_place() {
     let temp = tempfile::tempdir().unwrap();
