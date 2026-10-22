@@ -7,7 +7,7 @@
 use remote_merge_engine::treat::sides::{Reference, merge_sides, reference_side};
 
 use crate::config::{AppConfig, resolve_max_entries};
-use crate::runtime::{CoreRuntime, RuntimeTargets};
+use crate::runtime::{CompareSides, CoreRuntime, RuntimeTargets};
 use crate::service::output::{
     OutputFormat, format_json, format_merge_outcome_json, format_merge_outcome_text,
     format_merge_text,
@@ -85,13 +85,6 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
 pub use super::merge_files::{PlannedMerge, apply_merge, plan_merge};
 
-/// merge の読み込み元・書き込み先・参照先
-pub struct MergeSides {
-    pub left: Side,
-    pub right: Side,
-    pub reference: Option<Side>,
-}
-
 #[expect(
     clippy::needless_pass_by_value,
     reason = "コマンドの入口は clap が渡す引数を値で受け取り、下の段に引き回す形に保つ"
@@ -134,7 +127,7 @@ pub fn execute_merge(
             exit_code: exit_code::ERROR,
         });
     }
-    let sides = MergeSides {
+    let sides = CompareSides {
         left,
         right,
         reference,

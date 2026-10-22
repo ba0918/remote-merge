@@ -12,7 +12,7 @@ use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
-use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, MergeSides};
+use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult};
 use super::plan_apply::{apply_plan, change_counts, skip_reasons};
 use crate::runtime::{
     ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
@@ -24,7 +24,7 @@ use crate::service::types::{MergeOutcome, MergeOutput};
 pub(super) fn merge_files(
     core: &mut CoreRuntime,
     args: &MergeArgs,
-    sides: &MergeSides,
+    sides: &CompareSides,
     paths: &[RelPath],
     max_entries: usize,
 ) -> anyhow::Result<MergeCommandResult> {
@@ -42,7 +42,7 @@ pub struct PlannedMerge {
 pub fn plan_merge(
     core: &mut CoreRuntime,
     args: &MergeArgs,
-    sides: &MergeSides,
+    sides: &CompareSides,
     paths: &[RelPath],
     max_entries: usize,
 ) -> anyhow::Result<PlannedMerge> {
@@ -64,19 +64,14 @@ pub fn plan_merge(
         dry_run: args.dry_run,
         reference_check,
     };
-    let compare_sides = CompareSides {
-        left: sides.left.clone(),
-        right: sides.right.clone(),
-        reference: sides.reference.clone(),
-    };
     let request = merge_request(&targets, args.checksum, args.force, max_entries);
     // 比べている間に root_dir がなくなっていたら、root_dir の分かる誤りで止める（REQ-merge-044）
     let comparison = core
-        .compare(&compare_sides, &request, &uses)
+        .compare(sides, &request, &uses)
         .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
     // 名前で指定したファイルがフィルタに当たって親ディレクトリの下の走査に載らなかったときは、
     // 起点そのものとしてもう一度比べる（diff の REQ-cli-081 と同じ。REQ-merge-022）
-    let comparison = compare_named_files(core, &compare_sides, &request, &uses, comparison)?;
+    let comparison = compare_named_files(core, sides, &request, &uses, comparison)?;
     if let Some(stopped) = core.root_gone_stop() {
         return Err(stopped);
     }
@@ -100,7 +95,7 @@ pub fn plan_merge(
 pub fn apply_merge(
     core: &mut CoreRuntime,
     args: &MergeArgs,
-    sides: &MergeSides,
+    sides: &CompareSides,
     planned: PlannedMerge,
 ) -> anyhow::Result<MergeCommandResult> {
     let PlannedMerge { paths, plan } = planned;

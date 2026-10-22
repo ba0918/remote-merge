@@ -1,10 +1,8 @@
 //! merge を、比べる段と書き込み先を変える段に分けて動かす道具。二つの段の間に書き込み先を変えて、
 //! 変更の直前の判定（docs/ir/compare/reading.md の REQ-compare-015）を確かめるのに使う
 
-use remote_merge::cli::merge::{
-    MergeArgs, MergeCommandOutput, MergeSides, apply_merge, plan_merge,
-};
-use remote_merge::runtime::CoreRuntime;
+use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, apply_merge, plan_merge};
+use remote_merge::runtime::{CompareSides, CoreRuntime};
 use remote_merge::service::types::{MergeOutcome, MergeOutput};
 use remote_merge::side::Side;
 use remote_merge_core::relative_path::RelPath;
@@ -15,7 +13,7 @@ pub fn merge_with_a_change_between(
     args: &MergeArgs,
     between: impl FnOnce(),
 ) -> MergeOutput {
-    let sides = MergeSides {
+    let sides = CompareSides {
         left: Side::new(args.left.as_deref().expect("--left")),
         right: Side::new(args.right.as_deref().expect("--right")),
         reference: args.ref_server.as_deref().map(Side::new),

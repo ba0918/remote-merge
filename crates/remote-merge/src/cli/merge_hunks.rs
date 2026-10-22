@@ -12,7 +12,7 @@ use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::HunkUses;
 
-use super::merge::{MergeArgs, MergeCommandResult, MergeSides};
+use super::merge::{MergeArgs, MergeCommandResult};
 use super::merge_files::merge_request;
 use super::merge_hunks_result::{failed, no_changes, written};
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CompareSides, CoreRuntime, PlannedChange};
@@ -24,7 +24,7 @@ const DIRECTION: &str = "left_to_right";
 pub(super) fn merge_hunks(
     core: &mut CoreRuntime,
     args: &MergeArgs,
-    sides: &MergeSides,
+    sides: &CompareSides,
     paths: &[RelPath],
     hunks: &[usize],
     max_entries: usize,
@@ -48,15 +48,10 @@ pub(super) fn merge_hunks(
         path: path.clone(),
         reference: reference_check,
     };
-    let compare_sides = CompareSides {
-        left: sides.left.clone(),
-        right: sides.right.clone(),
-        reference: sides.reference.clone(),
-    };
     let request = merge_request(&targets, args.checksum, args.force, max_entries);
     // 比べている間に root_dir がなくなっていたら、root_dir の分かる誤りで止める（REQ-merge-044）
     let comparison = core
-        .compare(&compare_sides, &request, &uses)
+        .compare(sides, &request, &uses)
         .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
     if let Some(stopped) = core.root_gone_stop() {
         return Err(stopped);
