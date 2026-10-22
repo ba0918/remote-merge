@@ -6,7 +6,9 @@ use std::path::Path;
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::drive::scan;
 use remote_merge_core::scan::exclude::Exclude;
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{
+    ListedEntry, Listing, ScanError, ScanFailure, ScanRequest, ScanScope,
+};
 use remote_merge_core::scan::raw::Collector;
 use remote_merge_core::scan::this_machine::MachineCollector;
 
@@ -38,7 +40,7 @@ fn scan_with(
     exclude: &[String],
 ) -> Vec<AgentResponse> {
     match scan(collector, &Exclude::new(exclude), request) {
-        Ok(listing) => chunks(&listing),
+        Ok(listing) => chunks(listing),
         Err(ScanError::Failure(failure)) => vec![AgentResponse::TreeFailed { failure }],
         // 集め方そのものの失敗も走査の失敗として運び、エージェントの故障として SSH の経路に
         // 回させない
@@ -50,41 +52,42 @@ fn scan_with(
     }
 }
 
-/// 一覧を TreeChunk に分ける。最後の応答に読めない名前と打ち切りを載せる
-fn chunks(listing: &Listing) -> Vec<AgentResponse> {
-    let mut parts: Vec<Vec<_>> = listing
-        .entries
-        .chunks(ENTRIES_PER_CHUNK)
-        .map(<[_]>::to_vec)
-        .collect();
-    if parts.is_empty() {
-        parts.push(Vec::new());
-    }
-    let last = parts.len() - 1;
-    parts
-        .into_iter()
-        .enumerate()
-        .map(|(index, entries)| {
-            let is_last = index == last;
-            AgentResponse::TreeChunk {
+/// 一覧を TreeChunk に分ける。項目は写さずに移し、最後の応答に読めない名前と打ち切りを載せる
+fn chunks(listing: Listing) -> Vec<AgentResponse> {
+    let Listing {
+        entries,
+        unreadable_names,
+        truncated,
+        cycle,
+        unresolvable_names,
+        counted,
+    } = listing;
+    let mut rest = entries.into_iter();
+    let mut responses = Vec::new();
+    loop {
+        let entries: Vec<ListedEntry> = rest.by_ref().take(ENTRIES_PER_CHUNK).collect();
+        if rest.as_slice().is_empty() {
+            responses.push(AgentResponse::TreeChunk {
                 entries,
-                is_last,
-                unreadable_names: if is_last {
-                    listing.unreadable_names.clone()
-                } else {
-                    Vec::new()
-                },
-                truncated: is_last && listing.truncated,
-                cycle: if is_last { listing.cycle.clone() } else { None },
-                unresolvable_names: if is_last {
-                    listing.unresolvable_names.clone()
-                } else {
-                    Vec::new()
-                },
-                counted: if is_last { listing.counted } else { 0 },
-            }
-        })
-        .collect()
+                is_last: true,
+                unreadable_names,
+                truncated,
+                cycle,
+                unresolvable_names,
+                counted,
+            });
+            return responses;
+        }
+        responses.push(AgentResponse::TreeChunk {
+            entries,
+            is_last: false,
+            unreadable_names: Vec::new(),
+            truncated: false,
+            cycle: None,
+            unresolvable_names: Vec::new(),
+            counted: 0,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -127,7 +130,7 @@ mod tests {
     }
 
     fn split(listing: &Listing) -> Vec<AgentResponse> {
-        chunks(listing)
+        chunks(listing.clone())
     }
 
     fn listing_of(count: usize) -> Listing {
