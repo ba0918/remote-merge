@@ -30,6 +30,21 @@ pub(crate) fn with_agent<T>(
     operation(&mut agent.client)
 }
 
+/// `paths` を [`AGENT_READ_BATCH_SIZE`] 件ずつの要求に分けて選んだエージェントに尋ね、答えを尋ねた順に
+/// 並べる
+pub(crate) fn in_batches<P, A>(
+    rt: &mut CoreRuntime,
+    server_name: &str,
+    paths: &[P],
+    mut ask: impl FnMut(&mut BoxedAgentClient, &[P]) -> anyhow::Result<Vec<A>>,
+) -> anyhow::Result<Vec<A>> {
+    let mut answers = Vec::with_capacity(paths.len());
+    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
+        answers.extend(with_agent(rt, server_name, |agent| ask(agent, chunk))?);
+    }
+    Ok(answers)
+}
+
 fn not_running(server_name: &str) -> anyhow::Error {
     OpError::new(
         Operation::Read,
@@ -50,23 +65,19 @@ pub(crate) fn inspect(
     crate::agent::inspection::resolved_from_agent(inspection)
 }
 
-/// `paths` をまとめて確かめる。一つの要求で送るのは [`AGENT_READ_BATCH_SIZE`] 件までにし、
-/// 答えは尋ねた順
+/// `paths` をまとめて確かめる。答えは尋ねた順
 pub(crate) fn inspect_paths(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[RelPath],
 ) -> anyhow::Result<Vec<anyhow::Result<ResolvedPath>>> {
-    let mut answers = Vec::with_capacity(paths.len());
-    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        let inspections = with_agent(rt, server_name, |agent| agent.inspect_paths(chunk))?;
-        answers.extend(
-            inspections.into_iter().map(|inspection| {
-                inspection.and_then(crate::agent::inspection::resolved_from_agent)
-            }),
-        );
-    }
-    Ok(answers)
+    let inspections = in_batches(rt, server_name, paths, |agent, chunk| {
+        agent.inspect_paths(chunk)
+    })?;
+    Ok(inspections
+        .into_iter()
+        .map(|inspection| inspection.and_then(crate::agent::inspection::resolved_from_agent))
+        .collect())
 }
 
 pub(crate) fn write(

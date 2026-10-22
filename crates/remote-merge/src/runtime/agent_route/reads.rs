@@ -4,7 +4,7 @@
 use remote_merge_core::op_failure::{Disconnection, OpFailure, PathResult, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
-use super::{AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE, with_agent};
+use super::{AGENT_CHUNK_SIZE_LIMIT, in_batches};
 use crate::agent::protocol::FileHashResult;
 use crate::runtime::core::CoreRuntime;
 
@@ -19,13 +19,9 @@ pub(crate) fn read_entries(
         SizeLimit::Bytes(bytes) => Some(bytes),
         SizeLimit::Unlimited => None,
     };
-    let mut answers = Vec::with_capacity(paths.len());
-    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        answers.extend(with_agent(rt, server_name, |agent| {
-            agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT, size_limit)
-        })?);
-    }
-    Ok(answers)
+    in_batches(rt, server_name, paths, |agent, chunk| {
+        agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT, size_limit)
+    })
 }
 
 /// パスごとの中身の SHA-256（symlink も辿った先の中身）か失敗の種類。リンク文字列の答えは問いと
@@ -35,10 +31,12 @@ pub(crate) fn hash_contents(
     server_name: &str,
     paths: &[EntryPath],
 ) -> anyhow::Result<Vec<PathResult<String>>> {
-    let mut answers = Vec::with_capacity(paths.len());
-    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        let results = with_agent(rt, server_name, |agent| agent.hash_contents(chunk))?;
-        answers.extend(results.into_iter().map(|result| match result {
+    let results = in_batches(rt, server_name, paths, |agent, chunk| {
+        agent.hash_contents(chunk)
+    })?;
+    Ok(results
+        .into_iter()
+        .map(|result| match result {
             FileHashResult::Ok { path, hash } => (path, Ok(hash)),
             FileHashResult::Failed { path, failure } => (path, Err(OpFailure::from(failure))),
             FileHashResult::Symlink { path, .. } => (
@@ -47,9 +45,8 @@ pub(crate) fn hash_contents(
                     "the agent answered a link to a content hash".into(),
                 ))),
             ),
-        }));
-    }
-    Ok(answers)
+        })
+        .collect())
 }
 
 /// パスごとの比べる値（symlink はリンク先、それ以外は中身の SHA-256）か失敗の種類
@@ -58,14 +55,15 @@ pub(crate) fn hash_entries(
     server_name: &str,
     paths: &[EntryPath],
 ) -> anyhow::Result<Vec<PathResult<String>>> {
-    let mut answers = Vec::with_capacity(paths.len());
-    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        let results = with_agent(rt, server_name, |agent| agent.hash_files(chunk))?;
-        answers.extend(results.into_iter().map(|result| match result {
+    let results = in_batches(rt, server_name, paths, |agent, chunk| {
+        agent.hash_files(chunk)
+    })?;
+    Ok(results
+        .into_iter()
+        .map(|result| match result {
             FileHashResult::Ok { path, hash } => (path, Ok(hash)),
             FileHashResult::Symlink { path, target } => (path, Ok(target)),
             FileHashResult::Failed { path, failure } => (path, Err(OpFailure::from(failure))),
-        }));
-    }
-    Ok(answers)
+        })
+        .collect())
 }
