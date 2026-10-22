@@ -6,9 +6,9 @@
 /// つなぐときに分かったエージェントの状態
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentState {
-    /// [agent] enabled が true で、配置先が安全で、起動でき、通信の版が手元と同じ
+    /// `[agent] enabled` が true で、配置先が安全で、起動でき、通信の版が手元と同じ
     Ready,
-    /// [agent] enabled が false
+    /// `[agent] enabled` が false
     Disabled,
     /// 配置先が REQ-ssh-014 か REQ-ssh-017 に当たる。`location` は配置先のパス
     UnsafeLocation {

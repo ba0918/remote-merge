@@ -16,7 +16,7 @@ pub struct LogsArgs {
     pub since: Option<String>,
     /// 末尾N行のみ取得
     pub tail: Option<usize>,
-    /// 出力フォーマット (text[default], json)
+    /// 出力フォーマット（`text` が既定、`json`）
     pub format: String,
 }
 

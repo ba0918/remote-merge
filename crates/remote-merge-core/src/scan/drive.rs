@@ -1,5 +1,5 @@
 //! 走査の規則の駆動部。起点と辿るリンクを問いにして集め方にまとめて渡し（C7）、答えを
-//! [`Walk`] で一覧にする。root_dir の確認は、どの起点でも最初の問いの一つとして一度だけ行う。
+//! `Walk` で一覧にする。root_dir の確認は、どの起点でも最初の問いの一つとして一度だけ行う。
 
 use super::exclude::Exclude;
 use super::outcome::{Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
