@@ -5,8 +5,8 @@ use remote_merge_core::scan::children::{
 };
 use remote_merge_core::scan::outcome::{Listing, ScanError};
 
-use crate::local_io::ScanTruncated;
 use crate::scan_result::into_listing;
+use crate::treat::incomplete::{CycleFound, ScanTruncated};
 
 /// 子の一覧の走査（`ScanScope::Children(dir)`）の結果を子の一覧にする。途中がディレクトリで
 /// ないことはディレクトリではないものに、一覧するディレクトリを読めないことなどは一覧を取れ
@@ -31,7 +31,7 @@ pub fn into_child_listing(
     let scanned = into_listing(shown_root, scanned, root_missing)?;
     // 子のリンクは辿らないので循環には出会わないが、出会ったら読めたところで止めずに誤りにする
     if let Some(path) = &scanned.cycle {
-        anyhow::bail!("Directory scan incomplete: symbolic link cycle at {path}");
+        return Err(CycleFound { path: path.clone() }.into());
     }
     let listing = children_in(&scanned, dir);
     if scanned.truncated {

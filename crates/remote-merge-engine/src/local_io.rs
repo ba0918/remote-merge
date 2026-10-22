@@ -13,27 +13,6 @@ use remote_merge_core::scan::this_machine::MachineCollector;
 use crate::child_listing::into_child_listing;
 use crate::scan_result::into_listing;
 
-/// 走査が件数の上限に当たって打ち切られたこと（REQ-scan-008）。文は上限の上げ方とパスの指定の
-/// 仕方を案内する
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScanTruncated {
-    pub max_entries: usize,
-}
-
-impl std::fmt::Display for ScanTruncated {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Tree scan truncated at {} entries. Use --max-entries <value> to increase the limit, \
-             set max_scan_entries in the config, or specify file paths instead of scanning \
-             the whole tree.",
-            self.max_entries
-        )
-    }
-}
-
-impl std::error::Error for ScanTruncated {}
-
 /// 絶対パスの root_dir の下の `rel_path` を、このマシンで "/" から辿って確かめる
 pub fn inspect_local_path(root: &Path, rel_path: &RelPath) -> anyhow::Result<ResolvedPath> {
     if !root.is_absolute() {

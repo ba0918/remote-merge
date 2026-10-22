@@ -3,8 +3,28 @@
 
 use remote_merge_core::compare::Incomplete;
 
-use crate::local_io::ScanTruncated;
 use crate::service::types::DiffError;
+
+/// 走査が件数の上限に当たって打ち切られたこと（REQ-scan-008）。文は上限の上げ方とパスの指定の
+/// 仕方を案内する
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanTruncated {
+    pub max_entries: usize,
+}
+
+impl std::fmt::Display for ScanTruncated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Tree scan truncated at {} entries. Use --max-entries <value> to increase the limit, \
+             set max_scan_entries in the config, or specify file paths instead of scanning \
+             the whole tree.",
+            self.max_entries
+        )
+    }
+}
+
+impl std::error::Error for ScanTruncated {}
 
 /// 循環で止めた走査
 #[derive(Debug, Clone, PartialEq, Eq)]
