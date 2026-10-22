@@ -42,6 +42,16 @@ pub struct TargetLists {
     pub changed_but_failed: bool,
 }
 
+impl TargetLists {
+    /// どの欄にもパスがないか（merge は "no files to merge" と示す）
+    pub fn is_empty(&self) -> bool {
+        self.merged.is_empty()
+            && self.skipped.is_empty()
+            && self.deleted.is_empty()
+            && self.failed.is_empty()
+    }
+}
+
 /// パスの順の結果を欄に分ける
 pub fn target_lists(mut outcomes: Vec<(String, Outcome)>) -> TargetLists {
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));

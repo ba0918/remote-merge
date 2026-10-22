@@ -117,6 +117,7 @@ pub fn apply_merge(
     // あっても終了コード 2 にする（REQ-ssh-022・REQ-merge-044）
     let stopped = core.stopped_error_for(&sides.right).is_some();
     let code = exit_code(!lists.failed.is_empty() || stopped, &skip_reasons(&plan));
+    let nothing = lists.is_empty();
     let output = MergeOutput {
         merged: lists.merged,
         skipped: lists.skipped,
@@ -124,10 +125,6 @@ pub fn apply_merge(
         failed: lists.failed,
         ref_: sides.reference.as_ref().map(|side| core.source_info(side)),
     };
-    let nothing = output.merged.is_empty()
-        && output.skipped.is_empty()
-        && output.deleted.is_empty()
-        && output.failed.is_empty();
     let output = if nothing {
         MergeCommandOutput::Outcome(MergeOutcome::NoFilesToMerge)
     } else {

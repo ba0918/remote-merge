@@ -76,3 +76,13 @@ fn a_file_failed_after_changing_the_destination_is_failed_and_counts_as_changed(
     assert!(lists.changed_but_failed);
     assert!(!target_lists(vec![("b".into(), Outcome::Failed("x".into()))]).changed_but_failed);
 }
+
+// どの種類の結果も一件あれば空でなく、結果がないときだけ "no files to merge" にする
+#[test]
+fn the_lists_are_empty_only_without_any_outcome() {
+    assert!(target_lists(Vec::new()).is_empty());
+    for outcome in outcomes() {
+        let shown = format!("{outcome:?}");
+        assert!(!target_lists(vec![outcome]).is_empty(), "{shown}");
+    }
+}
