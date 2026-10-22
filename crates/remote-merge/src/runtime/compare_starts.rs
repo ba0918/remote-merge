@@ -9,7 +9,7 @@ use remote_merge_core::compare::{
     blocked_starts, links_outside, outside_on_the_way, paths_to_check,
 };
 use remote_merge_core::path_resolution::ResolvedPath;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{RelPath, is_within};
 use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest, ScanScope};
 
 use super::compare_flow::{CompareRequest, CompareScope, ExternalLinks};
@@ -25,12 +25,7 @@ pub(super) fn normalized(path: &str) -> &str {
 /// `path` が、外した起点 `blocked` のどれかか、その下か
 pub(super) fn is_blocked(path: &str, blocked: &[String]) -> bool {
     let path = normalized(path);
-    blocked.iter().any(|blocked| {
-        path == blocked
-            || path
-                .strip_prefix(blocked.as_str())
-                .is_some_and(|rest| rest.starts_with('/'))
-    })
+    blocked.iter().any(|blocked| is_within(path, blocked))
 }
 
 /// 確かめたパスごとの事実と、その側の root_dir の実パス
