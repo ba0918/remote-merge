@@ -83,11 +83,15 @@ impl BackupStore {
         }
     }
 
-    pub fn reserve_session(&mut self) -> anyhow::Result<String> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+    /// 集約先の場所（決められなかったときは誤り）
+    fn root(&self) -> anyhow::Result<&Path> {
+        self.root
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))
+    }
+
+    pub fn reserve_session(&self) -> anyhow::Result<String> {
+        let root = self.root()?;
         // 集約先と予約の場所を作れなければ、どのファイルも書き込む前にコマンド全体を止める
         // （docs/ir/backup/failure.md の REQ-backup-045）
         create_dir_owner_only(root).map_err(|error| store_failure(root, &error))?;
@@ -123,15 +127,12 @@ impl BackupStore {
     /// 書き込み先 `target` のセッション `session_id` の領域を、ファイルを書き込む前に作る。作れなければ
     /// ファイルごとの失敗にせず、コマンド全体を止める（REQ-backup-045）
     pub fn prepare_target(
-        &mut self,
+        &self,
         config: &AppConfig,
         target: &Side,
         session_id: &str,
     ) -> anyhow::Result<()> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let root = self.root()?;
         let description = target_description(config, target, &self.startup_directory)?;
         let key = sha256::hex_of_bytes(description.as_bytes());
         let target_dir = root.join("targets").join(&key);
@@ -189,10 +190,7 @@ impl BackupStore {
         record: &StoredBackup<'_>,
         content: Option<&[u8]>,
     ) -> anyhow::Result<String> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let root = self.root()?;
         let description = target_description(config, target, &self.startup_directory)?;
         let key = sha256::hex_of_bytes(description.as_bytes());
         let target_dir = root.join("targets").join(&key);
@@ -257,10 +255,7 @@ impl BackupStore {
         config: &AppConfig,
         target: &Side,
     ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let root = self.root()?;
         let target_key = target_key(config, target, &self.startup_directory)?;
         // 中身が見つからないものだけをセッションなしとして扱い、ほかの読み込みや解析の失敗は
         // そのパスと理由を示して止める（docs/ir/backup/rollback-cli.md の REQ-backup-041・044）
@@ -337,10 +332,7 @@ impl BackupStore {
         session_id: &str,
         rel_path: &str,
     ) -> anyhow::Result<BackupRecord> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let root = self.root()?;
         let target_key = target_key(config, target, &self.startup_directory)?;
         let records_dir = root
             .join("sessions")

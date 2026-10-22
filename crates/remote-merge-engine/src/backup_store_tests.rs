@@ -9,7 +9,7 @@ fn finishing_a_session_that_saved_nothing_keeps_the_place_other_runs_reserve_in(
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("store");
     let now = Utc::now();
-    let mut first = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), now);
+    let first = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), now);
     let id = first.reserve_session().unwrap();
 
     first.finish_session(&id);
