@@ -21,7 +21,7 @@ impl CoreRuntime {
     }
 
     /// Agent を切断する
-    pub fn disconnect_agent(&mut self, server_name: &str) {
+    pub(crate) fn disconnect_agent(&mut self, server_name: &str) {
         if let Some(mut agent) = self.agent_clients.remove(server_name)
             && let Err(e) = agent.client.shutdown()
         {

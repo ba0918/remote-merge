@@ -120,19 +120,19 @@ impl CoreRuntime {
     }
 
     /// SSH からつなぎ直す（エージェントを使うと決めたことは決め直さない）
-    pub fn try_reconnect(&mut self, server_name: &str) -> anyhow::Result<()> {
+    pub(crate) fn try_reconnect(&mut self, server_name: &str) -> anyhow::Result<()> {
         tracing::info!("Auto-reconnecting SSH: server={}", server_name);
         self.disconnect(server_name);
         self.connect(server_name)
     }
 
     /// 指定サーバの SSH クライアントが存在するか
-    pub fn has_client(&self, server_name: &str) -> bool {
+    pub(crate) fn has_client(&self, server_name: &str) -> bool {
         self.ssh_clients.contains_key(server_name)
     }
 
     /// 指定サーバの接続を切断する（選んだ経路は覚えたままにする）
-    pub fn disconnect(&mut self, server_name: &str) {
+    pub(crate) fn disconnect(&mut self, server_name: &str) {
         self.disconnect_agent(server_name);
         if let Some(client) = self.ssh_clients.remove(server_name) {
             // 切る側の失敗は、使い終えた接続のことで扱いを変えないので、診断に残すだけにする

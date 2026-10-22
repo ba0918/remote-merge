@@ -104,7 +104,7 @@ impl CoreRuntime {
     }
 
     /// 指定サーバー名の設定を取得する
-    pub fn get_server_config(&self, server_name: &str) -> anyhow::Result<&ServerConfig> {
+    pub(crate) fn get_server_config(&self, server_name: &str) -> anyhow::Result<&ServerConfig> {
         self.config
             .servers
             .get(server_name)
