@@ -3,8 +3,8 @@
 //! REQ-cli-097・099）。中身は比べる流れが読んだものだけを使う
 
 use remote_merge_core::compare::{PathComparison, Role, SideState};
-use remote_merge_core::diff::binary::compute_sha256;
 use remote_merge_core::diff::engine::PairScript;
+use remote_merge_core::sha256::hex_of_bytes;
 
 use super::content::{Context, Overrides, Prepared, View, empty_text, prepare};
 use super::diff::Change;
@@ -99,8 +99,8 @@ pub fn prepared_file(
             output.truncated = shown.truncated;
             if left_text.text() == right_text.text() && left_text.raw() != right_text.raw() {
                 output.byte_only_difference = true;
-                output.left_hash = Some(compute_sha256(left_text.raw()));
-                output.right_hash = Some(compute_sha256(right_text.raw()));
+                output.left_hash = Some(hex_of_bytes(left_text.raw()));
+                output.right_hash = Some(hex_of_bytes(right_text.raw()));
                 output.note =
                     Some("byte-only representation difference; decoded text is equal".into());
             }
@@ -111,13 +111,13 @@ pub fn prepared_file(
                 .as_ref()
                 .ok()
                 .and_then(Prepared::raw)
-                .map(compute_sha256);
+                .map(hex_of_bytes);
             output.right_hash = view
                 .right
                 .as_ref()
                 .ok()
                 .and_then(Prepared::raw)
-                .map(compute_sha256);
+                .map(hex_of_bytes);
         }
     }
     if reference.is_some() && !symlink && files_only(comparison) {
@@ -127,10 +127,10 @@ pub fn prepared_file(
                 output.ref_hunks = Some(shown.hunks);
                 output.truncated |= shown.truncated;
             } else {
-                output.ref_hash = Some(compute_sha256(reference.raw()));
+                output.ref_hash = Some(hex_of_bytes(reference.raw()));
             }
         } else if let Ok(Prepared::Binary(reference)) = &view.reference {
-            output.ref_hash = Some(compute_sha256(reference));
+            output.ref_hash = Some(hex_of_bytes(reference));
         }
         output.conflict_regions = view.conflicts();
         output.conflict_count = output.conflict_regions.len();

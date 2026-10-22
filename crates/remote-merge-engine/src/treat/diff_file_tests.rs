@@ -84,7 +84,7 @@ fn a_binary_change_has_hashes_and_no_hunks() {
     assert!(output.binary && output.hunks.is_empty());
     assert_eq!(
         output.left_hash.as_deref(),
-        Some(remote_merge_core::diff::binary::compute_sha256(b"\0l").as_str())
+        Some(remote_merge_core::sha256::hex_of_bytes(b"\0l").as_str())
     );
     assert!(output.right_hash.is_some());
 }

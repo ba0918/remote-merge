@@ -5,10 +5,10 @@ use remote_merge::cli::diff::{DiffArgs, execute_diff};
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::{AppConfig, load_config_from_paths};
-use remote_merge::diff::binary::compute_sha256;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::SyncTargetStatus;
+use remote_merge_core::sha256::hex_of_bytes;
 use tempfile::TempDir;
 
 struct SyncFixture {
@@ -223,13 +223,10 @@ fn different_binary_files_report_hashes_without_text_lines() {
     let file = &result.files[0];
     assert!(file.binary);
     assert!(file.hunks.is_empty());
-    assert_eq!(
-        file.left_hash.as_deref(),
-        Some(compute_sha256(left).as_str())
-    );
+    assert_eq!(file.left_hash.as_deref(), Some(hex_of_bytes(left).as_str()));
     assert_eq!(
         file.right_hash.as_deref(),
-        Some(compute_sha256(right).as_str())
+        Some(hex_of_bytes(right).as_str())
     );
     assert_ne!(file.left_hash, file.right_hash);
 }

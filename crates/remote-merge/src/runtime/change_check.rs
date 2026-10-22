@@ -3,6 +3,7 @@
 
 use remote_merge_core::operations::resulting_mode;
 use remote_merge_core::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
+use remote_merge_core::sha256::hex_of_bytes;
 
 /// 変更の前の、そのパスの状態。書き込みの確かめに使う
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +78,7 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
                 (Before::Content(previous), Observed::File(now)) if previous == now => {
                     Outcome::NotDone
                 }
-                (Before::Hash(previous), Observed::File(now)) if *previous == sha256_hex(now) => {
+                (Before::Hash(previous), Observed::File(now)) if *previous == hex_of_bytes(now) => {
                     Outcome::NotDone
                 }
                 (Before::Unknown, _) => Outcome::Undetermined,
@@ -121,10 +122,6 @@ pub fn mode_in_listing(entries: &[ListedEntry], path: &str) -> Observed {
             ),
         })
         .unwrap_or(Observed::Absent)
-}
-
-fn sha256_hex(content: &[u8]) -> String {
-    remote_merge_core::sha256::hex_of_bytes(content)
 }
 
 /// 確かめた結果が分かる失敗の文言。`cause` は最初の `接続断` の原因
@@ -173,7 +170,7 @@ mod tests {
     #[test]
     fn a_write_is_judged_against_the_new_and_the_previous_content() {
         let previous = Before::Content(b"old".to_vec());
-        let old_hash = Before::Hash(sha256_hex(b"old"));
+        let old_hash = Before::Hash(hex_of_bytes(b"old"));
         let cases = [
             (&previous, file("new"), Outcome::Done),
             (&previous, file("old"), Outcome::NotDone),

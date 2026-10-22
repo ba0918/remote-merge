@@ -65,7 +65,7 @@ fn a_ref_of_another_kind_or_not_collected_shows_only_the_ref_or_nothing() {
 fn a_binary_shows_the_ref_hash_and_a_link_shows_the_ref_link_target() {
     let binary = three(b"\0l", b"\0r", Some((file(), b"\0b")));
     let output = diff_file("b", &binary, DIFFERS, &sources(true), None);
-    let expected = remote_merge_core::diff::binary::compute_sha256(b"\0b");
+    let expected = remote_merge_core::sha256::hex_of_bytes(b"\0b");
     assert_eq!(output.ref_hash.as_deref(), Some(expected.as_str()));
     assert!(output.ref_hunks.is_none());
 
@@ -109,7 +109,7 @@ fn a_binary_ref_of_text_files_shows_the_ref_hash() {
 
     let output = diff_file("a", &comparison, DIFFERS, &sources(true), None);
 
-    let expected = remote_merge_core::diff::binary::compute_sha256(b"\0b");
+    let expected = remote_merge_core::sha256::hex_of_bytes(b"\0b");
     assert_eq!(output.ref_hash.as_deref(), Some(expected.as_str()));
     assert!(output.ref_hunks.is_none());
     assert!(!output.hunks.is_empty());

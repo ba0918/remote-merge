@@ -113,7 +113,7 @@ fn ex_cli_110_a_binary_shows_the_hash_of_the_ref_and_no_ref_hunks() {
     let (_, json) = three_way(&env, &[]);
 
     let image = entry(&json, "img.bin");
-    let expected = remote_merge_core::diff::binary::compute_sha256(b"\0base");
+    let expected = remote_merge_core::sha256::hex_of_bytes(b"\0base");
     assert_eq!(image["ref_hash"], expected, "{image}");
     assert!(image.get("ref_hunks").is_none(), "{image}");
 }
@@ -127,7 +127,7 @@ fn ex_cli_114_a_binary_ref_of_text_files_shows_the_hash_of_the_ref() {
     let (_, json) = three_way(&env, &[]);
 
     let file = entry(&json, "a.txt");
-    let expected = remote_merge_core::diff::binary::compute_sha256(b"\0base");
+    let expected = remote_merge_core::sha256::hex_of_bytes(b"\0base");
     assert_eq!(file["ref_hash"], expected, "{file}");
     assert!(file.get("ref_hunks").is_none(), "{file}");
     assert!(!file["hunks"].as_array().unwrap().is_empty(), "{file}");

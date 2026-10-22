@@ -1092,12 +1092,12 @@ fn external_binary_link_hashes_are_sha256_of_the_target_contents() {
     let link = json_item(&result, "link.bin");
     assert_eq!(
         link["left_hash"],
-        remote_merge::diff::binary::compute_sha256(&left_bytes),
+        remote_merge_core::sha256::hex_of_bytes(&left_bytes),
         "{result}"
     );
     assert_eq!(
         link["right_hash"],
-        remote_merge::diff::binary::compute_sha256(&right_bytes),
+        remote_merge_core::sha256::hex_of_bytes(&right_bytes),
         "{result}"
     );
 }
@@ -1247,12 +1247,12 @@ fn nested_link_from_an_external_directory_shows_the_final_target_hashes_with_fol
     );
     assert_eq!(
         nested["left_hash"],
-        remote_merge::diff::binary::compute_sha256(left_bytes),
+        remote_merge_core::sha256::hex_of_bytes(left_bytes),
         "{result}"
     );
     assert_eq!(
         nested["right_hash"],
-        remote_merge::diff::binary::compute_sha256(right_bytes),
+        remote_merge_core::sha256::hex_of_bytes(right_bytes),
         "{result}"
     );
 }
@@ -1505,7 +1505,7 @@ fn directory_link_against_binary_file_reports_the_file_hash() {
     let link = json_item(&result, "shared");
     assert_eq!(
         link["right_hash"],
-        remote_merge::diff::binary::compute_sha256(right_bytes),
+        remote_merge_core::sha256::hex_of_bytes(right_bytes),
         "{result}"
     );
 }
@@ -1529,7 +1529,7 @@ fn link_to_binary_against_link_to_text_reports_both_hashes() {
     let link = json_item(&result, "link.dat");
     assert_eq!(
         link["left_hash"],
-        remote_merge::diff::binary::compute_sha256(left_bytes),
+        remote_merge_core::sha256::hex_of_bytes(left_bytes),
         "{result}"
     );
 }
