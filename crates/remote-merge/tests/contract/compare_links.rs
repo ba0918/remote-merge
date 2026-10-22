@@ -158,7 +158,7 @@ fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_befor
     }
     let routes = FlowRoutes::new(|left, right| {
         for root in [left, right] {
-            super::scan_other_kinds::make_fifo(&root.join("pipe"));
+            super::common::make_fifo(&root.join("pipe"));
             symlink("pipe", root.join("to-pipe")).unwrap();
         }
     });

@@ -10,80 +10,15 @@
 use std::fs;
 use std::process::Output;
 
-use super::agent_support::{AgentFixture, Setup};
-use super::server_faults::Faults;
+use super::sides_support::{ROUTES, Route, Sides};
 
-/// 走査する経路
-#[derive(Debug, Clone, Copy)]
-pub(super) enum Route {
-    Local,
-    Agent,
-}
-
-pub(super) const ROUTES: [Route; 2] = [Route::Local, Route::Agent];
-
-/// 経路ごとの、試す側の root_dir を持つ偽サーバ。試す側はローカルの経路なら local、ほかは remote
-pub(super) struct Sides {
-    pub fixture: AgentFixture,
-    pub route: Route,
-}
-
-impl Sides {
-    pub(super) async fn new(route: Route) -> Self {
-        let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
-        Self { fixture, route }
-    }
-
-    /// 試す側の root_dir
-    pub(super) fn tested_root(&self) -> std::path::PathBuf {
-        match self.route {
-            Route::Local => self.fixture.local(),
-            Route::Agent => self.fixture.remote(),
-        }
-    }
-
-    /// 試す側でない側の root_dir
-    pub(super) fn other_root(&self) -> std::path::PathBuf {
-        match self.route {
-            Route::Local => self.fixture.remote(),
-            Route::Agent => self.fixture.local(),
-        }
-    }
-
-    /// 試す側の名前（--left・--right に渡すもの）
-    fn tested(&self) -> &'static str {
-        match self.route {
-            Route::Local => "local",
-            Route::Agent => "fixture",
-        }
-    }
-
-    fn other(&self) -> &'static str {
-        match self.route {
-            Route::Local => "fixture",
-            Route::Agent => "local",
-        }
-    }
-
-    /// 試す側を書き込み先（右）にして動かす
-    pub(super) fn run_into_tested(&self, args: &[&str]) -> Output {
-        self.fixture
-            .run_with_sides(args, &["--left", self.other(), "--right", self.tested()])
-    }
-
-    /// 試す側を読み込み元（左）にして動かす
-    pub(super) fn run_from_tested(&self, args: &[&str]) -> Output {
-        self.fixture
-            .run_with_sides(args, &["--left", self.tested(), "--right", self.other()])
-    }
-
-    /// 両側に `path` と "sub/g.txt" を置き、試す側の root_dir を消す
-    fn without_tested_root(&self, path: &str) {
-        self.fixture.put(path, Some("left\n"), Some("right\n"));
-        self.fixture
-            .put("sub/g.txt", Some("left\n"), Some("right\n"));
-        fs::remove_dir_all(self.tested_root()).unwrap();
-    }
+/// 両側に `path` と "sub/g.txt" を置き、試す側の root_dir を消す
+fn without_tested_root(sides: &Sides, path: &str) {
+    sides.fixture.put(path, Some("left\n"), Some("right\n"));
+    sides
+        .fixture
+        .put("sub/g.txt", Some("left\n"), Some("right\n"));
+    fs::remove_dir_all(sides.tested_root()).unwrap();
 }
 
 /// エラーで止まり、試す側の root_dir を作らず、もう一方も書き換えていない
@@ -136,7 +71,7 @@ async fn a_missing_destination_root_dir_stops_every_scan_before_writing() {
     for route in ROUTES {
         for command in INTO_MISSING_ROOT {
             let sides = Sides::new(route).await;
-            sides.without_tested_root("f.txt");
+            without_tested_root(&sides, "f.txt");
             let output = sides.run_into_tested(command);
             let left = match route {
                 Route::Local => "right\n",
@@ -153,7 +88,7 @@ async fn a_missing_source_root_dir_stops_every_scan_before_writing() {
     for route in ROUTES {
         for command in FROM_MISSING_ROOT {
             let sides = Sides::new(route).await;
-            sides.without_tested_root("f.txt");
+            without_tested_root(&sides, "f.txt");
             let output = sides.run_from_tested(command);
             let other = match route {
                 Route::Local => "right\n",

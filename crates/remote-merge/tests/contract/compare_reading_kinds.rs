@@ -3,9 +3,9 @@
 //! （docs/ir/compare/reading.md の REQ-compare-010・011、docs/ir/compare/judgement.md の
 //! REQ-compare-009）の契約テスト。左はローカル、右は調べる経路。
 
+use super::common::make_fifo;
 use super::compare_reading::{answer, write_both};
 use super::flow_support::{FlowRoutes, ROUTES, child};
-use super::scan_other_kinds::make_fifo;
 
 // @kotowari[REQ-compare-010, REQ-compare-011, EX-compare-012, EX-compare-013]
 #[test]

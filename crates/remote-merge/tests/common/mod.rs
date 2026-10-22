@@ -59,6 +59,18 @@ pub fn place_symlink(dir: &Path, link_path: &str, target_path: &str) {
     unix_fs::symlink(target_path, &full_link).unwrap();
 }
 
+/// `path` に FIFO を作る
+pub fn make_fifo(path: &Path) {
+    let status = Command::new("mkfifo").arg(path).status().unwrap();
+    assert!(status.success());
+}
+
+/// `path` に Unix ドメインソケットのファイルを作る
+pub fn make_socket(path: &Path) {
+    // 待ち受けを閉じてもソケットのファイルは残る
+    drop(std::os::unix::net::UnixListener::bind(path).unwrap());
+}
+
 /// `path` の更新時刻を `time` にする
 pub fn set_mtime(path: &Path, time: std::time::SystemTime) {
     fs::File::options()

@@ -11,8 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
 
-use super::common::{CliEnv, stdout_json};
-use super::scan_other_kinds::make_fifo;
+use super::common::{CliEnv, make_fifo, stdout_json};
 
 fn status(env: &CliEnv, args: &[&str]) -> Output {
     env.cmd_with("status")

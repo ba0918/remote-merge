@@ -8,7 +8,7 @@ use std::os::unix::fs::symlink;
 
 use serde_json::Value;
 
-use super::scan_missing_root::{ROUTES, Sides};
+use super::sides_support::{ROUTES, Sides};
 
 // @kotowari[REQ-config-034, REQ-config-036, REQ-scan-017]
 #[tokio::test(flavor = "multi_thread")]

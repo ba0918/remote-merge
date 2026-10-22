@@ -8,9 +8,8 @@
 use std::fs;
 use std::process::Output;
 
-use super::common::stdout_json;
-use super::scan_missing_root::{ROUTES, Sides};
-use super::scan_other_kinds::{make_fifo, make_socket};
+use super::common::{make_fifo, make_socket, stdout_json};
+use super::sides_support::{ROUTES, Sides};
 
 const NOT_REGULAR: &str = "not a regular file";
 

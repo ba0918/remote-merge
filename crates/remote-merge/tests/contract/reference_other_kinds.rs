@@ -14,8 +14,8 @@ use remote_merge::service::output::format_json;
 use serde_json::Value;
 
 use super::args_support::{diff_args, merge_args};
+use super::common::make_fifo;
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
-use super::scan_other_kinds::make_fifo;
 
 const THIS_TEST: &str = "reference_other_kinds::a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_both_routes";
 

@@ -6,7 +6,7 @@
 
 use std::fs;
 
-use super::scan_missing_root::{ROUTES, Route, Sides};
+use super::sides_support::{ROUTES, Route, Sides};
 
 /// root でない利用者として動いているか（root は読む権限のないディレクトリも読める）
 fn permissions_apply(dir: &std::path::Path) -> bool {

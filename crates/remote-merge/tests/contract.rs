@@ -377,6 +377,9 @@ mod scan_unresolvable_unreadable_name;
 #[path = "contract/scan_unsearchable_directory.rs"]
 mod scan_unsearchable_directory;
 #[cfg(feature = "test-utils")]
+#[path = "contract/sides_support.rs"]
+mod sides_support;
+#[cfg(feature = "test-utils")]
 #[path = "contract/size_limit.rs"]
 mod size_limit;
 #[cfg(feature = "test-utils")]

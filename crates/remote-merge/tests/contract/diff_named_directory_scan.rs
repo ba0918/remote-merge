@@ -10,7 +10,7 @@ use std::os::unix::ffi::OsStrExt;
 use serde_json::Value;
 
 use super::common::stdout_json;
-use super::scan_missing_root::{ROUTES, Sides};
+use super::sides_support::{ROUTES, Sides};
 
 fn paths_in(json: &Value, key: &str) -> Vec<String> {
     json[key]

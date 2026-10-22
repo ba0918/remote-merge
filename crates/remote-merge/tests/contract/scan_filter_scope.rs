@@ -5,7 +5,7 @@
 
 use std::fs;
 
-use super::scan_missing_root::{ROUTES, Sides};
+use super::sides_support::{ROUTES, Sides};
 
 /// 設定に [filter] を足す
 fn with_filter(sides: &Sides, filter: &str) {

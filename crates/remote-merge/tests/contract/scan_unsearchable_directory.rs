@@ -13,7 +13,7 @@ use std::process::Output;
 use remote_merge_core::test_tree::PermissionLocks;
 
 use super::common::permissions_apply;
-use super::scan_missing_root::{ROUTES, Sides};
+use super::sides_support::{ROUTES, Sides};
 
 fn with_exclude(sides: &Sides, pattern: &str) {
     let mut config = fs::read_to_string(&sides.fixture.config).unwrap();

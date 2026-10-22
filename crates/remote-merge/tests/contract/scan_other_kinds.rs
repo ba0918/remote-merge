@@ -2,12 +2,9 @@
 //! FIFO とソケットを、二つの経路の走査が通常ファイルとせずにその他の種類として載せ、止まらずに
 //! 終わること（docs/ir/scan/listing.md の REQ-scan-021）の契約テスト。
 
-use std::os::unix::net::UnixListener;
-use std::path::Path;
-use std::process::Command;
-
 use remote_merge_core::scan::outcome::{ListedKind, Listing, ScanRequest, ScanScope};
 
+use super::common::{make_fifo, make_socket};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
 const THIS_TEST: &str =
@@ -45,16 +42,6 @@ fn answer(mut child: Child) {
     };
     let text = listing_text(child.runtime.scan_listing(&right, &request));
     child.answer(&text);
-}
-
-pub(super) fn make_fifo(path: &Path) {
-    let status = Command::new("mkfifo").arg(path).status().unwrap();
-    assert!(status.success());
-}
-
-pub(super) fn make_socket(path: &Path) {
-    // 待ち受けを閉じてもソケットのファイルは残る
-    drop(UnixListener::bind(path).unwrap());
 }
 
 // @kotowari[REQ-scan-021, REQ-scan-017, EX-scan-017]

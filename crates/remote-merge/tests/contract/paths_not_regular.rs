@@ -10,9 +10,9 @@ use std::time::Duration;
 use remote_merge_core::op_failure::{OpFailure, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
+use super::common::make_fifo;
 use super::flow_routes::CHILD_LIMIT;
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
-use super::scan_other_kinds::make_fifo;
 
 const THIS_TEST: &str =
     "paths_not_regular::ex_paths_046_a_fifo_is_not_read_while_waiting_for_a_writer_on_both_routes";

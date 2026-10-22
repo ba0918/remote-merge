@@ -18,7 +18,7 @@ use std::process::Output;
 use remote_merge_core::test_tree::PermissionLocks;
 use serde_json::Value;
 
-use super::scan_missing_root::{ROUTES, Sides};
+use super::sides_support::{ROUTES, Sides};
 
 /// ツリーの中の、件数に数える項目（ファイルと symlink）の数。循環の下と exclude の下を除く
 const COUNTED: usize = 10;
@@ -69,7 +69,7 @@ fn observed(output: &Output) -> (Option<i32>, Vec<String>, Vec<String>, String) 
 }
 
 /// 試す側に同じツリーを置いて、exclude と件数の上限を `exclude`・`max` にした status
-async fn status_on(route: super::scan_missing_root::Route, exclude: &str, max: usize) -> String {
+async fn status_on(route: super::sides_support::Route, exclude: &str, max: usize) -> String {
     let sides = Sides::new(route).await;
     let tested = sides.tested_root();
     let locks = PermissionLocks::new();
