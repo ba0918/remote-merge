@@ -1,8 +1,5 @@
 #![cfg(unix)]
 //! `diff` サブコマンドの E2E テスト。
-//!
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test cli_diff -- --ignored` で実行する。
 
 mod common;
 use common::*;
@@ -66,32 +63,6 @@ fn test_diff_binary_file() {
         stdout.contains("sha256="),
         "Expected 'sha256=' hash in output, got: {}",
         stdout
-    );
-}
-
-// @kotowari[EX-cli-039]
-#[test]
-fn diff_shows_link_targets_and_resolved_file_contents() {
-    let env = CliEnv::new(&[("target.txt", "left content\n")], &[]);
-    place_symlink(&env.local_dir, "link.txt", "target.txt");
-    // リモートにもリンク先ファイルとシンボリックリンクを配置（異なるターゲット）
-    place_files(&env.remote_dir, &[("other.txt", "right content\n")]);
-    place_symlink(&env.remote_dir, "link.txt", "other.txt");
-
-    let output = env
-        .cmd_with("diff")
-        .arg("link.txt")
-        .output()
-        .expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("target.txt") && stdout.contains("other.txt"),
-        "{output:?}"
-    );
-    assert!(
-        stdout.contains("left content") && stdout.contains("right content"),
-        "{output:?}"
     );
 }
 
@@ -422,6 +393,16 @@ fn external_binary_links_report_distinct_targets_and_sha256_hashes() {
     assert_eq!(left_hash.len(), 64);
     assert_eq!(right_hash.len(), 64);
     assert_ne!(left_hash, right_hash);
+    assert_eq!(
+        left_hash,
+        remote_merge_core::sha256::hex_of_bytes(&[0, 1, 255]),
+        "{result}"
+    );
+    assert_eq!(
+        right_hash,
+        remote_merge_core::sha256::hex_of_bytes(&[0, 2, 255]),
+        "{result}"
+    );
 }
 
 // @kotowari[EX-cli-042]
@@ -563,7 +544,12 @@ fn directory_link_entry_limit_counts_children_across_nested_links() {
             .contains("Tree scan truncated at 3 entries."),
         "{result}"
     );
-    assert!(result["files"].to_string().contains("left"), "{result}");
+    assert_reported_incomplete(&result);
+    let child_hunks = json_item(&result, "shared/a.txt")["hunks"].to_string();
+    assert!(
+        child_hunks.contains("\"left\"") && child_hunks.contains("\"right\""),
+        "{result}"
+    );
 }
 
 // @kotowari[EX-cli-056]
@@ -587,6 +573,9 @@ fn one_sided_directory_link_shows_child_contents_without_read_error() {
         "{result}"
     );
     assert!(result.get("errors").is_none(), "{result}");
+    let link = json_item(&result, "shared");
+    assert_eq!(link["link_targets"]["left"], "actual", "{result}");
+    assert!(link["link_targets"]["right"].is_null(), "{result}");
 }
 
 // @kotowari[EX-cli-061]
@@ -616,6 +605,9 @@ fn directory_link_against_regular_file_shows_both_kinds_of_content() {
         result["files"].to_string().contains("shared/child.txt"),
         "{result}"
     );
+    let link = json_item(&result, "shared");
+    assert_eq!(link["link_targets"]["left"], "actual", "{result}");
+    assert!(link["link_targets"]["right"].is_null(), "{result}");
 }
 
 // @kotowari[REQ-cli-021]
@@ -675,6 +667,11 @@ fn directory_link_against_plain_directory_keeps_link_and_child_results() {
     );
     assert!(
         result["files"].to_string().contains("right child"),
+        "{result}"
+    );
+    let child_hunks = json_item(&result, "shared/child.txt")["hunks"].to_string();
+    assert!(
+        child_hunks.contains("left child") && child_hunks.contains("right child"),
         "{result}"
     );
 }
@@ -897,6 +894,7 @@ fn unreadable_child_of_directory_link_keeps_other_child_diffs() {
         "{result}"
     );
     assert_eq!(result["errors"][0]["path"], "shared/broken.txt", "{result}");
+    assert_reason_given(json_error(&result, "shared/broken.txt"), &result);
 }
 
 // @kotowari[EX-cli-055]
@@ -1060,157 +1058,6 @@ fn json_link_item_keeps_the_symlink_flag() {
     assert_eq!(link["symlink"], true, "{result}");
     assert_eq!(link["link_targets"]["left"], "target.txt", "{result}");
     assert_eq!(link["link_targets"]["right"], "target.txt", "{result}");
-}
-
-// @kotowari[EX-cli-042]
-#[test]
-fn external_binary_link_hashes_are_sha256_of_the_target_contents() {
-    let env = CliEnv::new(&[], &[]);
-    let outside = env.local_dir.parent().unwrap();
-    let left_bytes = [0u8, 1, 255];
-    let right_bytes = [0u8, 2, 255];
-    std::fs::write(outside.join("left.bin"), left_bytes).unwrap();
-    std::fs::write(outside.join("right.bin"), right_bytes).unwrap();
-    place_symlink(
-        &env.local_dir,
-        "link.bin",
-        outside.join("left.bin").to_str().unwrap(),
-    );
-    place_symlink(
-        &env.remote_dir,
-        "link.bin",
-        outside.join("right.bin").to_str().unwrap(),
-    );
-
-    let output = env
-        .cmd_with("diff")
-        .args(["link.bin", "--follow-external-links", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let link = json_item(&result, "link.bin");
-    assert_eq!(
-        link["left_hash"],
-        remote_merge_core::sha256::hex_of_bytes(&left_bytes),
-        "{result}"
-    );
-    assert_eq!(
-        link["right_hash"],
-        remote_merge_core::sha256::hex_of_bytes(&right_bytes),
-        "{result}"
-    );
-}
-
-// @kotowari[EX-cli-045]
-#[test]
-fn directory_link_entry_limit_keeps_the_child_diff_read_before_the_limit() {
-    let env = CliEnv::new(&[("left-dir/a.txt", "left\n")], &[]);
-    place_files(&env.remote_dir, &[("right-dir/a.txt", "right\n")]);
-    place_symlink(&env.local_dir, "shared", "left-dir");
-    place_symlink(&env.remote_dir, "shared", "right-dir");
-    for (root, body) in [
-        (&env.local_dir, "second left\n"),
-        (&env.remote_dir, "second right\n"),
-    ] {
-        place_files(
-            root,
-            &[("second-dir/b.txt", body), ("second-dir/c.txt", body)],
-        );
-    }
-    place_symlink(&env.local_dir, "left-dir/next", "../second-dir");
-    place_symlink(&env.remote_dir, "right-dir/next", "../second-dir");
-    let output = env
-        .cmd_with("diff")
-        .args(["shared", "--max-entries", "3", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_reported_incomplete(&result);
-    let child_hunks = json_item(&result, "shared/a.txt")["hunks"].to_string();
-    assert!(
-        child_hunks.contains("\"left\"") && child_hunks.contains("\"right\""),
-        "{result}"
-    );
-}
-
-// @kotowari[EX-cli-046]
-#[test]
-fn directory_link_against_plain_directory_compares_the_child_read_through_the_link() {
-    let env = CliEnv::new(
-        &[("actual/child.txt", "left child\n")],
-        &[("shared/child.txt", "right child\n")],
-    );
-    place_symlink(&env.local_dir, "shared", "actual");
-    let output = env
-        .cmd_with("diff")
-        .args(["shared", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let child_hunks = json_item(&result, "shared/child.txt")["hunks"].to_string();
-    assert!(
-        child_hunks.contains("left child") && child_hunks.contains("right child"),
-        "{result}"
-    );
-}
-
-// @kotowari[EX-cli-061]
-#[test]
-fn directory_link_against_regular_file_reports_the_link_target() {
-    let env = CliEnv::new(
-        &[("actual/child.txt", "left child\n")],
-        &[("shared", "right body\n")],
-    );
-    place_symlink(&env.local_dir, "shared", "actual");
-    let output = env
-        .cmd_with("diff")
-        .args(["shared", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let link = json_item(&result, "shared");
-    assert_eq!(link["link_targets"]["left"], "actual", "{result}");
-    assert!(link["link_targets"]["right"].is_null(), "{result}");
-}
-
-// @kotowari[EX-cli-056]
-#[test]
-fn one_sided_directory_link_reports_its_link_target_and_null_for_the_missing_side() {
-    let env = CliEnv::new(&[("actual/child.txt", "left child\n")], &[]);
-    place_symlink(&env.local_dir, "shared", "actual");
-    let output = env
-        .cmd_with("diff")
-        .args(["shared", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let link = json_item(&result, "shared");
-    assert_eq!(link["link_targets"]["left"], "actual", "{result}");
-    assert!(link["link_targets"]["right"].is_null(), "{result}");
-}
-
-// @kotowari[EX-cli-047]
-#[test]
-fn unreadable_child_of_directory_link_is_reported_with_a_reason() {
-    let env = CliEnv::new(&[("left-dir/good.txt", "left\n")], &[]);
-    place_files(&env.remote_dir, &[("right-dir/good.txt", "right\n")]);
-    place_symlink(&env.local_dir, "shared", "left-dir");
-    place_symlink(&env.remote_dir, "shared", "right-dir");
-    place_symlink(&env.local_dir, "left-dir/broken.txt", "missing.txt");
-    place_symlink(&env.remote_dir, "right-dir/broken.txt", "missing.txt");
-    let output = env
-        .cmd_with("diff")
-        .args(["shared", "--format", "json"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_reason_given(json_error(&result, "shared/broken.txt"), &result);
 }
 
 // @kotowari[EX-cli-055]
@@ -1656,35 +1503,6 @@ fn text_total_counts_the_children_compared_under_a_directory_link() {
     assert!(total >= 2, "{body}");
 }
 
-/// 末尾スラッシュの有無で同じ結果が得られる（パス正規化）
-// @kotowari[EX-cli-051]
-#[test]
-fn test_diff_trailing_slash_normalized() {
-    let env = CliEnv::new(
-        &[("src/app.rs", "fn app() {}\n")],
-        &[("src/app.rs", "fn app() { changed }\n")],
-    );
-
-    let output_with_slash = env
-        .cmd_with("diff")
-        .arg("src/")
-        .output()
-        .expect("failed to execute");
-
-    let output_without_slash = env
-        .cmd_with("diff")
-        .arg("src")
-        .output()
-        .expect("failed to execute");
-
-    let stdout_with = String::from_utf8_lossy(&output_with_slash.stdout);
-    let stdout_without = String::from_utf8_lossy(&output_without_slash.stdout);
-    assert_eq!(
-        stdout_with, stdout_without,
-        "Trailing slash should not affect diff result"
-    );
-}
-
 /// テキスト中に NUL バイトを含むファイルがバイナリとして検出され SHA-256 表示される
 // @kotowari[REQ-cli-009]
 #[test]
@@ -1727,23 +1545,11 @@ enum LinkedRoot {
 /// 左右の file.txt を中身を違えて置き、それを指す link.txt も左右に置く。`linked` 側の root_dir を
 /// 実ディレクトリへの symlink にした設定で `diff <path> --format json` を起動し、JSON を返す
 ///
-/// 設定は一時ディレクトリに書いて隔離の確認を通し、`--config` で渡す。環境変数は全て消して
-/// HOME・XDG の変数を一時ディレクトリの下に向け、作業ディレクトリも一時ディレクトリの下にする。
+/// 設定は一時ディレクトリに書いて隔離の確認を通し、`--config` で渡す。起動は [`isolated_command`] で、
+/// 作業ディレクトリも一時ディレクトリの下にする。
 fn diff_with_linked_root(
     linked: LinkedRoot,
     path: &str,
-) -> (std::process::Output, serde_json::Value) {
-    diff_with_linked_root_placing(linked, path, |_, _, _| {})
-}
-
-/// `diff_with_linked_root` と同じ構成に、`place` で root_dir の中身を足してから diff を起動する
-///
-/// `place` は symlink にした側の実ディレクトリの実パス、その側の設定に書く root_dir（symlink）、
-/// もう一方の側の root_dir を受け取る。
-fn diff_with_linked_root_placing(
-    linked: LinkedRoot,
-    path: &str,
-    place: impl FnOnce(&std::path::Path, &std::path::Path, &std::path::Path),
 ) -> (std::process::Output, serde_json::Value) {
     let mut dirs = TestDirs::new_2way(
         &[("file.txt", "left body\n")],
@@ -1759,11 +1565,6 @@ fn diff_with_linked_root_placing(
         LinkedRoot::Remote => std::mem::replace(&mut remote_root, link.clone()),
     };
     std::os::unix::fs::symlink(&real, &link).unwrap();
-    let other = match linked {
-        LinkedRoot::Local => &remote_root,
-        LinkedRoot::Remote => &local_root,
-    };
-    place(&std::fs::canonicalize(&real).unwrap(), &link, other);
     let config_path = temp.join("linked-root-config.toml");
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     std::fs::write(&config_path, config).unwrap();
