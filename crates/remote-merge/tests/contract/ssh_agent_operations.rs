@@ -63,12 +63,6 @@ async fn an_operation_the_agent_fails_fails_that_file_and_the_next_file_still_go
     assert!(result.contains("a-locked/old.txt"), "{result}");
     assert!(locked.join("old.txt").exists());
     assert!(!fixture.remote().join("b-old.txt").exists());
-    let removes = fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "Remove")
-        .count();
+    let removes = fixture.server.faults().count("Remove");
     assert_eq!(removes, 2);
 }

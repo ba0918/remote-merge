@@ -71,6 +71,28 @@ pub struct Faults {
     pub refuse_agent_after_cut: bool,
 }
 
+impl Faults {
+    /// `request` の種類の要求の `occurrence` 番目（`repeat` が Every ならそれ以降も毎回）の `point` で、
+    /// SSH の session は残してエージェントとの間だけを切る故障
+    pub fn cut_agent(
+        request: &'static str,
+        occurrence: usize,
+        point: CutPoint,
+        repeat: Repeat,
+    ) -> Self {
+        Self {
+            agent_cut: Some(AgentCut {
+                request: Some(request),
+                occurrence,
+                point,
+                scope: CutScope::Agent,
+                repeat,
+            }),
+            ..Self::default()
+        }
+    }
+}
+
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
 pub struct FaultState {
     pub faults: Faults,
@@ -121,6 +143,16 @@ impl FaultState {
     /// エージェントが受けた要求の種類（起動し直した後のものも続けて並ぶ）
     pub fn agent_requests(&self) -> Vec<String> {
         self.agent_requests.lock().unwrap().clone()
+    }
+
+    /// エージェントが受けた `kind` の種類の要求の数
+    pub fn count(&self, kind: &str) -> usize {
+        self.agent_requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|seen| *seen == kind)
+            .count()
     }
 
     /// エージェントが受けた要求の中身（[`request_details`] の形。起動し直した後のものも続けて並ぶ）

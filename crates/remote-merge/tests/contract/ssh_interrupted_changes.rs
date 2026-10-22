@@ -30,19 +30,6 @@ const UNTOUCHED: &str = "not attempted";
 const READ_FAILED: &str = "read failed";
 const CONTENT_WRITTEN: &str = "content written";
 
-fn cut(request: &'static str, occurrence: usize, point: CutPoint, repeat: Repeat) -> Faults {
-    Faults {
-        agent_cut: Some(AgentCut {
-            request: Some(request),
-            occurrence,
-            point,
-            scope: CutScope::Agent,
-            repeat,
-        }),
-        ..Faults::default()
-    }
-}
-
 /// `failed` の中の `path` の error
 fn failure<'a>(failed: &'a Value, path: &str) -> &'a str {
     failed
@@ -67,16 +54,6 @@ fn paths(entries: &Value) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-fn count(fixture: &AgentFixture, request: &str) -> usize {
-    fixture
-        .server
-        .faults()
-        .agent_requests()
-        .iter()
-        .filter(|seen| *seen == request)
-        .count()
-}
-
 async fn three_files(faults: Faults) -> AgentFixture {
     let fixture = AgentFixture::new(Setup::default(), faults).await;
     for name in ["a.txt", "b.txt", "c.txt"] {
@@ -91,7 +68,7 @@ async fn an_agent_lost_before_writing_is_restarted_to_confirm_the_file_was_not_w
     // 書き込みは、変更の直前の判定のハッシュ（比べるときに次ぐ 2 番目の HashContents）の直後
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("HashContents", 2, CutPoint::AfterResponse, Repeat::Once),
+        Faults::cut_agent("HashContents", 2, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
@@ -111,7 +88,7 @@ async fn an_agent_lost_before_writing_is_restarted_to_confirm_the_file_was_not_w
 async fn a_merge_cut_before_the_second_write_reports_written_not_written_and_untouched_files() {
     // "b.txt" の書き込みは、"b.txt" の変更の直前の判定のハッシュ（3 番目の HashContents。1 番目は
     // 比べるときのまとめたハッシュ）の直後。SSH の session ごと切る
-    let mut faults = cut("HashContents", 3, CutPoint::AfterResponse, Repeat::Once);
+    let mut faults = Faults::cut_agent("HashContents", 3, CutPoint::AfterResponse, Repeat::Once);
     if let Some(cut) = faults.agent_cut.as_mut() {
         cut.scope = CutScope::Session;
     }
@@ -160,7 +137,7 @@ async fn a_single_file_that_cannot_be_written_fails_alone_and_the_rest_are_writt
 async fn a_read_lost_again_after_restarting_fails_that_file_and_leaves_the_rest_untouched() {
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every),
+        Faults::cut_agent("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every),
     )
     .await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
@@ -189,7 +166,7 @@ async fn a_deletion_cut_before_it_is_requested_reports_not_deleted_and_leaves_th
     // HashContents）の直後
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("HashContents", 2, CutPoint::AfterResponse, Repeat::Once),
+        Faults::cut_agent("HashContents", 2, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     fixture.put("x.txt", None, Some("x\n"));
@@ -247,8 +224,13 @@ async fn a_rollback_cut_before_the_first_restore_reports_not_written_and_an_unto
 // @kotowari[EX-ssh-045]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_cut_on_one_target_leaves_its_rest_untouched_and_writes_every_file_to_the_other() {
-    let mut fixture =
-        three_files(cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once)).await;
+    let mut fixture = three_files(Faults::cut_agent(
+        "WriteFile",
+        1,
+        CutPoint::BeforeResponse,
+        Repeat::Once,
+    ))
+    .await;
     let second = fixture.add_server("second", Faults::default()).await;
     for name in ["a.txt", "b.txt", "c.txt"] {
         fs::write(second.join(name), "remote old\n").unwrap();
@@ -286,7 +268,7 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
     // つなぎ直して確かめたときに済んだ変更になる）。権限の変更は書き込みの直後
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
+        Faults::cut_agent("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     fixture.put("a.txt", Some("new\n"), None);
@@ -319,7 +301,7 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
 async fn an_agent_gone_before_the_next_change_is_confirmed_and_the_rest_is_untouched() {
     // "a.txt" を書いた後、"b.txt" の書き込みの要求の前にエージェントが終わっている。終わっているのは
     // "b.txt" の変更の直前の判定のハッシュ（3 番目の HashContents）の後
-    let fixture = three_files(cut(
+    let fixture = three_files(Faults::cut_agent(
         "HashContents",
         3,
         CutPoint::AfterResponse,
@@ -347,7 +329,7 @@ async fn an_agent_gone_before_the_next_change_is_confirmed_and_the_rest_is_untou
 async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once),
+        Faults::cut_agent("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once),
     )
     .await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
@@ -365,7 +347,7 @@ async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
     );
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
-    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().count("WriteFile"), 1);
     assert_eq!(fixture.server.faults().agent_starts(), 2);
 }
 
@@ -374,7 +356,7 @@ async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
 async fn a_write_whose_ssh_session_is_cut_on_a_sudo_server_is_confirmed_after_reconnecting() {
     // SSH の session ごと切れると、起動し直しの前の sudo の確かめも切れた session で失敗する。
     // 再接続してからエージェントを起動し直して確かめ、書き込みは繰り返さない
-    let mut faults = cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
+    let mut faults = Faults::cut_agent("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
     if let Some(cut) = faults.agent_cut.as_mut() {
         cut.scope = CutScope::Session;
     }
@@ -401,7 +383,7 @@ async fn a_write_whose_ssh_session_is_cut_on_a_sudo_server_is_confirmed_after_re
     );
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
-    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().count("WriteFile"), 1);
     assert_eq!(fixture.server.faults().agent_starts(), 2);
 }
 
@@ -411,7 +393,7 @@ async fn a_new_file_written_before_its_reply_is_lost_leaves_its_permission_chang
     // 新しいファイルは、書いた後に既定の権限に変える。その権限の変更は、確かめた後には行わない
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once),
+        Faults::cut_agent("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once),
     )
     .await;
     fixture.put("a.txt", Some("local\n"), None);
@@ -433,7 +415,7 @@ async fn a_new_file_written_before_its_reply_is_lost_leaves_its_permission_chang
     );
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
-    assert_eq!(count(&fixture, "Chmod"), 0);
+    assert_eq!(fixture.server.faults().count("Chmod"), 0);
 }
 
 /// エージェントが一度に書く大きさ（4 MiB）を超える中身
@@ -448,7 +430,7 @@ async fn a_sync_whose_only_change_is_partially_written_is_partial() {
     // 分けて送る書き込みの最初の一つを書いた後で、次の一つを送る前にエージェントとの間が切れる
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
+        Faults::cut_agent("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     fs::write(fixture.local().join("big.bin"), larger_than_one_chunk(b'n')).unwrap();
@@ -497,7 +479,7 @@ async fn a_write_cut_between_its_chunks_is_reported_as_partial_with_the_backup_l
     // 分けて送る書き込みの最初の一つを書いた後で、次の一つを送る前にエージェントとの間が切れる
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
+        Faults::cut_agent("WriteFile", 1, CutPoint::AfterResponse, Repeat::Once),
     )
     .await;
     let new = larger_than_one_chunk(b'n');
@@ -532,7 +514,7 @@ async fn a_write_cut_between_its_chunks_is_reported_as_partial_with_the_backup_l
 // @kotowari[EX-ssh-052]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_that_cannot_be_confirmed_after_the_cut_is_reported_as_unknown() {
-    let mut faults = cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
+    let mut faults = Faults::cut_agent("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
     faults.refuse_agent_after_cut = true;
     let fixture = AgentFixture::new(Setup::default(), faults).await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
@@ -549,7 +531,7 @@ async fn a_change_that_cannot_be_confirmed_after_the_cut_is_reported_as_unknown(
         "{result}"
     );
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
-    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().count("WriteFile"), 1);
     // つなぎ直そうとしたが、エージェントは起動しなかった
     let start_attempts = fixture
         .server
@@ -584,7 +566,7 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
         Some("WriteFile"),
         "{requests:?}"
     );
-    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().count("WriteFile"), 1);
     assert_eq!(fixture.server.faults().agent_starts(), 1);
 }
 
@@ -596,7 +578,7 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
 async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_that_file() {
     let fixture = AgentFixture::new(
         Setup::default(),
-        cut("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every),
+        Faults::cut_agent("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every),
     )
     .await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
@@ -619,7 +601,7 @@ async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_
         "{result}"
     );
     // まとめて読む処理は一度だけやり直し、1 ファイルずつ読み直さない
-    assert_eq!(count(&fixture, "ReadFiles"), 2);
+    assert_eq!(fixture.server.faults().count("ReadFiles"), 2);
     assert_eq!(fixture.server.faults().agent_starts(), 2);
     assert_eq!(fixture.read_remote("a.txt"), "remote old\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
@@ -648,7 +630,7 @@ async fn a_refused_permission_copy_reports_the_written_content_with_exit_code_2(
         "{result}"
     );
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
-    assert!(count(&fixture, "Chmod") > 0);
+    assert!(fixture.server.faults().count("Chmod") > 0);
 }
 
 // @kotowari[EX-merge-051]

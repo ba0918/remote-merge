@@ -5,7 +5,7 @@
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::{restrict_permissions, stdout_json};
-use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
+use super::server_faults::{CutPoint, Faults, Repeat};
 
 /// `failed` の一件目の error
 fn first_failure(output: &std::process::Output) -> String {
@@ -48,16 +48,7 @@ async fn req_compare_014_a_hunk_merge_read_failure_names_each_side_that_failed()
 // @kotowari[REQ-ssh-022, EX-ssh-050]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_ssh_022_a_hunk_write_confirmed_after_a_lost_reply_still_exits_with_2() {
-    let faults = Faults {
-        agent_cut: Some(AgentCut {
-            request: Some("WriteFile"),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat: Repeat::Once,
-        }),
-        ..Faults::default()
-    };
+    let faults = Faults::cut_agent("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
     let fixture = AgentFixture::new(Setup::default(), faults).await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
 
@@ -77,16 +68,7 @@ async fn req_ssh_022_a_hunk_write_confirmed_after_a_lost_reply_still_exits_with_
 // @kotowari[REQ-ssh-003, REQ-compare-014]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_ssh_003_a_hunk_merge_whose_destination_hash_is_lost_is_a_read_failure() {
-    let faults = Faults {
-        agent_cut: Some(AgentCut {
-            request: Some("HashContents"),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat: Repeat::Every,
-        }),
-        ..Faults::default()
-    };
+    let faults = Faults::cut_agent("HashContents", 1, CutPoint::BeforeResponse, Repeat::Every);
     let fixture = AgentFixture::new(Setup::default(), faults).await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
 
@@ -103,16 +85,7 @@ async fn req_ssh_003_a_hunk_merge_whose_destination_hash_is_lost_is_a_read_failu
 // @kotowari[REQ-ssh-003, REQ-compare-014]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_ssh_003_a_hunk_merge_whose_destination_read_is_lost_is_a_read_failure() {
-    let faults = Faults {
-        agent_cut: Some(AgentCut {
-            request: Some("ReadFiles"),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat: Repeat::Every,
-        }),
-        ..Faults::default()
-    };
+    let faults = Faults::cut_agent("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every);
     let fixture = AgentFixture::new(Setup::default(), faults).await;
     fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
 

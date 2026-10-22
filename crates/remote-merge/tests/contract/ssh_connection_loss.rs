@@ -4,19 +4,12 @@
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::stdout_json;
-use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
+use super::server_faults::{CutPoint, CutScope, Faults, Repeat};
 
+/// `request` の種類の要求の最初の一回（`repeat` が Every ならそれ以降も毎回）で、応答を返す前に
+/// エージェントとの間を切る
 fn agent_cut(request: &'static str, repeat: Repeat) -> Faults {
-    Faults {
-        agent_cut: Some(AgentCut {
-            request: Some(request),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat,
-        }),
-        ..Faults::default()
-    }
+    Faults::cut_agent(request, 1, CutPoint::BeforeResponse, repeat)
 }
 
 /// remote の `paths` の更新時刻を local と違う時刻にする。サイズが同じファイルを、更新時刻で
@@ -49,13 +42,7 @@ async fn a_scan_cut_once_is_scanned_again_after_restarting_the_agent_and_compare
         "{output:?}"
     );
     assert_eq!(fixture.server.faults().agent_starts(), 2);
-    let scans = fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "ListTree")
-        .count();
+    let scans = fixture.server.faults().count("ListTree");
     assert_eq!(scans, 2);
 }
 
@@ -74,13 +61,7 @@ async fn a_scan_cut_again_after_the_retry_stops_the_command_with_exit_code_2() {
     assert!(!result.to_string().contains("\"hunks\""), "{result}");
     // 一度だけやり直し、三度目は尋ねない
     assert_eq!(fixture.server.faults().agent_starts(), 2);
-    let scans = fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "ListTree")
-        .count();
+    let scans = fixture.server.faults().count("ListTree");
     assert_eq!(scans, 2);
 }
 
@@ -104,13 +85,7 @@ async fn an_agent_read_cut_once_restarts_the_agent_and_reads_again() {
     );
     assert!(!files.contains("same.txt"), "{files}");
     assert_eq!(fixture.server.faults().agent_starts(), 2);
-    let hashes = fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "HashContents")
-        .count();
+    let hashes = fixture.server.faults().count("HashContents");
     assert_eq!(hashes, 2);
 }
 
@@ -123,13 +98,7 @@ async fn an_agent_write_without_a_reply_is_not_written_again() {
     let output = fixture.run(&["merge", "example.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let writes = fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "WriteFile")
-        .count();
+    let writes = fixture.server.faults().count("WriteFile");
     assert_eq!(writes, 1);
 }
 

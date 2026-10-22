@@ -4,19 +4,11 @@
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::{set_mtime, stdout_json};
-use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
+use super::server_faults::{CutPoint, Faults, Repeat};
 
+/// `request` の種類の要求の最初の一回（`repeat` が Every ならそれ以降も毎回）に、読めない応答を返す
 fn garbled(request: &'static str, repeat: Repeat) -> Faults {
-    Faults {
-        agent_cut: Some(AgentCut {
-            request: Some(request),
-            occurrence: 1,
-            point: CutPoint::GarbledAnswer,
-            scope: CutScope::Agent,
-            repeat,
-        }),
-        ..Faults::default()
-    }
+    Faults::cut_agent(request, 1, CutPoint::GarbledAnswer, repeat)
 }
 
 /// remote の `path` の更新時刻を local と違う時刻にし、中身で比べさせる
@@ -26,13 +18,7 @@ fn with_remote_time_apart(fixture: &AgentFixture, path: &str) {
 }
 
 fn hash_requests(fixture: &AgentFixture) -> usize {
-    fixture
-        .server
-        .faults()
-        .agent_requests()
-        .into_iter()
-        .filter(|request| request == "HashContents")
-        .count()
+    fixture.server.faults().count("HashContents")
 }
 
 // @kotowari[REQ-ssh-003]

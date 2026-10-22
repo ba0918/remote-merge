@@ -8,19 +8,10 @@ use serde_json::Value;
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::stdout_json;
-use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
+use super::server_faults::{CutPoint, Faults, Repeat};
 
 fn checks_cut_every_time() -> Faults {
-    Faults {
-        agent_cut: Some(AgentCut {
-            request: Some("InspectPaths"),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat: Repeat::Every,
-        }),
-        ..Faults::default()
-    }
+    Faults::cut_agent("InspectPaths", 1, CutPoint::BeforeResponse, Repeat::Every)
 }
 
 async fn fixture() -> AgentFixture {

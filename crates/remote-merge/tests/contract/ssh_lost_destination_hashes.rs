@@ -8,20 +8,11 @@ use serde_json::Value;
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::stdout_json;
-use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
+use super::server_faults::{CutPoint, Faults, Repeat};
 
 /// 書き込み先の中身のハッシュの要求を毎回切る
 fn hashes_cut_every_time() -> Faults {
-    Faults {
-        agent_cut: Some(AgentCut {
-            request: Some("HashContents"),
-            occurrence: 1,
-            point: CutPoint::BeforeResponse,
-            scope: CutScope::Agent,
-            repeat: Repeat::Every,
-        }),
-        ..Faults::default()
-    }
+    Faults::cut_agent("HashContents", 1, CutPoint::BeforeResponse, Repeat::Every)
 }
 
 /// `failed` の中の `path` の error
