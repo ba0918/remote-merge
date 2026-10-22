@@ -6,6 +6,8 @@ use remote_merge_core::compare::{
     PairJudgement, PairVerdict, PathStates, Role, SideState, Uses, Verdict,
 };
 
+use super::merge::Kind;
+
 /// 判定が求めたハッシュのほかには何も使わない（status）
 pub struct NothingUsed;
 
@@ -21,11 +23,12 @@ impl Uses for NothingUsed {
     /// 参照先の印は、左右の両方にあり種類がそろうときだけ参照先との組を使う（docs/ir/cli/
     /// status-targets.md の TBL-cli-005。ほかは中身を読まずに印を決める）
     fn judges_reference(&self, states: &PathStates) -> bool {
-        let kind = |role: Role| match states.states.get(&role) {
-            Some(SideState::File { .. }) => Some(0),
-            Some(SideState::Directory) => Some(1),
-            Some(SideState::Symlink { .. }) => Some(2),
-            _ => None,
+        let kind = |role: Role| {
+            states
+                .states
+                .get(&role)
+                .map(Kind::of)
+                .filter(|kind| *kind != Kind::Other)
         };
         kind(Role::Left).is_some() && kind(Role::Left) == kind(Role::Right)
     }
@@ -71,23 +74,24 @@ impl Uses for DiffUses {
 
     /// 参照先との差と、参照先を読めないことは、左右が通常ファイルかないときだけ示す
     fn judges_reference(&self, states: &PathStates) -> bool {
-        [Role::Left, Role::Right]
-            .iter()
-            .all(|role| file_or_absent(states, *role))
+        sides_are_files_or_absent(states)
     }
 }
 
 /// 参照先との差を示す組か。参照先が通常ファイルで、左右がどちらも通常ファイルかない
 fn reference_is_compared(states: &PathStates) -> bool {
     let is_file = matches!(states.states.get(&Role::Ref), Some(SideState::File { .. }));
-    is_file && file_or_absent(states, Role::Left) && file_or_absent(states, Role::Right)
+    is_file && sides_are_files_or_absent(states)
 }
 
-fn file_or_absent(states: &PathStates, role: Role) -> bool {
-    matches!(
-        states.states.get(&role),
-        Some(SideState::File { .. } | SideState::Absent)
-    )
+/// 左右がどちらも通常ファイルか、ないか（diff が参照先との差と競合を示す組）
+pub(crate) fn sides_are_files_or_absent(states: &PathStates) -> bool {
+    [Role::Left, Role::Right].iter().all(|role| {
+        matches!(
+            states.states.get(role),
+            Some(SideState::File { .. } | SideState::Absent)
+        )
+    })
 }
 
 #[cfg(test)]

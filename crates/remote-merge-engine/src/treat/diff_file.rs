@@ -9,6 +9,7 @@ use remote_merge_core::sha256::hex_of_bytes;
 use super::content::{Prepared, View, empty_text};
 use super::diff::Change;
 use super::diff_hunks::shown_script;
+use super::uses::sides_are_files_or_absent;
 use crate::service::types::{DiffOutput, LinkTargets, SourceInfo};
 
 /// 項目に載せる左右と参照先の名前と root_dir
@@ -102,7 +103,7 @@ pub fn prepared_file(
                 .map(hex_of_bytes);
         }
     }
-    if reference.is_some() && !symlink && files_only(comparison) {
+    if reference.is_some() && !symlink && sides_are_files_or_absent(&comparison.states) {
         if let Ok(Prepared::Text(reference)) = &view.reference {
             if let Some((left, _)) = texts {
                 let shown = shown_script(PairScript::new(left, reference).display(), max_lines);
@@ -128,16 +129,6 @@ fn shown_reference<'a>(
     let states = &comparison.states;
     let collected = states.states.contains_key(&Role::Ref) && states.outside.is_empty();
     sources.reference.as_ref().filter(|_| collected)
-}
-
-/// 左右がどちらも通常ファイルか、ないか
-fn files_only(comparison: &PathComparison) -> bool {
-    [Role::Left, Role::Right].iter().all(|role| {
-        matches!(
-            comparison.states.states.get(role),
-            Some(SideState::File { .. } | SideState::Absent)
-        )
-    })
 }
 
 fn is_link(comparison: &PathComparison, role: Role) -> bool {
