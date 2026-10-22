@@ -133,8 +133,14 @@ impl<'a> Walk<'a> {
                 self.list_directory(&path, entry)?;
                 continue;
             }
-            let mut chain = ancestors.to_vec();
-            chain.extend(parent_ids(&entry.path, &dir_ids));
+            // 辿ってきたディレクトリの並びは、辿るかを決めるために待たせる symlink だけが使う
+            let chain = if matches!(entry.kind, RawKind::Symlink { .. }) {
+                let mut chain = ancestors.to_vec();
+                chain.extend(parent_ids(&entry.path, &dir_ids));
+                chain
+            } else {
+                Vec::new()
+            };
             if let Some(link) = self.take_leaf(&path, entry, chain, counter)? {
                 self.pending.push(link);
             }
