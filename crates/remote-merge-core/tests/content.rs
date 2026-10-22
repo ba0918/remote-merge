@@ -16,7 +16,10 @@ fn selected_changes_keep_destination_alias_bytes_and_full_terminators() {
     else {
         panic!()
     };
-    assert_eq!(left.line(0), right.line(0));
+    assert_eq!(
+        left.text().split_inclusive('\n').next(),
+        right.text().split_inclusive('\n').next()
+    );
     let script = PairScript::new(&left, &right);
     assert_eq!(
         script.apply(&HashSet::from([0]), HunkDirection::LeftToRight),
@@ -162,5 +165,5 @@ fn nul_boundary_and_bom_preserve_original_line_spans() {
     let Content::Text(empty) = interpret(b"", Interpretation::Unspecified).unwrap() else {
         panic!("text expected")
     };
-    assert_eq!(empty.line_count(), 0);
+    assert!(empty.text().is_empty());
 }

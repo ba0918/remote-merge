@@ -58,7 +58,6 @@ pub struct Text<'a> {
     encoding: Encoding,
     bom_len: usize,
     raw_lines: Vec<Range<usize>>,
-    text_lines: Vec<Range<usize>>,
 }
 
 impl Text<'_> {
@@ -76,12 +75,6 @@ impl Text<'_> {
     }
     pub fn raw_line(&self, index: usize) -> &[u8] {
         &self.raw[self.raw_lines[index].clone()]
-    }
-    pub fn line(&self, index: usize) -> &str {
-        &self.decoded[self.text_lines[index].clone()]
-    }
-    pub fn line_count(&self) -> usize {
-        self.raw_lines.len()
     }
 }
 
@@ -134,13 +127,11 @@ pub fn interpret(raw: &[u8], interpretation: Interpretation) -> Result<Content<'
         };
     };
     let raw_lines = line_ranges(raw, bom_len);
-    let text_lines = line_ranges(decoded.as_bytes(), 0);
     Ok(Content::Text(Text {
         raw,
         decoded,
         encoding,
         bom_len,
         raw_lines,
-        text_lines,
     }))
 }
