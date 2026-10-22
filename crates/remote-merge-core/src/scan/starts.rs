@@ -2,6 +2,7 @@
 //! どちらも root_dir からのパスで当てる（docs/ir/scan/limits.md の REQ-scan-019）。
 
 use super::outcome::{ScanScope, Start};
+use crate::relative_path::{is_within, normalized};
 
 /// `dirs` は指定したディレクトリ（None なら root_dir 全体）、`include` は確かめて残った include
 /// の値（None なら include の制限がない。空なら走査するものがない）
@@ -27,16 +28,16 @@ pub fn scope_for(dirs: Option<&[String]>, include: Option<&[String]>) -> ScanSco
 /// ディレクトリ `dir` の下を include の値で絞った起点。`dir` が値の下（か同じ）ならその下全体、
 /// そうでなければ `dir` がディレクトリかを確かめる起点と、`dir` の下にある値
 fn narrowed(dir: &str, group: usize, values: &[String]) -> Vec<Start> {
-    let dir_path = normalize(dir);
+    let dir_path = normalized(dir);
     if values
         .iter()
-        .any(|value| is_within(&dir_path, &normalize(value)))
+        .any(|value| covered_by(&dir_path, &normalized(value)))
     {
         return vec![Start::below(dir.to_string(), group)];
     }
     let inner = values
         .iter()
-        .filter(|value| is_within(&normalize(value), &dir_path))
+        .filter(|value| covered_by(&normalized(value), &dir_path))
         .map(|value| Start {
             path: value.clone(),
             with_self: true,
@@ -48,21 +49,9 @@ fn narrowed(dir: &str, group: usize, values: &[String]) -> Vec<Start> {
         .collect()
 }
 
-/// `path` が `outer` そのものか、その下にあるか（"/" の区切りの単位で）
-fn is_within(path: &str, outer: &str) -> bool {
-    outer.is_empty()
-        || path == outer
-        || path
-            .strip_prefix(outer)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-/// "." の要素と空の要素を除いたパス
-pub(crate) fn normalize(path: &str) -> String {
-    path.split('/')
-        .filter(|element| !element.is_empty() && *element != ".")
-        .collect::<Vec<_>>()
-        .join("/")
+/// `path` が `outer`（空なら root_dir 全体）そのものか、その下にあるか
+fn covered_by(path: &str, outer: &str) -> bool {
+    outer.is_empty() || is_within(path, outer)
 }
 
 #[cfg(test)]

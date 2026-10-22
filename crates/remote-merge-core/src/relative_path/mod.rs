@@ -82,6 +82,25 @@ impl RelPath {
     }
 }
 
+/// `path` が `base` の下にあるか（"/" の区切りの単位で比べ、`base` そのものは含まない）
+pub fn is_below(path: &str, base: &str) -> bool {
+    path.strip_prefix(base)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// `path` が `base` そのものか、その下にあるか（"/" の区切りの単位で比べる）
+pub fn is_within(path: &str, base: &str) -> bool {
+    path == base || is_below(path, base)
+}
+
+/// "." の要素と空の要素を除いたパス（root_dir 全体を指す値は空になる）
+pub fn normalized(path: &str) -> String {
+    path.split('/')
+        .filter(|element| !element.is_empty() && *element != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 mod entry;
 pub use entry::{EntryPath, entries_as_typed};
 

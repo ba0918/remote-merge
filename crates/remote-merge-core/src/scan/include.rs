@@ -3,6 +3,7 @@
 //! 読み込みで済んでいる（REQ-config-024・035・037）。
 
 use crate::path_resolution::{ResolveError, ResolvedPath};
+use crate::relative_path::is_within;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueDecision {
@@ -49,12 +50,7 @@ pub fn decide_value(
 
 /// 実パス `real_path` が root_dir の実パス `real_root` そのものか、その下にあるか
 pub fn is_inside(real_path: &str, real_root: &str) -> bool {
-    let root = real_root.trim_end_matches('/');
-    real_path == real_root
-        || real_path == root
-        || real_path
-            .strip_prefix(root)
-            .is_some_and(|rest| rest.starts_with('/'))
+    real_path == real_root || is_within(real_path, real_root.trim_end_matches('/'))
 }
 
 #[cfg(test)]

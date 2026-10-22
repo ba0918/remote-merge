@@ -118,3 +118,26 @@ fn a_checked_path_is_checked_again_with_the_same_result() {
     let path = parsed("src/");
     assert_eq!(RelPath::parse(path.as_str()).unwrap().as_str(), "src");
 }
+
+// "x" の下は "x/a" で、名前が "x" で始まるだけの "xy.txt" は下にない。そのものは下でなく、含まれる
+#[test]
+fn below_and_within_compare_whole_path_elements() {
+    assert!(is_below("x/a", "x"));
+    assert!(is_below("x/a/b", "x/a"));
+    assert!(!is_below("x", "x"));
+    assert!(!is_below("xy.txt", "x"));
+    assert!(!is_below("x", "x/a"));
+
+    assert!(is_within("x", "x"));
+    assert!(is_within("x/a", "x"));
+    assert!(!is_within("xy.txt", "x"));
+    assert!(!is_within("y", "x"));
+}
+
+#[test]
+fn normalized_drops_dot_and_empty_elements() {
+    assert_eq!(normalized("./a//b/./"), "a/b");
+    assert_eq!(normalized("a/b"), "a/b");
+    assert_eq!(normalized("./"), "");
+    assert_eq!(normalized(""), "");
+}

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 
 use super::exclude::Exclude;
 use super::outcome::Start;
+use crate::relative_path::normalized;
 
 /// 整えた起点
 pub(super) struct StartPath {
@@ -22,7 +23,7 @@ pub(super) fn start_paths(starts: &[Start], exclude: &Exclude) -> (bool, Vec<Sta
     let mut normal: Vec<StartPath> = starts
         .iter()
         .map(|start| StartPath {
-            path: super::starts::normalize(&start.path).into_bytes(),
+            path: normalized(&start.path).into_bytes(),
             with_self: start.with_self,
             descend: start.descend,
             group: start.group,

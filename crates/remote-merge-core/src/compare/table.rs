@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::SideState;
 use super::verdict::Role;
+use crate::relative_path::is_below;
 use crate::scan::outcome::Listing;
 
 /// 一つのパスの側ごとの状態
@@ -79,10 +80,4 @@ pub fn state_table<L: Borrow<Listing>>(
         }
     }
     table
-}
-
-/// `path` が `link` の下にあるか（"/" の区切りの単位で）
-fn is_below(path: &str, link: &str) -> bool {
-    path.strip_prefix(link)
-        .is_some_and(|rest| rest.starts_with('/'))
 }

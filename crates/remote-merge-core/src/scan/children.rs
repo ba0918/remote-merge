@@ -7,6 +7,7 @@ use super::exclude::Exclude;
 use super::outcome::{LinkPoint, ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 use super::raw::{Answer, Collector, Depth, LinkTarget, Question, RawKind};
 use super::walk::{PendingLink, Walk};
+use crate::relative_path::normalized;
 
 /// 子の一覧の結果
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ pub(super) fn scan_children(
     path: &str,
     max_entries: usize,
 ) -> Result<Listing, ScanError> {
-    let path = super::starts::normalize(path).into_bytes();
+    let path = normalized(path).into_bytes();
     let mut questions = vec![Question {
         path: Vec::new(),
         depth: if path.is_empty() {
@@ -91,7 +92,7 @@ fn take_directory(walk: &mut Walk, path: &[u8], answer: &Answer) -> Result<(), S
 /// 子の一覧の走査の一覧 `listing` の、`path` の直下の子。`path` がディレクトリかディレクトリへの
 /// リンクでなければ、ディレクトリではないもの。空の `path` は root_dir
 pub fn children_in(listing: &Listing, path: &str) -> ChildListing {
-    let path = super::starts::normalize(path);
+    let path = normalized(path);
     if !path.is_empty() {
         let container = listing.entries.iter().find(|entry| entry.path == path);
         let is_directory = matches!(
