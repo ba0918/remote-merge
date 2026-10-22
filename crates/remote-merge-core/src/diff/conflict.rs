@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use super::engine::{DiffResult, DiffTag, PairScript};
-use crate::content::{Content, Interpretation, Text, interpret};
+use crate::content::Text;
 
 /// コンフリクト領域（ref を基準に left/right 両方が変更した行範囲）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,18 +19,6 @@ pub struct ConflictRegion {
     pub left_lines: Vec<String>,
     /// right 側の変更内容（ref_range を置き換えた行群）
     pub right_lines: Vec<String>,
-    /// left の DiffLine 上での行範囲。JSON には出さない（REQ-cli-065）
-    #[serde(skip)]
-    pub left_diff_range: Option<Range<usize>>,
-    /// right の DiffLine 上での行範囲。JSON には出さない（REQ-cli-065）
-    #[serde(skip)]
-    pub right_diff_range: Option<Range<usize>>,
-    /// left ファイルの実際の行番号（0-based）。JSON には出さない（REQ-cli-065）
-    #[serde(skip)]
-    pub left_file_lines: BTreeSet<usize>,
-    /// right ファイルの実際の行番号（0-based）。JSON には出さない（REQ-cli-065）
-    #[serde(skip)]
-    pub right_file_lines: BTreeSet<usize>,
 }
 
 /// ファイル単位のコンフリクト情報
@@ -40,57 +28,26 @@ pub struct ConflictInfo {
 }
 
 impl ConflictInfo {
-    pub fn conflict_count(&self) -> usize {
-        self.regions.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.regions.is_empty()
     }
+}
 
-    /// 指定行が left 側のコンフリクト領域に含まれるか判定する。
-    /// O(regions) の線形スキャン。regions 数は通常少ないため問題ない。
-    pub fn is_left_line_conflicted(&self, line: usize) -> bool {
-        self.regions.iter().any(|r| {
-            r.left_diff_range
-                .as_ref()
-                .is_some_and(|range| range.contains(&line))
-        })
-    }
-
-    /// 指定行が right 側のコンフリクト領域に含まれるか判定する。
-    /// O(regions) の線形スキャン。regions 数は通常少ないため問題ない。
-    pub fn is_right_line_conflicted(&self, line: usize) -> bool {
-        self.regions.iter().any(|r| {
-            r.right_diff_range
-                .as_ref()
-                .is_some_and(|range| range.contains(&line))
-        })
-    }
-
-    /// left ファイルの実際の行番号がコンフリクト領域に含まれるか判定する。
-    /// left→right diff における old_index との照合に使用する。
-    pub fn is_left_file_line_in_conflict(&self, line: usize) -> bool {
-        self.regions
-            .iter()
-            .any(|r| r.left_file_lines.contains(&line))
-    }
-
-    /// right ファイルの実際の行番号がコンフリクト領域に含まれるか判定する。
-    /// left→right diff における new_index との照合に使用する。
-    pub fn is_right_file_line_in_conflict(&self, line: usize) -> bool {
-        self.regions
-            .iter()
-            .any(|r| r.right_file_lines.contains(&line))
-    }
+/// 重なった変更を結合する間の競合の領域。両側の変更に関わるファイルの行番号は、結合した後に
+/// 行の中身を引くのにだけ使う
+#[derive(Clone)]
+struct Overlap {
+    ref_range: Range<usize>,
+    /// left ファイルの実際の行番号（0-based）
+    left_file_lines: BTreeSet<usize>,
+    /// right ファイルの実際の行番号（0-based）
+    right_file_lines: BTreeSet<usize>,
 }
 
 /// ref 行ごとの変更情報
 struct ChangeInfo {
     /// 置き換え後の行群（Delete の場合は空）
     replacement: Vec<String>,
-    /// DiffLine 上でのインデックス範囲（Delete/Insert 行の範囲）
-    diff_line_range: Range<usize>,
     /// 消費した ref 行数（Delete 行数）。Insert-only の場合は 0。
     ref_line_count: usize,
     /// 変更に関わる実際のファイル行番号（new_index の集合）。
@@ -112,7 +69,6 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
     while i < lines.len() {
         let line = &lines[i];
         if line.tag == DiffTag::Delete {
-            let start_idx = i;
             let ref_start = line
                 .old_index
                 .expect("Delete の行は old_index を持つ（削除行には番号が付く）");
@@ -141,7 +97,6 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
                 ref_start,
                 ChangeInfo {
                     replacement,
-                    diff_line_range: start_idx..i,
                     ref_line_count: delete_count,
                     file_lines,
                 },
@@ -150,7 +105,6 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
         }
         // Insert のみ（ref 行の間への挿入）の場合
         if line.tag == DiffTag::Insert {
-            let start_idx = i;
             // 挿入位置 = 直前の ref 行の次（old_index がないので前の Equal/Delete から推定）
             let insert_at = lines[..i]
                 .iter()
@@ -175,7 +129,6 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
                 insert_at,
                 ChangeInfo {
                     replacement,
-                    diff_line_range: start_idx..i,
                     ref_line_count: 0,
                     file_lines,
                 },
@@ -188,31 +141,6 @@ fn extract_changes(diff: &DiffResult) -> BTreeMap<usize, ChangeInfo> {
 }
 
 /// ref を共通祖先として left/right のコンフリクトを検出する（純粋関数）
-pub fn detect_conflicts(
-    ref_content: Option<&str>,
-    left_content: &str,
-    right_content: &str,
-) -> ConflictInfo {
-    let ref_content = match ref_content {
-        Some(r) => r,
-        None => return ConflictInfo::default(),
-    };
-
-    let texts: Option<Vec<_>> = [ref_content, left_content, right_content]
-        .iter()
-        .map(
-            |value| match interpret(value.as_bytes(), Interpretation::Unspecified) {
-                Ok(Content::Text(text)) => Some(text),
-                Ok(Content::Binary) | Err(_) => None,
-            },
-        )
-        .collect();
-    let Some(texts) = texts else {
-        return ConflictInfo::default();
-    };
-    text_conflicts(&texts[0], &texts[1], &texts[2])
-}
-
 pub fn text_conflicts(reference: &Text<'_>, left: &Text<'_>, right: &Text<'_>) -> ConflictInfo {
     let ref_to_left = PairScript::new(reference, left);
     let ref_to_right = PairScript::new(reference, right);
@@ -230,7 +158,7 @@ pub fn text_conflicts(reference: &Text<'_>, left: &Text<'_>, right: &Text<'_>) -
         .map(|(&start, info)| (start, start + info.ref_line_count, info))
         .collect();
 
-    let mut regions = Vec::new();
+    let mut found = Vec::new();
 
     // 範囲の重複を検出（両方 BTreeMap なので既にソート済み）
     for &(l_start, l_end, l_info) in &left_ranges {
@@ -254,12 +182,8 @@ pub fn text_conflicts(reference: &Text<'_>, left: &Text<'_>, right: &Text<'_>) -
             if overlaps && l_info.replacement != r_info.replacement {
                 let ref_start = l_start.min(r_start);
                 let ref_end = l_end.max(r_end);
-                regions.push(ConflictRegion {
+                found.push(Overlap {
                     ref_range: ref_start..ref_end,
-                    left_lines: Vec::new(),
-                    right_lines: Vec::new(),
-                    left_diff_range: Some(l_info.diff_line_range.clone()),
-                    right_diff_range: Some(r_info.diff_line_range.clone()),
                     left_file_lines: l_info.file_lines.clone(),
                     right_file_lines: r_info.file_lines.clone(),
                 });
@@ -268,22 +192,26 @@ pub fn text_conflicts(reference: &Text<'_>, left: &Text<'_>, right: &Text<'_>) -
     }
 
     // 隣接するコンフリクト領域をマージ
-    merge_overlapping_regions(&mut regions);
+    merge_overlapping_regions(&mut found);
 
     let left_lines = replacement_lines_by_index(&left_changes);
     let right_lines = replacement_lines_by_index(&right_changes);
-    for region in &mut regions {
-        region.left_lines = region
-            .left_file_lines
-            .iter()
-            .map(|index| left_lines[index].trim_end_matches('\n').to_owned())
-            .collect();
-        region.right_lines = region
-            .right_file_lines
-            .iter()
-            .map(|index| right_lines[index].trim_end_matches('\n').to_owned())
-            .collect();
-    }
+    let regions = found
+        .into_iter()
+        .map(|overlap| ConflictRegion {
+            ref_range: overlap.ref_range,
+            left_lines: overlap
+                .left_file_lines
+                .iter()
+                .map(|index| left_lines[index].trim_end_matches('\n').to_owned())
+                .collect(),
+            right_lines: overlap
+                .right_file_lines
+                .iter()
+                .map(|index| right_lines[index].trim_end_matches('\n').to_owned())
+                .collect(),
+        })
+        .collect();
 
     ConflictInfo { regions }
 }
@@ -296,7 +224,7 @@ fn replacement_lines_by_index(changes: &BTreeMap<usize, ChangeInfo>) -> BTreeMap
 }
 
 /// 重複するコンフリクト領域を結合する（隣接のみの場合は結合しない）
-fn merge_overlapping_regions(regions: &mut Vec<ConflictRegion>) {
+fn merge_overlapping_regions(regions: &mut Vec<Overlap>) {
     if regions.len() <= 1 {
         return;
     }
@@ -310,9 +238,6 @@ fn merge_overlapping_regions(regions: &mut Vec<ConflictRegion>) {
         if region.ref_range.start < last.ref_range.end {
             // マージ
             last.ref_range.end = last.ref_range.end.max(region.ref_range.end);
-            // diff_range もマージ
-            last.left_diff_range = merge_ranges(&last.left_diff_range, &region.left_diff_range);
-            last.right_diff_range = merge_ranges(&last.right_diff_range, &region.right_diff_range);
             // file_lines もマージ
             last.left_file_lines
                 .extend(region.left_file_lines.iter().copied());
@@ -325,18 +250,22 @@ fn merge_overlapping_regions(regions: &mut Vec<ConflictRegion>) {
     *regions = merged;
 }
 
-fn merge_ranges(a: &Option<Range<usize>>, b: &Option<Range<usize>>) -> Option<Range<usize>> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(a.start.min(b.start)..a.end.max(b.end)),
-        (Some(a), None) => Some(a.clone()),
-        (None, Some(b)) => Some(b.clone()),
-        (None, None) => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::{Content, Interpretation, interpret};
+
+    fn text(content: &str) -> Text<'_> {
+        match interpret(content.as_bytes(), Interpretation::Unspecified) {
+            Ok(Content::Text(text)) => text,
+            Ok(Content::Binary) | Err(_) => panic!("{content:?} is text"),
+        }
+    }
+
+    /// `reference` を共通祖先とした `left` と `right` の競合
+    fn conflicts(reference: &str, left: &str, right: &str) -> ConflictInfo {
+        text_conflicts(&text(reference), &text(left), &text(right))
+    }
 
     #[test]
     fn one_replacement_overlapping_several_changes_is_reported_once_on_either_side() {
@@ -360,8 +289,8 @@ mod tests {
                 vec!["P", "P"],
             ),
         ] {
-            let info = detect_conflicts(Some("a\nb\nc\n"), left, right);
-            assert_eq!(info.conflict_count(), 1);
+            let info = conflicts("a\nb\nc\n", left, right);
+            assert_eq!(info.regions.len(), 1);
             let region = &info.regions[0];
             assert_eq!(region.ref_range, 0..3);
             assert_eq!(region.left_lines, expected_left, "{left:?} / {right:?}");
@@ -373,27 +302,27 @@ mod tests {
 
     #[test]
     fn changes_that_only_touch_do_not_conflict() {
-        assert!(detect_conflicts(Some("a\nb\n"), "X\nb\n", "a\nY\n").is_empty());
-        assert!(detect_conflicts(Some("a\nb\n"), "X\nb\n", "a\nY\nb\n").is_empty());
+        assert!(conflicts("a\nb\n", "X\nb\n", "a\nY\n").is_empty());
+        assert!(conflicts("a\nb\n", "X\nb\n", "a\nY\nb\n").is_empty());
     }
 
     #[test]
     fn test_basic_conflict() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        assert_eq!(info.conflict_count(), 1);
+        let info = conflicts("A\n", "B\n", "C\n");
+        assert_eq!(info.regions.len(), 1);
         assert_eq!(info.regions[0].left_lines, vec!["B"]);
         assert_eq!(info.regions[0].right_lines, vec!["C"]);
     }
 
     #[test]
     fn test_one_sided_change_no_conflict() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "A\n");
+        let info = conflicts("A\n", "B\n", "A\n");
         assert!(info.is_empty());
     }
 
     #[test]
     fn test_both_same_change_no_conflict() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "B\n");
+        let info = conflicts("A\n", "B\n", "B\n");
         assert!(info.is_empty());
     }
 
@@ -402,8 +331,8 @@ mod tests {
         let ref_c = "a\nb\nc\n";
         let left = "X\nY\nc\n";
         let right = "P\nQ\nc\n";
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
+        let info = conflicts(ref_c, left, right);
+        assert_eq!(info.regions.len(), 1);
         assert_eq!(info.regions[0].left_lines, vec!["X", "Y"]);
         assert_eq!(info.regions[0].right_lines, vec!["P", "Q"]);
         assert_eq!(info.regions[0].ref_range, 0..2);
@@ -414,8 +343,8 @@ mod tests {
         let ref_c = "a\nb\nc\nd\ne\n";
         let left = "X\nb\nc\nd\nY\n";
         let right = "P\nb\nc\nd\nQ\n";
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 2);
+        let info = conflicts(ref_c, left, right);
+        assert_eq!(info.regions.len(), 2);
         assert_eq!(info.regions[0].ref_range.start, 0);
         assert_eq!(info.regions[1].ref_range.start, 4);
     }
@@ -426,8 +355,8 @@ mod tests {
         let ref_c = "a\nb\nc\n";
         let left = "a\nc\n"; // b を削除
         let right = "a\nX\nc\n"; // b を X に変更
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
+        let info = conflicts(ref_c, left, right);
+        assert_eq!(info.regions.len(), 1);
         assert!(info.regions[0].left_lines.is_empty()); // 削除側は空
         assert_eq!(info.regions[0].right_lines, vec!["X"]);
     }
@@ -437,70 +366,25 @@ mod tests {
         let ref_c = "a\nb\nc\n";
         let left = "a\nc\n";
         let right = "a\nc\n";
-        let info = detect_conflicts(Some(ref_c), left, right);
+        let info = conflicts(ref_c, left, right);
         assert!(info.is_empty());
-    }
-
-    #[test]
-    fn test_no_ref_returns_empty() {
-        let info = detect_conflicts(None, "A\n", "B\n");
-        assert!(info.is_empty());
-        assert_eq!(info.conflict_count(), 0);
     }
 
     #[test]
     fn test_all_identical_no_conflicts() {
         let content = "hello\nworld\n";
-        let info = detect_conflicts(Some(content), content, content);
+        let info = conflicts(content, content, content);
         assert!(info.is_empty());
     }
 
     #[test]
     fn test_empty_files() {
-        let info = detect_conflicts(Some(""), "", "");
+        let info = conflicts("", "", "");
         assert!(info.is_empty());
 
-        let info2 = detect_conflicts(Some("a\n"), "", "");
+        let info2 = conflicts("a\n", "", "");
         // 両方が同じ行を削除 → 同じ変更なのでコンフリクトではない
         assert!(info2.is_empty());
-    }
-
-    #[test]
-    fn test_is_left_line_conflicted() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        assert!(!info.is_empty());
-        let range = info.regions[0].left_diff_range.as_ref().unwrap();
-        // 範囲内の行はコンフリクト
-        assert!(info.is_left_line_conflicted(range.start));
-        // 範囲外はコンフリクトではない
-        assert!(!info.is_left_line_conflicted(range.end + 10));
-    }
-
-    #[test]
-    fn test_is_right_line_conflicted() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        let range = info.regions[0].right_diff_range.as_ref().unwrap();
-        assert!(info.is_right_line_conflicted(range.start));
-        assert!(!info.is_right_line_conflicted(range.end + 10));
-    }
-
-    #[test]
-    fn test_is_line_conflicted_boundary() {
-        // exclusive end の境界テスト
-        let info = ConflictInfo {
-            regions: vec![ConflictRegion {
-                ref_range: 0..1,
-                left_lines: vec!["X".into()],
-                right_lines: vec!["Y".into()],
-                left_diff_range: Some(0..2),
-                right_diff_range: Some(0..2),
-                left_file_lines: BTreeSet::from([0]),
-                right_file_lines: BTreeSet::from([0]),
-            }],
-        };
-        assert!(info.is_left_line_conflicted(0));
-        assert!(info.is_left_line_conflicted(1));
-        assert!(!info.is_left_line_conflicted(2)); // exclusive end
     }
 
     #[test]
@@ -509,9 +393,9 @@ mod tests {
         let ref_c = "a\nc\n";
         let left = "a\nX\nc\n";
         let right = "a\nY\nc\n";
-        let info = detect_conflicts(Some(ref_c), left, right);
+        let info = conflicts(ref_c, left, right);
         // 挿入位置が同じで内容が異なる → コンフリクト
-        assert_eq!(info.conflict_count(), 1);
+        assert_eq!(info.regions.len(), 1);
         assert_eq!(info.regions[0].left_lines, vec!["X"]);
         assert_eq!(info.regions[0].right_lines, vec!["Y"]);
     }
@@ -519,8 +403,8 @@ mod tests {
     #[test]
     fn test_ref_empty_both_add_different() {
         // ref が空で両方が異なる内容を追加 → コンフリクト
-        let info = detect_conflicts(Some(""), "X\n", "Y\n");
-        assert_eq!(info.conflict_count(), 1);
+        let info = conflicts("", "X\n", "Y\n");
+        assert_eq!(info.regions.len(), 1);
     }
 
     #[test]
@@ -530,10 +414,6 @@ mod tests {
                 ref_range: 0..3,
                 left_lines: vec!["A".into(), "B".into()],
                 right_lines: vec!["C".into()],
-                left_diff_range: Some(0..2),
-                right_diff_range: Some(0..1),
-                left_file_lines: BTreeSet::from([0, 1]),
-                right_file_lines: BTreeSet::from([0]),
             }],
         };
         let json = serde_json::to_value(&info).unwrap();
@@ -562,83 +442,9 @@ mod tests {
         let ref_c = "a\nb\nc\n";
         let left = "X\nY\nc\n"; // a,b → X,Y (ref 0..2)
         let right = "a\nZ\nc\n"; // b → Z (ref 1..2)
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
+        let info = conflicts(ref_c, left, right);
+        assert_eq!(info.regions.len(), 1);
         // ref_range はオーバーラップの union
         assert_eq!(info.regions[0].ref_range, 0..2);
-    }
-
-    #[test]
-    fn test_left_file_lines_populated() {
-        // ref: "A\n", left: "B\n", right: "C\n"
-        // ref→left diff: Delete(A) Insert(B) → left file line 0 が変更
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        assert_eq!(info.conflict_count(), 1);
-        assert!(
-            info.regions[0].left_file_lines.contains(&0),
-            "left file line 0 should be in conflict"
-        );
-        assert!(
-            info.regions[0].right_file_lines.contains(&0),
-            "right file line 0 should be in conflict"
-        );
-    }
-
-    #[test]
-    fn test_is_left_file_line_in_conflict() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        assert!(info.is_left_file_line_in_conflict(0));
-        assert!(!info.is_left_file_line_in_conflict(1));
-    }
-
-    #[test]
-    fn test_is_right_file_line_in_conflict() {
-        let info = detect_conflicts(Some("A\n"), "B\n", "C\n");
-        assert!(info.is_right_file_line_in_conflict(0));
-        assert!(!info.is_right_file_line_in_conflict(1));
-    }
-
-    #[test]
-    fn test_file_lines_multi_line_conflict() {
-        let ref_c = "a\nb\nc\n";
-        let left = "X\nY\nc\n"; // left file lines 0,1
-        let right = "P\nQ\nc\n"; // right file lines 0,1
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
-        assert!(info.is_left_file_line_in_conflict(0));
-        assert!(info.is_left_file_line_in_conflict(1));
-        assert!(!info.is_left_file_line_in_conflict(2)); // "c" は変更なし
-        assert!(info.is_right_file_line_in_conflict(0));
-        assert!(info.is_right_file_line_in_conflict(1));
-        assert!(!info.is_right_file_line_in_conflict(2));
-    }
-
-    #[test]
-    fn test_file_lines_delete_vs_modify() {
-        // left は行を削除（file_lines 空）、right は行を変更
-        let ref_c = "a\nb\nc\n";
-        let left = "a\nc\n"; // b を削除 → left_file_lines は空
-        let right = "a\nX\nc\n"; // b → X → right file line 1
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
-        // left は削除なので file_lines は空
-        assert!(info.regions[0].left_file_lines.is_empty());
-        assert!(info.regions[0].right_file_lines.contains(&1));
-        // file line ベースの判定
-        assert!(!info.is_left_file_line_in_conflict(0));
-        assert!(!info.is_left_file_line_in_conflict(1));
-        assert!(info.is_right_file_line_in_conflict(1));
-    }
-
-    #[test]
-    fn test_file_lines_insert_conflict() {
-        // 両方が同じ位置に異なる行を挿入
-        let ref_c = "a\nc\n";
-        let left = "a\nX\nc\n"; // left file line 1
-        let right = "a\nY\nc\n"; // right file line 1
-        let info = detect_conflicts(Some(ref_c), left, right);
-        assert_eq!(info.conflict_count(), 1);
-        assert!(info.is_left_file_line_in_conflict(1));
-        assert!(info.is_right_file_line_in_conflict(1));
     }
 }

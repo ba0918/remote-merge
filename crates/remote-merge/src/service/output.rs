@@ -1931,10 +1931,6 @@ mod tests {
                 ref_range: 10..15,
                 left_lines: vec!["changed left".into()],
                 right_lines: vec!["changed right".into()],
-                left_diff_range: None,
-                right_diff_range: None,
-                left_file_lines: Default::default(),
-                right_file_lines: Default::default(),
             })],
         };
         let json = format_json(&output).unwrap();

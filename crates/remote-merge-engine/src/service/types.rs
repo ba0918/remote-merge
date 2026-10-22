@@ -964,10 +964,6 @@ mod tests {
                 ref_range: 0..1,
                 left_lines: vec!["B".into()],
                 right_lines: vec!["C".into()],
-                left_diff_range: Some(0..1),
-                right_diff_range: Some(0..1),
-                left_file_lines: Default::default(),
-                right_file_lines: Default::default(),
             })],
         };
         let json = serde_json::to_string(&output).unwrap();

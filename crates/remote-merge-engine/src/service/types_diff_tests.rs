@@ -22,10 +22,6 @@ fn a_line_conflict_keeps_the_fields_of_the_region() {
         ref_range: 1..2,
         left_lines: vec!["l".into()],
         right_lines: vec!["r".into()],
-        left_diff_range: None,
-        right_diff_range: None,
-        left_file_lines: Default::default(),
-        right_file_lines: Default::default(),
     };
 
     let value = serde_json::to_value(ConflictArea::Lines(region.clone())).unwrap();
