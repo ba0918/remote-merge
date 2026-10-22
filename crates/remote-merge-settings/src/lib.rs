@@ -124,4 +124,88 @@ mod tests {
             PathBuf::from("relative/path")
         );
     }
+
+    // ── ServerConfig の Debug はパスワードを隠す ──
+
+    #[test]
+    fn test_server_config_debug_masks_password() {
+        let config = ServerConfig {
+            host: "example.com".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Password,
+            password: Some("super_secret_password".into()),
+            key: None,
+            root_dir: PathBuf::from("/var/www"),
+            ssh_options: None,
+            sudo: false,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // パスワードが漏洩しないことを確認
+        assert!(
+            !debug_str.contains("super_secret_password"),
+            "Debug 出力にパスワードが含まれている: {debug_str}"
+        );
+        // REDACTED が表示されることを確認
+        assert!(
+            debug_str.contains("REDACTED"),
+            "Debug 出力に REDACTED が含まれていない: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn test_server_config_debug_none_password() {
+        let config = ServerConfig {
+            host: "example.com".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Key,
+            password: None,
+            key: None,
+            root_dir: PathBuf::from("/var/www"),
+            ssh_options: None,
+            sudo: false,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // password が None の場合は None と表示される
+        assert!(
+            debug_str.contains("password: None"),
+            "password: None が表示されていない: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn test_server_config_debug_other_fields_visible() {
+        let config = ServerConfig {
+            host: "my.server.com".into(),
+            port: 2222,
+            user: "myuser".into(),
+            auth: AuthMethod::Key,
+            password: None,
+            key: None,
+            root_dir: PathBuf::from("/opt/app"),
+            ssh_options: None,
+            sudo: true,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // 他フィールドは正常に表示される
+        assert!(
+            debug_str.contains("my.server.com"),
+            "host が表示されていない: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("2222"),
+            "port が表示されていない: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("myuser"),
+            "user が表示されていない: {debug_str}"
+        );
+    }
 }
