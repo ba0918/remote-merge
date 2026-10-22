@@ -43,7 +43,7 @@ impl Dispatcher {
 
     /// 要求に答え、応答を一つずつ `send` に渡す。中身の読み込みは応答を作るたびに渡す。Shutdown なら
     /// false
-    pub fn dispatch_into(
+    pub(crate) fn dispatch_into(
         &mut self,
         request: AgentRequest,
         send: &mut dyn FnMut(AgentResponse) -> anyhow::Result<()>,
