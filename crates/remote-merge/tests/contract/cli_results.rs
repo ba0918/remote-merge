@@ -643,10 +643,10 @@ fn selected_hunk_with_three_way_conflict_does_not_overwrite_the_target() {
         fixture.config,
         fixture.targets,
     );
-    assert!(
-        result.is_err() || result.as_ref().is_ok_and(|out| out.exit_code != 0),
-        "conflicting hunk must fail"
-    );
+    let Err(error) = result else {
+        panic!("conflicting hunk must fail")
+    };
+    assert_eq!(format!("{error:#}"), "three-way conflict: file.txt");
     assert_eq!(
         fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
         "right change\n"
@@ -821,6 +821,14 @@ fn remote_to_remote_merge_requires_an_explicit_override() {
     )
     .unwrap();
     assert_ne!(result.exit_code, 0);
+    let MergeCommandOutput::Outcome(remote_merge::service::types::MergeOutcome::R2rBlocked {
+        left,
+        right,
+    }) = &result.output
+    else {
+        panic!("expected the remote-to-remote merge to be blocked")
+    };
+    assert_eq!((left.as_str(), right.as_str()), ("first", "second"));
     assert_eq!(
         fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
         "first old\n"

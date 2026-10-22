@@ -42,16 +42,23 @@ fn ex_config_073_content_defaults_leave_connection_settings_unchanged() {
 // @kotowari[REQ-config-046, REQ-config-039, EX-config-074]
 #[test]
 fn ex_config_074_unknown_codec_side_and_content_keys_are_configuration_errors() {
-    for content in [
-        "[content.defaults]\nlocal='utf-16'\n",
-        "[content.defaults]\nunknown='utf-8'\n",
-        "[content]\nunknown=true\n",
-        "[[content.rules]]\nside='local'\npath='*'\nencoding='euc-jp'\nunknown=true\n",
+    // 誤りは、知らない文字コードか側かキーの名前を示す
+    for (content, named) in [
+        ("[content.defaults]\nlocal='utf-16'\n", "utf-16"),
+        ("[content.defaults]\nunknown='utf-8'\n", "unknown"),
+        ("[content]\nunknown=true\n", "unknown"),
+        (
+            "[[content.rules]]\nside='local'\npath='*'\nencoding='euc-jp'\nunknown=true\n",
+            "unknown",
+        ),
     ] {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("config.toml");
         std::fs::write(&file, format!("[local]\nroot_dir='.'\n{content}")).unwrap();
-        assert!(load_config_from_paths(Some(&file), None).is_err());
+        let error = load_config_from_paths(Some(&file), None)
+            .map(|_| ())
+            .expect_err(content);
+        assert!(error.to_string().contains(named), "{content}: {error}");
     }
 }
 

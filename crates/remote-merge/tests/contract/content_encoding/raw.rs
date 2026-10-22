@@ -8,9 +8,21 @@ use tempfile::TempDir;
 fn invalid_hunk_interpretation_never_reserves_or_cleans_backups_even_with_force() {
     use remote_merge::cli::merge::execute_merge;
     use remote_merge_core::content::{Encoding, Interpretation};
-    for (source, left_codec, right_codec) in [
-        (b"\xa4".as_slice(), Encoding::EucJp, Encoding::EucJp),
-        (b"valid\n".as_slice(), Encoding::Utf8, Encoding::EucJp),
+    // 読み込み元の中身を指定の文字コードで読めないものと、左右の文字コードが違うもの。どちらの誤りも
+    // パス "a" と、読めなかった文字コードか文字コードの違いを示す
+    for (source, left_codec, right_codec, named) in [
+        (
+            b"\xa4".as_slice(),
+            Encoding::EucJp,
+            Encoding::EucJp,
+            "euc-jp",
+        ),
+        (
+            b"valid\n".as_slice(),
+            Encoding::Utf8,
+            Encoding::EucJp,
+            "encoding",
+        ),
     ] {
         for dry_run in [false, true] {
             let local = TempDir::new().unwrap();
@@ -39,7 +51,11 @@ fn invalid_hunk_interpretation_never_reserves_or_cleans_backups_even_with_force(
             args.dry_run = dry_run;
             args.encodings.left = Some(Interpretation::Text(left_codec));
             args.encodings.right = Some(Interpretation::Text(right_codec));
-            assert!(execute_merge(args, config, targets(&remote, &backup)).is_err());
+            let error = execute_merge(args, config, targets(&remote, &backup))
+                .map(|result| result.exit_code)
+                .expect_err("the hunk merge went on with an invalid interpretation");
+            let error = format!("{error:#}");
+            assert!(error.starts_with("a: ") && error.contains(named), "{error}");
             assert_eq!(
                 super::super::backup_support::store_entries(backup.path()),
                 before

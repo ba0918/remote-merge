@@ -78,11 +78,9 @@ fn req_cli_057_every_path_missing_is_an_error_in_text() {
     let stderr = stderr(&output);
     assert!(stderr.contains(&warning("missing.txt")), "{output:?}");
     assert!(stderr.contains(&warning("gone.txt")), "{output:?}");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(NOT_FOUND) || stderr.contains(NOT_FOUND),
-        "{output:?}"
-    );
+    // テキストの出力では、エラーは標準エラーに出る
+    assert!(stderr.contains(NOT_FOUND), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 

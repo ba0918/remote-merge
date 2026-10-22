@@ -92,8 +92,15 @@ fn merge_and_sync_stop_before_writing_when_the_store_cannot_be_created() {
         unusable_store_targets(&develop, &store_parent),
     );
 
-    assert!(merge.is_err(), "merge must stop as a whole");
-    assert!(sync.is_err(), "sync must stop as a whole");
+    // どちらも、ふさがれた集約先の場所を理由に全体を止める
+    let unusable = store_parent.path().join("not-a-directory");
+    for (command, result) in [("merge", merge.err()), ("sync", sync.err())] {
+        let error = result.unwrap_or_else(|| panic!("{command} must stop as a whole"));
+        assert!(
+            format!("{error:#}").contains(&unusable.display().to_string()),
+            "{command}: {error:#}"
+        );
+    }
     assert_eq!(
         fs::read_to_string(develop.path().join("file.txt")).unwrap(),
         "old\n"
