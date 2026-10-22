@@ -73,7 +73,7 @@ impl CoreRuntime {
         let read_back = self
             .backup_store
             .read_record(&self.config, target, &saved, path);
-        let before = match super::restore_saved::before_from_saved(Some(read_back)) {
+        let before = match super::restore_saved::before_from_saved(read_back) {
             Ok(before) => before.unwrap_or(Before::Unknown),
             Err(error) => return RestoreOutcome::Failed(format!("{error:#}")),
         };
