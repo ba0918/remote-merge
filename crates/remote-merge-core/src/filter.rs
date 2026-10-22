@@ -262,7 +262,7 @@ mod tests {
         assert!(!is_path_excluded("../secret/key.pem", &patterns));
     }
 
-    // ── report.rs から移設した既存テスト ──
+    // ── is_path_excluded: "**" を含むパスパターン ──
 
     #[test]
     fn test_double_star_rs_pattern() {
@@ -477,8 +477,4 @@ mod tests {
             assert_eq!(warnings.len(), warning_count, "{input:?}: {warnings:?}");
         }
     }
-
-    // ── filter_tree_by_include ──
-
-    // ── filter_children_by_include ──
 }

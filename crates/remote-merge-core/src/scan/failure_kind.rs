@@ -1,4 +1,4 @@
-//! 走査の誤りを、操作の失敗の八つの種類（docs/ir/paths/operations.md の REQ-paths-020）にする。
+//! 走査の誤りを、操作の失敗の七つの種類（docs/ir/paths/operations.md の REQ-paths-020）にする。
 //! 比べる流れが変更の直前に集め直した状態の失敗を、種類のまま判定に渡すのに使う
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
