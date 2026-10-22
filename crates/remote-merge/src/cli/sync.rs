@@ -7,7 +7,7 @@
 use std::io::BufRead;
 
 use remote_merge_engine::treat::sides::sync_sides;
-use remote_merge_engine::treat::sync::exit_code;
+use remote_merge_engine::treat::sync::{exit_code, sync_summary};
 
 use super::sync_plan::{TargetPlan, plan_targets};
 use super::sync_targets::sync_targets;
@@ -15,9 +15,7 @@ use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{OutputFormat, format_json, format_sync_text};
 use crate::service::path_resolver::parse_path_arguments;
-use crate::service::types::{
-    SourceInfo, SyncOutput, SyncSummary, SyncTargetStatus, exit_code as codes,
-};
+use crate::service::types::{SourceInfo, SyncOutput, SyncTargetStatus, exit_code as codes};
 use remote_merge_core::relative_path::RelPath;
 
 /// sync サブコマンドの引数
@@ -107,16 +105,7 @@ pub fn execute_sync(
         let no_files = plans.iter().all(TargetPlan::is_empty);
         let results = sync_targets(&mut core, &args, plans)?;
         let statuses: Vec<SyncTargetStatus> = results.iter().map(|target| target.status).collect();
-        let summary = SyncSummary {
-            total_servers: results.len(),
-            successful_servers: statuses
-                .iter()
-                .filter(|status| **status == SyncTargetStatus::Success)
-                .count(),
-            total_files_merged: results.iter().map(|target| target.merged.len()).sum(),
-            total_files_deleted: results.iter().map(|target| target.deleted.len()).sum(),
-            total_files_failed: results.iter().map(|target| target.failed.len()).sum(),
-        };
+        let summary = sync_summary(&results);
         Ok(SyncCommandResult {
             output: SyncCommandOutput::Result(SyncOutput {
                 left: core.source_info(&source),

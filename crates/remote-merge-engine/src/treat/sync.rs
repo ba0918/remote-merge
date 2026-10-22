@@ -4,7 +4,7 @@
 use super::merge::{MergeEntry, SkipReason};
 use super::merge_plan::skip_reasons;
 use super::merge_result::TargetLists;
-use crate::service::types::{SyncTargetStatus, exit_code as codes};
+use crate::service::types::{SyncSummary, SyncTargetResult, SyncTargetStatus, exit_code as codes};
 
 /// 扱いの並びに、書く予定も消す予定も失敗もないか（REQ-cli-072 の "No files to sync."）。種類の違いの
 /// スキップは失敗に数える（TBL-cli-007）ので、空としない
@@ -43,6 +43,20 @@ pub fn status_of_target(
         || stopped
         || skip_reasons(plan).iter().any(SkipReason::counts_as_failure);
     target_status(changed, failed)
+}
+
+/// 書き込み先ごとの結果の集計（REQ-cli-042）
+pub fn sync_summary(results: &[SyncTargetResult]) -> SyncSummary {
+    SyncSummary {
+        total_servers: results.len(),
+        successful_servers: results
+            .iter()
+            .filter(|target| target.status == SyncTargetStatus::Success)
+            .count(),
+        total_files_merged: results.iter().map(|target| target.merged.len()).sum(),
+        total_files_deleted: results.iter().map(|target| target.deleted.len()).sum(),
+        total_files_failed: results.iter().map(|target| target.failed.len()).sum(),
+    }
 }
 
 /// すべての書き込み先が "success" なら 0、そうでなければ 2

@@ -118,3 +118,42 @@ fn a_target_status_counts_late_failures_as_changes_and_kind_mismatches_and_stops
         Success
     );
 }
+
+// 書き込み先の数と success の数、merged・deleted・failed の件数の合計を出す
+// @kotowari[REQ-cli-042]
+#[test]
+fn the_summary_counts_the_targets_and_adds_up_their_files() {
+    let target = |lists: TargetLists, status: SyncTargetStatus| SyncTargetResult {
+        target: crate::service::types::SourceInfo {
+            label: "t".to_string(),
+            root: "/r".to_string(),
+        },
+        merged: lists.merged,
+        skipped: Vec::new(),
+        deleted: vec![crate::service::types::DeleteFileResult {
+            path: "gone".to_string(),
+            status: crate::service::types::DeleteStatus::Ok,
+            backup: None,
+        }],
+        failed: lists.failed,
+        status,
+    };
+    let results = [
+        target(lists(true, false, false), SyncTargetStatus::Success),
+        target(lists(true, true, false), SyncTargetStatus::Partial),
+        target(lists(false, true, false), SyncTargetStatus::Failed),
+    ];
+
+    let summary = sync_summary(&results);
+
+    assert_eq!(
+        (
+            summary.total_servers,
+            summary.successful_servers,
+            summary.total_files_merged,
+            summary.total_files_deleted,
+            summary.total_files_failed
+        ),
+        (3, 1, 2, 3, 2)
+    );
+}
