@@ -31,6 +31,44 @@ fn plain_diff(path: &str) -> DiffOutput {
     }
 }
 
+/// 結果のない merge の出力
+fn empty_merge() -> MergeOutput {
+    MergeOutput {
+        merged: vec![],
+        skipped: vec![],
+        deleted: vec![],
+        failed: vec![],
+        ref_: None,
+    }
+}
+
+/// 書き込み先 `label`（root_dir は /app）の、結果のない success の sync の結果
+fn empty_target(label: &str) -> SyncTargetResult {
+    SyncTargetResult {
+        target: SourceInfo {
+            label: label.into(),
+            root: "/app".into(),
+        },
+        merged: vec![],
+        skipped: vec![],
+        deleted: vec![],
+        failed: vec![],
+        status: SyncTargetStatus::Success,
+    }
+}
+
+/// local（root_dir は /app）から `targets` への sync の出力
+fn sync_from_local(targets: Vec<SyncTargetResult>, summary: SyncSummary) -> SyncOutput {
+    SyncOutput {
+        left: SourceInfo {
+            label: "local".into(),
+            root: "/app".into(),
+        },
+        targets,
+        summary,
+    }
+}
+
 fn sample_status() -> StatusOutput {
     StatusOutput {
         left: SourceInfo {
@@ -182,16 +220,13 @@ fn test_format_merge_text() {
             path: "a.rs".into(),
             status: "ok".into(),
             backup: Some("a.rs.bak".into()),
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
         skipped: vec![MergeSkipped {
             path: "kind.txt".into(),
             reason: "source and destination have different file types".into(),
         }],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Merged: a.rs (backup: a.rs.bak)"));
@@ -385,14 +420,9 @@ fn test_format_merge_text_dry_run_prefix() {
         merged: vec![MergeFileResult {
             path: "a.rs".into(),
             status: "would merge".into(),
-            backup: None,
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Would merge: a.rs"));
@@ -405,17 +435,14 @@ fn test_format_merge_text_dry_run_with_ref_badge() {
         merged: vec![MergeFileResult {
             path: "a.rs".into(),
             status: "would merge".into(),
-            backup: None,
             ref_badge: Some("differs".into()),
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
         ref_: Some(SourceInfo {
             label: "staging".into(),
             root: "/s".into(),
         }),
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Would merge: a.rs [ref≠]"));
@@ -427,17 +454,14 @@ fn test_format_merge_text_with_ref_badge() {
         merged: vec![MergeFileResult {
             path: "a.rs".into(),
             status: "ok".into(),
-            backup: None,
             ref_badge: Some("differs".into()),
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
         ref_: Some(SourceInfo {
             label: "staging".into(),
             root: "/s".into(),
         }),
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Merged: a.rs [ref≠]"));
@@ -456,10 +480,7 @@ fn test_format_merge_text_hunk_merge_info() {
             }),
             ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(
@@ -476,14 +497,9 @@ fn test_format_merge_text_no_hunk_info_for_normal_merge() {
         merged: vec![MergeFileResult {
             path: "bar.rs".into(),
             status: "ok".into(),
-            backup: None,
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(
@@ -1000,13 +1016,9 @@ fn test_format_merge_text_actual_backup_path() {
             path: "src/main.rs".into(),
             status: "ok".into(),
             backup: Some("/var/backups/main.rs.20260311.bak".into()),
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Merged: src/main.rs (backup: /var/backups/main.rs.20260311.bak)"));
@@ -1020,14 +1032,9 @@ fn test_format_merge_text_dryrun_no_backup() {
         merged: vec![MergeFileResult {
             path: "src/lib.rs".into(),
             status: "would merge".into(),
-            backup: None,
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Would merge: src/lib.rs"));
@@ -1042,18 +1049,14 @@ fn test_format_merge_text_with_deleted() {
         merged: vec![MergeFileResult {
             path: "updated.rs".into(),
             status: "ok".into(),
-            backup: None,
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
         deleted: vec![DeleteFileResult {
             path: "old-file.txt".into(),
             status: DeleteStatus::Ok,
             backup: Some("session123/old-file.txt".into()),
         }],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(
@@ -1067,15 +1070,12 @@ fn test_format_merge_text_with_deleted() {
 #[test]
 fn test_format_merge_text_deleted_no_backup() {
     let output = MergeOutput {
-        merged: vec![],
-        skipped: vec![],
         deleted: vec![DeleteFileResult {
             path: "remove-me.txt".into(),
             status: DeleteStatus::Ok,
             backup: None,
         }],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(text.contains("Deleted: remove-me.txt"), "text: {}", text);
@@ -1089,14 +1089,9 @@ fn test_format_merge_text_no_deleted_field_when_empty() {
         merged: vec![MergeFileResult {
             path: "a.rs".into(),
             status: "ok".into(),
-            backup: None,
-            ref_badge: None,
-            hunk_info: None,
+            ..Default::default()
         }],
-        skipped: vec![],
-        deleted: vec![],
-        failed: vec![],
-        ref_: None,
+        ..empty_merge()
     };
     let text = format_merge_text(&output);
     assert!(!text.contains("Deleted"));
@@ -1107,36 +1102,23 @@ fn test_format_merge_text_no_deleted_field_when_empty() {
 
 #[test]
 fn format_sync_text_basic() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".into(),
-                root: "/app".into(),
-            },
+    let output = sync_from_local(
+        vec![SyncTargetResult {
             merged: vec![MergeFileResult {
                 path: "a.txt".into(),
                 status: "ok".into(),
-                backup: None,
-                ref_badge: None,
-                hunk_info: None,
+                ..Default::default()
             }],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
+            ..empty_target("server1")
         }],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 1,
             successful_servers: 1,
             total_files_merged: 1,
             total_files_deleted: 0,
             total_files_failed: 0,
         },
-    };
+    );
     let text = format_sync_text(&output);
     assert!(text.contains("Sync: local \u{2192} server1"));
     assert!(text.contains("[server1] success"));
@@ -1147,34 +1129,23 @@ fn format_sync_text_basic() {
 
 #[test]
 fn format_sync_text_with_delete() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".into(),
-                root: "/app".into(),
-            },
-            merged: vec![],
-            skipped: vec![],
+    let output = sync_from_local(
+        vec![SyncTargetResult {
             deleted: vec![DeleteFileResult {
                 path: "old.txt".into(),
                 status: DeleteStatus::Ok,
                 backup: Some("session123/old.txt".into()),
             }],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
+            ..empty_target("server1")
         }],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 1,
             successful_servers: 1,
             total_files_merged: 0,
             total_files_deleted: 1,
             total_files_failed: 0,
         },
-    };
+    );
     let text = format_sync_text(&output);
     assert!(text.contains("deleted"));
     assert!(text.contains("backup: session123/old.txt"));
@@ -1183,52 +1154,33 @@ fn format_sync_text_with_delete() {
 
 #[test]
 fn format_sync_text_multiple_servers() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![
+    let output = sync_from_local(
+        vec![
             SyncTargetResult {
-                target: SourceInfo {
-                    label: "server1".into(),
-                    root: "/app".into(),
-                },
                 merged: vec![MergeFileResult {
                     path: "a.txt".into(),
                     status: "ok".into(),
-                    backup: None,
-                    ref_badge: None,
-                    hunk_info: None,
+                    ..Default::default()
                 }],
-                skipped: vec![],
-                deleted: vec![],
-                failed: vec![],
-                status: SyncTargetStatus::Success,
+                ..empty_target("server1")
             },
             SyncTargetResult {
-                target: SourceInfo {
-                    label: "server2".into(),
-                    root: "/app".into(),
-                },
-                merged: vec![],
-                skipped: vec![],
-                deleted: vec![],
                 failed: vec![MergeFailure {
                     path: "b.txt".into(),
                     error: "connection lost".into(),
                 }],
                 status: SyncTargetStatus::Failed,
+                ..empty_target("server2")
             },
         ],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 2,
             successful_servers: 1,
             total_files_merged: 1,
             total_files_deleted: 0,
             total_files_failed: 1,
         },
-    };
+    );
     let text = format_sync_text(&output);
     assert!(text.contains("Sync: local \u{2192} server1, server2"));
     assert!(text.contains("[server1] success"));
@@ -1239,33 +1191,22 @@ fn format_sync_text_multiple_servers() {
 
 #[test]
 fn format_sync_text_with_skipped() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".into(),
-                root: "/app".into(),
-            },
-            merged: vec![],
+    let output = sync_from_local(
+        vec![SyncTargetResult {
             skipped: vec![MergeSkipped {
                 path: "kind.txt".into(),
                 reason: "source and destination have different file types".into(),
             }],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
+            ..empty_target("server1")
         }],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 1,
             successful_servers: 1,
             total_files_merged: 0,
             total_files_deleted: 0,
             total_files_failed: 0,
         },
-    };
+    );
     let text = format_sync_text(&output);
     assert!(text.contains("skip"));
     assert!(text.contains("kind.txt"));
@@ -1274,45 +1215,30 @@ fn format_sync_text_with_skipped() {
 
 #[test]
 fn format_sync_text_dry_run() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".into(),
-                root: "/app".into(),
-            },
+    let output = sync_from_local(
+        vec![SyncTargetResult {
             merged: vec![
                 MergeFileResult {
                     path: "src/config.ts".into(),
                     status: "would merge".into(),
-                    backup: None,
-                    ref_badge: None,
-                    hunk_info: None,
+                    ..Default::default()
                 },
                 MergeFileResult {
                     path: "src/index.ts".into(),
                     status: "would merge".into(),
-                    backup: None,
-                    ref_badge: None,
-                    hunk_info: None,
+                    ..Default::default()
                 },
             ],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
+            ..empty_target("server1")
         }],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 1,
             successful_servers: 1,
             total_files_merged: 2,
             total_files_deleted: 0,
             total_files_failed: 0,
         },
-    };
+    );
     let text = format_sync_text(&output);
     // dry-run ではバッジが "plan" になる
     assert!(text.contains("plan"));
@@ -1322,36 +1248,24 @@ fn format_sync_text_dry_run() {
 
 #[test]
 fn format_sync_text_with_backup() {
-    let output = SyncOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: "/app".into(),
-        },
-        targets: vec![SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".into(),
-                root: "/app".into(),
-            },
+    let output = sync_from_local(
+        vec![SyncTargetResult {
             merged: vec![MergeFileResult {
                 path: "a.txt".into(),
                 status: "ok".into(),
                 backup: Some("20260311-120000/a.txt".into()),
-                ref_badge: None,
-                hunk_info: None,
+                ..Default::default()
             }],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
+            ..empty_target("server1")
         }],
-        summary: SyncSummary {
+        SyncSummary {
             total_servers: 1,
             successful_servers: 1,
             total_files_merged: 1,
             total_files_deleted: 0,
             total_files_failed: 0,
         },
-    };
+    );
     let text = format_sync_text(&output);
     assert!(text.contains("backup: 20260311-120000/a.txt"));
 }
