@@ -169,7 +169,7 @@ fn directory_merge_without_checksum_writes_only_files_the_metadata_and_contents_
     assert_quick_check_left_unwritten(&fixture, same_bytes_time);
 }
 
-// @kotowari[REQ-merge-020]
+// @kotowari[REQ-merge-020, REQ-merge-006]
 #[test]
 fn directory_sync_without_checksum_writes_only_files_the_metadata_and_contents_show_as_changed() {
     let fixture = fixture();

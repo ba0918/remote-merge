@@ -81,13 +81,10 @@ fn assert_nothing_written(result: &serde_json::Value) {
     assert!(paths_of(&result["deleted"]).is_empty(), "{result}");
 }
 
-/// 組の "linked" が skipped に出ず、"linked/file.txt" だけが merged に出ることを確かめる
+/// 何も skipped に出ず、"linked/file.txt" だけが merged に出ることを確かめる
 fn assert_children_merged(result: &serde_json::Value) {
     assert_eq!(paths_of(&result["merged"]), ["linked/file.txt"], "{result}");
-    assert!(
-        !paths_of(&result["skipped"]).contains(&"linked"),
-        "{result}"
-    );
+    assert!(paths_of(&result["skipped"]).is_empty(), "{result}");
 }
 
 fn merge_with(paths: &[&str], dry_run: bool, delete: bool) -> MergeArgs {
@@ -175,23 +172,6 @@ fn ex_merge_059_delete_keeps_destination_only_files_under_a_skipped_directory() 
 
 // @kotowari[REQ-merge-001, EX-merge-060]
 #[test]
-fn ex_merge_060_a_source_directory_link_is_compared_with_a_destination_directory() {
-    let fixture = fixture();
-    let _shared = source_link_over_destination_directory(&fixture);
-
-    let (json, _) = fixture.merge_json(args(&["linked"]));
-
-    assert_children_merged(&json);
-    assert_eq!(fixture.read("develop", "linked/file.txt"), INCOMING);
-    assert!(
-        fs::symlink_metadata(fixture.root("develop").join("linked"))
-            .unwrap()
-            .is_dir()
-    );
-}
-
-// @kotowari[REQ-merge-001, EX-merge-060]
-#[test]
 fn ex_merge_060_merge_and_sync_compare_the_pair_with_and_without_dry_run() {
     for (label, dry_run) in [("dry-run", true), ("write", false)] {
         for sync in [false, true] {
@@ -209,6 +189,12 @@ fn ex_merge_060_merge_and_sync_compare_the_pair_with_and_without_dry_run() {
             assert_eq!(
                 fixture.read("develop", "linked/file.txt"),
                 expected,
+                "{label} sync={sync}: {result}"
+            );
+            assert!(
+                fs::symlink_metadata(fixture.root("develop").join("linked"))
+                    .unwrap()
+                    .is_dir(),
                 "{label} sync={sync}: {result}"
             );
         }

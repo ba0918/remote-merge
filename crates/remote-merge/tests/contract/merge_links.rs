@@ -95,7 +95,7 @@ fn merge_without_delete_skips_a_destination_only_file() {
     );
 }
 
-// @kotowari[REQ-merge-024]
+// @kotowari[REQ-merge-024, EX-merge-015]
 #[test]
 fn sync_without_delete_skips_a_destination_only_file() {
     let fixture = fixture();
@@ -104,6 +104,11 @@ fn sync_without_delete_skips_a_destination_only_file() {
     let (json, _) = fixture.sync_json(sync_args(&["."]));
 
     assert_eq!(fixture.read("develop", "only-here.txt"), "preserve me\n");
+    assert_eq!(
+        json["targets"][0]["deleted"],
+        serde_json::json!([]),
+        "{json}"
+    );
     assert_eq!(
         reasons_of(&json["targets"][0]["skipped"], "only-here.txt"),
         [RIGHT_ONLY_REASON],
