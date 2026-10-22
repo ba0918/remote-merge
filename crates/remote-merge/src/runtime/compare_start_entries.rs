@@ -3,6 +3,8 @@
 //! 切りと循環と読めない名前は一覧に残し、数えた件数を足す（docs/ir/cli/symlink-diff.md の
 //! REQ-cli-021、diff-strategy.md の REQ-cli-084）
 
+use std::collections::HashSet;
+
 use remote_merge_core::scan::outcome::{LinkPoint, ListedKind, Listing, ScanScope, Start};
 
 use super::compare_starts::{is_blocked, normalized};
@@ -26,7 +28,7 @@ impl CoreRuntime {
         mut listing: Listing,
         max_entries: usize,
     ) -> anyhow::Result<Listing> {
-        let listed: Vec<&str> = listing
+        let listed: HashSet<&str> = listing
             .entries
             .iter()
             .filter(|entry| !matches!(entry.kind, ListedKind::Directory))
@@ -35,7 +37,7 @@ impl CoreRuntime {
         let scan: Vec<String> = dirs
             .iter()
             .filter(|dir| !is_blocked(dir, &blocked))
-            .filter(|dir| !listed.contains(&normalized(dir)))
+            .filter(|dir| !listed.contains(normalized(dir)))
             .map(|dir| normalized(dir).to_string())
             .collect();
         if scan.is_empty() {
@@ -47,9 +49,10 @@ impl CoreRuntime {
             .collect();
         let (themselves, _, _) =
             self.scan_named(side, ScanScope::Starts(starts), max_entries, dirs, blocked)?;
+        let scanned: HashSet<&str> = scan.iter().map(String::as_str).collect();
         listing
             .entries
-            .retain(|entry| !scan.iter().any(|path| path == &entry.path));
+            .retain(|entry| !scanned.contains(entry.path.as_str()));
         Ok(listing.join(themselves))
     }
 }

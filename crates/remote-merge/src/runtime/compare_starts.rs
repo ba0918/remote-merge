@@ -3,7 +3,7 @@
 //! ディレクトリでない起点はその側にないとし（REQ-compare-003）、途中が root_dir の外へ解決される
 //! 起点の下は集めない（REQ-compare-004）。途中の事実は、どの起点のものも経路にまとめて一度に尋ねる
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use remote_merge_core::compare::{
     blocked_starts, links_outside, outside_on_the_way, paths_to_check,
@@ -86,21 +86,22 @@ impl CoreRuntime {
         }
         // 外へのリンクを辿らないときは、走査の後に、起点の途中と一覧の symlink をまとめて一度に
         // 確かめる。ふさがれた起点を外すときに確かめた事実は使い回し、同じパスを二度尋ねない
+        let blocked: BTreeSet<&str> = blocked.iter().map(String::as_str).collect();
         let starts: Vec<String> = named
             .iter()
-            .filter(|path| !blocked.contains(&normalized(path).to_string()))
+            .filter(|path| !blocked.contains(normalized(path)))
             .cloned()
             .collect();
         let links: Vec<String> = super::compare_start_entries::listed_links(&listing)
             .map(String::from)
             .collect();
         let mut paths = paths_to_check(&starts);
+        let on_the_way: BTreeSet<String> = paths.iter().cloned().collect();
         paths.extend(
             links
                 .iter()
-                .filter(|link| !paths.contains(link))
-                .cloned()
-                .collect::<Vec<_>>(),
+                .filter(|link| !on_the_way.contains(*link))
+                .cloned(),
         );
         if paths.is_empty() {
             return Ok((listing, Some(Vec::new())));
