@@ -114,25 +114,6 @@ impl std::fmt::Display for Labeled {
 
 impl std::error::Error for Labeled {}
 
-/// 文言の前に `prefix` を付ける。接続の使えない失敗と操作の失敗は種類を残す
-pub fn prefixed(error: &anyhow::Error, prefix: &str) -> anyhow::Error {
-    match classify(error) {
-        Failure::Refused => match remote_merge_core::op_failure::op_error_of(error) {
-            Some(op_error) => remote_merge_core::op_failure::Prefixed {
-                message: format!("{prefix}{error:#}"),
-                error: op_error.clone(),
-            }
-            .into(),
-            None => anyhow::anyhow!("{prefix}{error:#}"),
-        },
-        failure => Labeled {
-            failure,
-            message: format!("{prefix}{error:#}"),
-        }
-        .into(),
-    }
-}
-
 /// `接続断` の後に止めたので行わなかった失敗か
 pub(crate) fn is_stopped(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.is::<ProcessingStopped>())
@@ -308,7 +289,3 @@ mod tests {
         assert_eq!(classify(&refused), Failure::Refused);
     }
 }
-
-#[cfg(test)]
-#[path = "connection_prefixed_tests.rs"]
-mod prefixed_tests;
