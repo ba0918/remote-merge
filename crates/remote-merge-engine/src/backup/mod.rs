@@ -166,8 +166,6 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
         .and_then(|naive| naive.and_local_timezone(Utc).single())
 }
 
-/// ローカルファイルのバックアップをセッションディレクトリに作成する。
-///
 #[cfg(test)]
 mod tests {
     use super::*;
