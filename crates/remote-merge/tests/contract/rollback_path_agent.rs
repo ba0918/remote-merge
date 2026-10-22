@@ -9,12 +9,12 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use super::scan_listing_cli::AgentFixture;
+use super::cli_launch_support::AgentRootsFixture;
 
 // @kotowari[EX-backup-027]
 #[tokio::test(flavor = "multi_thread")]
 async fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let remote_root =
         assert_skipped_after_an_ancestor_is_replaced_via_the_agent(&fixture, "dir/a.txt", |root| {
             fs::remove_dir_all(root.join("dir")).unwrap();
@@ -35,7 +35,7 @@ async fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file_via_th
 /// rollback し、`deleted` だけが親ディレクトリのないファイルとしてスキップされることを確かめる。
 /// 書き戻し先の root を返す
 async fn assert_skipped_after_an_ancestor_is_replaced_via_the_agent(
-    fixture: &AgentFixture,
+    fixture: &AgentRootsFixture,
     deleted: &str,
     replace: impl FnOnce(&Path),
 ) -> PathBuf {
@@ -88,7 +88,7 @@ async fn assert_skipped_after_an_ancestor_is_replaced_via_the_agent(
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_via_the_agent()
  {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let remote_root = assert_skipped_after_an_ancestor_is_replaced_via_the_agent(
         &fixture,
         "dir/sub/a.txt",
@@ -108,7 +108,7 @@ async fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_via_the_agent()
  {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let remote_root =
         assert_skipped_after_an_ancestor_is_replaced_via_the_agent(&fixture, "dir/a.txt", |root| {
             fs::remove_dir_all(root.join("dir")).unwrap();

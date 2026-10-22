@@ -2,7 +2,7 @@
 //! 走査する側にない include の値と root_dir の外へ解決される値を飛ばすこと
 //! （docs/ir/config/include.md の REQ-config-032・033）の契約テスト。
 //!
-//! `AgentFixture`（祖先がディレクトリでない値のテストは `CliEnv`）の試験サーバに対して、実行ファイルを
+//! `AgentRootsFixture`（祖先がディレクトリでない値のテストは `CliEnv`）の試験サーバに対して、実行ファイルを
 //! `status --left local --right develop` で起動する。どちらも右はエージェントの経路を通る。
 //! 警告は利用者の見る標準エラーで確かめる。左のローカルの経路の警告も同じ標準エラーに出る。
 
@@ -12,9 +12,9 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Output;
 
+use super::cli_launch_support::{AgentRootsFixture, statuses_by_path};
 use super::common::{CliEnv, gen_config, place_files, strip_ansi, with_filter};
 use super::config_filters_cli::{combined, status};
-use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
 fn status_on_the_remote_server(dirs: &CliEnv, include: &[&str]) -> Output {
@@ -83,7 +83,7 @@ fn outside_dir(temp: &Path) -> std::path::PathBuf {
 // @kotowari[REQ-config-032, EX-config-010]
 #[tokio::test(flavor = "multi_thread")]
 async fn include_values_missing_on_the_local_or_agent_side_are_warned_the_same_way() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(
         &local_root,
@@ -117,7 +117,7 @@ async fn include_values_missing_on_the_local_or_agent_side_are_warned_the_same_w
 // @kotowari[REQ-config-033, REQ-config-034, EX-config-013]
 #[tokio::test(flavor = "multi_thread")]
 async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     let outside = outside_dir(fixture.temp.path());
     for root in [&local_root, &remote_root] {

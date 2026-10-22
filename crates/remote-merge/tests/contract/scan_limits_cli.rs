@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
+use super::cli_launch_support::{AgentRootsFixture, statuses_by_path};
 use super::common::place_files;
-use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// 上限を超える場合の上限と、右に置くファイルの数
 const SMALL_LIMIT: &str = "3";
@@ -64,7 +64,7 @@ fn every_few_file_equal() -> BTreeMap<String, String> {
 // @kotowari[EX-scan-008]
 #[tokio::test(flavor = "multi_thread")]
 async fn status_reports_a_scan_limit_on_the_remote_side_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &ONE_FILE);
     many_files(&remote_root);
@@ -76,7 +76,7 @@ async fn status_reports_a_scan_limit_on_the_remote_side_via_the_agent() {
 // @kotowari[EX-scan-009]
 #[tokio::test(flavor = "multi_thread")]
 async fn status_lists_every_remote_file_within_the_scan_limit_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &FEW_FILES);
     place_files(&remote_root, &FEW_FILES);
@@ -95,7 +95,7 @@ async fn status_lists_every_remote_file_when_the_count_equals_the_scan_limit_via
         ("b.txt", "same\n"),
         ("c.txt", "same\n"),
     ];
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &EXACT_FILES);
     place_files(&remote_root, &EXACT_FILES);

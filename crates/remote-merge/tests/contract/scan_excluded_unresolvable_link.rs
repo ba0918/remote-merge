@@ -9,9 +9,8 @@
 
 use std::path::Path;
 
+use super::cli_launch_support::{AgentRootsFixture, all_equal, statuses_by_path};
 use super::common::{place_files, place_symlink};
-use super::scan_listing_cli::{AgentFixture, statuses_by_path};
-use super::scan_routes_agree::{RemoteFixture, all_equal};
 
 /// 辿れない symlink の置き方の名前、それを `root` に置く関数、それを除く exclude の行
 pub(super) type Placement = (&'static str, fn(&Path), &'static str);
@@ -81,10 +80,10 @@ pub(super) fn roots(
 // @kotowari[REQ-config-044, REQ-config-021]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_local_scan_skips_an_excluded_symlink_whose_target_cannot_be_followed() {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     for (label, place, exclude_line) in EXCLUDED_UNRESOLVABLE {
         let [local_root, remote_root] = roots(fixture.temp.path(), label, place, true);
-        let output = fixture.status_with_exclude(&local_root, &remote_root, exclude_line);
+        let output = fixture.status_via_agent_with_exclude(&local_root, &remote_root, exclude_line);
         assert!(output.status.success(), "{label}: {output:?}");
         assert_eq!(
             statuses_by_path(&output),
@@ -97,7 +96,7 @@ async fn req_scan_015_the_local_scan_skips_an_excluded_symlink_whose_target_cann
 // @kotowari[REQ-config-044, REQ-config-021]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_agent_scan_skips_an_excluded_symlink_whose_target_cannot_be_followed() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     for (label, place, exclude_line) in EXCLUDED_UNRESOLVABLE {
         let [local_root, remote_root] = roots(fixture.temp.path(), label, place, false);
         let output =

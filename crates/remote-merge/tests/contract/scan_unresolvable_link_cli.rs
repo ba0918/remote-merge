@@ -11,8 +11,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
+use super::cli_launch_support::{
+    AgentRootsFixture, launch_diff, launch_status, write_isolated_config,
+};
 use super::common::{CliEnv, gen_config, place_files, place_symlink};
-use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 辿れない symlink の置き方の名前と、それを `root` に置く関数と、置いたリンクのパス
 type Placement = (&'static str, fn(&Path), &'static [&'static str]);
@@ -77,15 +79,12 @@ fn status_and_diff_with_local_links() {
         place(&local_root);
         let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
 
-        let status = status_on_the_remote_server(&dirs, &config, &local_root, &[]);
+        let config_path = write_isolated_config(&dirs, &config, &local_root);
+
+        let status = launch_status(dirs.temp.path(), &config_path, &[]);
         assert_listed_with_the_links_in_errors(label, &status, links);
 
-        let config_path = dirs.temp.path().join("scan-listing-config.toml");
-        let diff = super::diff_output_cli::launch_diff(
-            dirs.temp.path(),
-            &config_path,
-            &["--format", "json"],
-        );
+        let diff = launch_diff(dirs.temp.path(), &config_path, &["--format", "json"]);
         assert_listed_with_the_links_in_errors(label, &diff, links);
     }
 }
@@ -99,7 +98,7 @@ fn req_scan_018_status_and_diff_report_a_local_link_that_cannot_be_followed_and_
 // @kotowari[REQ-scan-018, EX-scan-018]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_018_the_agent_scan_lists_a_link_that_cannot_be_followed() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     for (label, place, links) in UNRESOLVABLE {
         let case = fixture.temp.path().join(label.replace(' ', "-"));
         let [local_root, remote_root] = ["local", "remote"].map(|side| case.join(side));
@@ -117,7 +116,7 @@ async fn req_scan_018_the_agent_scan_lists_a_link_that_cannot_be_followed() {
 // @kotowari[REQ-scan-018, EX-scan-019]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_018_merge_stops_before_writing_on_a_link_that_cannot_be_followed() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     for (label, place, _) in UNRESOLVABLE {
         let case = fixture.temp.path().join(label.replace(' ', "-"));
         let [local_root, remote_root] = ["local", "remote"].map(|side| case.join(side));

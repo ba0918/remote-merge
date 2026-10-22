@@ -3,18 +3,18 @@
 //! （docs/ir/cli/symlink-diff.md の REQ-cli-026）の、エージェントの経路の契約テスト。
 //!
 //! ローカルと SSH の経路は tests/cli_diff.rs で確かめる。エージェントの経路は
-//! scan_listing_cli の `AgentFixture` で試験サーバを起動し、右の root_dir を実ディレクトリへの
+//! cli_launch_support の `AgentRootsFixture` で試験サーバを起動し、右の root_dir を実ディレクトリへの
 //! symlink にした設定で `diff --left local --right develop` を起動する。
 
 use std::os::unix::fs::symlink;
 
+use super::cli_launch_support::AgentRootsFixture;
 use super::common::place_files;
-use super::scan_listing_cli::AgentFixture;
 
 // @kotowari[REQ-cli-026]
 #[tokio::test(flavor = "multi_thread")]
 async fn remote_root_dir_through_a_symlink_compares_files_inside_it_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let temp = fixture.temp.path();
     let (local_root, remote_real, remote_link) = (
         temp.join("local"),

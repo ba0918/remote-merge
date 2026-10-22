@@ -21,8 +21,8 @@ use remote_merge::runtime::RuntimeTargets;
 use serde_json::Value;
 use tempfile::TempDir;
 
+use super::cli_launch_support::{AgentRootsFixture, status_on_the_remote_server};
 use super::common::{CliEnv, gen_config, place_files};
-use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// UTF-8 として読めない名前（"bad" と 0xff と ".txt"）
 const BAD_NAME: &[u8] = b"bad\xff.txt";
@@ -80,7 +80,7 @@ fn ex_scan_014_status_reports_a_local_file_whose_name_is_not_utf8() {
 // @kotowari[REQ-scan-012]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_012_status_reports_a_remote_file_whose_name_is_not_utf8_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &READABLE);
     place_files(&remote_root, &READABLE);
@@ -130,7 +130,7 @@ fn req_scan_012_status_reports_files_below_a_local_directory_link_whose_name_is_
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_via_the_agent()
  {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &LINKED);
     place_files(&remote_root, &LINKED);

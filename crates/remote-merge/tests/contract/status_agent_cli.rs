@@ -8,8 +8,8 @@
 use std::fs;
 use std::process::Output;
 
+use super::cli_launch_support::AgentRootsFixture;
 use super::common::CliEnv;
-use super::scan_listing_cli::AgentFixture;
 
 fn one_modified_file() -> CliEnv {
     CliEnv::new(&[("file.txt", "short\n")], &[("file.txt", "much longer\n")])
@@ -80,7 +80,7 @@ fn a_local_right_side_has_no_agent_even_with_verbose() {
 // @kotowari[REQ-cli-070]
 #[tokio::test(flavor = "multi_thread")]
 async fn verbose_json_reports_connected_when_the_agent_serves_the_right_side() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         fs::create_dir_all(root).unwrap();

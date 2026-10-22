@@ -9,21 +9,11 @@
 //! 一覧が "equal" の項目だけになることを、左右の経路が同じものを一覧に載せた証拠にする
 //! （片側だけが載せれば "left_only" か "right_only" になる）。
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{deploy_agent, gen_config, place_files, with_filter};
-use super::scan_listing_cli::{AgentFixture, launch_status, statuses_by_path};
-use super::ssh_server::TestServer;
-
-/// 全ての項目が "equal" の一覧
-pub(super) fn all_equal(paths: &[&str]) -> BTreeMap<String, String> {
-    paths
-        .iter()
-        .map(|path| (path.to_string(), "equal".to_string()))
-        .collect()
-}
+use super::cli_launch_support::{AgentRootsFixture, all_equal, statuses_by_path};
+use super::common::place_files;
 
 // ─── "/" を含む exclude に当たったディレクトリの子孫（REQ-config-022） ─────────────────
 
@@ -38,7 +28,7 @@ const EXCLUDE_A_B: &str = "exclude = [\"a/b\"]";
 // @kotowari[REQ-config-022, EX-config-009]
 #[tokio::test(flavor = "multi_thread")]
 async fn descendants_of_a_directory_matched_by_a_path_pattern_are_excluded_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         place_files(root, &UNDER_EXCLUDED_DIRECTORY);
@@ -104,7 +94,7 @@ const LIMIT_WORDS: [&str; 1] = ["tree scan truncated"];
 // @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-003]
 #[tokio::test(flavor = "multi_thread")]
 async fn files_inside_a_directory_link_are_listed_under_the_link_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let shared = fixture.temp.path().join("shared");
     place_files(&shared, &LINKED_FILES);
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
@@ -119,61 +109,10 @@ async fn files_inside_a_directory_link_are_listed_under_the_link_via_the_agent()
     );
 }
 
-/// エージェントを置いた試験サーバと、左右の root_dir を置く一時ディレクトリ
-pub(super) struct RemoteFixture {
-    pub(super) temp: tempfile::TempDir,
-    server: TestServer,
-}
-
-impl RemoteFixture {
-    pub(super) async fn new() -> Self {
-        let temp = tempfile::TempDir::new().unwrap();
-        deploy_agent(temp.path());
-        let server = TestServer::filesystem_with_agent(temp.path()).await;
-        Self { temp, server }
-    }
-
-    /// [`Self::status`] の設定の exclude の行を `exclude_line` に置き換えて起動する
-    pub(super) fn status_with_exclude(
-        &self,
-        local_root: &Path,
-        remote_root: &Path,
-        exclude_line: &str,
-    ) -> Output {
-        let config = with_filter(
-            &gen_config(local_root, remote_root, None, self.server.port()),
-            exclude_line,
-        );
-        self.status_with_config(local_root, remote_root, &config, &[])
-    }
-
-    fn status_with_config(
-        &self,
-        local_root: &Path,
-        remote_root: &Path,
-        config: &str,
-        extra_args: &[&str],
-    ) -> Output {
-        for root in [local_root, remote_root] {
-            assert!(root.starts_with(self.temp.path()), "root escapes fixture");
-        }
-        let config_path = self.temp.path().join("scan-routes-config.toml");
-        std::fs::write(&config_path, config).unwrap();
-        let output = launch_status(self.temp.path(), &config_path, extra_args);
-        // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
-        let requests = self.server.faults().agent_requests();
-        assert!(
-            requests.iter().any(|request| request == "ListTree"),
-            "the tree was not scanned through the agent: {requests:?}"
-        );
-        output
-    }
-}
-
 // @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-004]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_directory_link_back_to_an_ancestor_is_reported_as_an_incomplete_scan_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         place_files(root, &ONE_FILE);
@@ -186,7 +125,7 @@ async fn a_directory_link_back_to_an_ancestor_is_reported_as_an_incomplete_scan_
 // @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-005]
 #[tokio::test(flavor = "multi_thread")]
 async fn files_reached_through_a_directory_link_count_toward_the_scan_limit_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let shared = fixture.temp.path().join("shared");
     many_linked_files(&shared);
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
@@ -207,7 +146,7 @@ const EXCLUDE_B: &str = "exclude = [\"b\"]";
 
 /// 左右に [`OUTSIDE_EXCLUDED_DIRECTORY`] を置き、右の "a/b/back" を右の root_dir 自体を指す
 /// symlink にする（辿れば循環になる）
-fn roots_with_a_cycle_below_a_b(fixture: &RemoteFixture) -> [std::path::PathBuf; 2] {
+fn roots_with_a_cycle_below_a_b(fixture: &AgentRootsFixture) -> [std::path::PathBuf; 2] {
     let roots = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in &roots {
         place_files(root, &OUTSIDE_EXCLUDED_DIRECTORY);
@@ -220,9 +159,9 @@ fn roots_with_a_cycle_below_a_b(fixture: &RemoteFixture) -> [std::path::PathBuf;
 // @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_path_pattern_is_not_walked_on_the_agent() {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
-    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_A_B);
+    let output = fixture.status_via_agent_with_exclude(&local_root, &remote_root, EXCLUDE_A_B);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
@@ -230,9 +169,9 @@ async fn a_cycle_below_a_directory_matched_by_a_path_pattern_is_not_walked_on_th
 // @kotowari[REQ-config-021, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_name_pattern_is_not_walked_on_the_agent() {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
-    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_B);
+    let output = fixture.status_via_agent_with_exclude(&local_root, &remote_root, EXCLUDE_B);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
@@ -240,7 +179,7 @@ async fn a_cycle_below_a_directory_matched_by_a_name_pattern_is_not_walked_on_th
 /// 左右に [`OUTSIDE_EXCLUDED_DIRECTORY`] を置き、右の `locked` の下を読めないディレクトリにして
 /// `exclude_line` の設定で status を起動する
 fn status_with_an_unreadable_directory(
-    fixture: &RemoteFixture,
+    fixture: &AgentRootsFixture,
     locked: &str,
     exclude_line: &str,
 ) -> Output {
@@ -252,14 +191,14 @@ fn status_with_an_unreadable_directory(
     place_files(&locked, &ONE_FILE);
     let locks = remote_merge_core::test_tree::PermissionLocks::new();
     locks.lock(&locked, 0o000);
-    fixture.status_with_exclude(&local_root, &remote_root, exclude_line)
+    fixture.status_via_agent_with_exclude(&local_root, &remote_root, exclude_line)
 }
 
 // @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_on_the_agent()
  {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", EXCLUDE_A_B);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
@@ -275,9 +214,9 @@ const EXCLUDE_B_BY_CLASS: &str = "exclude = [\"[b]\"]";
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan() {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
-        let fixture = RemoteFixture::new().await;
+        let fixture = AgentRootsFixture::new().await;
         let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
-        let output = fixture.status_with_exclude(&local_root, &remote_root, exclude_line);
+        let output = fixture.status_via_agent_with_exclude(&local_root, &remote_root, exclude_line);
         assert!(output.status.success(), "{exclude_line}: {output:?}");
         assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
     }
@@ -286,9 +225,10 @@ async fn a_cycle_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_
 // @kotowari[REQ-config-021, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_the_agent_scan() {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
-    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_B_BY_CLASS);
+    let output =
+        fixture.status_via_agent_with_exclude(&local_root, &remote_root, EXCLUDE_B_BY_CLASS);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
@@ -298,7 +238,7 @@ async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_
 async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan()
  {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
-        let fixture = RemoteFixture::new().await;
+        let fixture = AgentRootsFixture::new().await;
         let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", exclude_line);
         assert!(output.status.success(), "{exclude_line}: {output:?}");
         assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
@@ -310,7 +250,7 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_patter
 async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_agent_scan()
  {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
-        let fixture = RemoteFixture::new().await;
+        let fixture = AgentRootsFixture::new().await;
         let output = status_with_an_unreadable_directory(&fixture, "a/b/日本", exclude_line);
         assert!(output.status.success(), "{exclude_line}: {output:?}");
         assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
@@ -320,7 +260,7 @@ async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched
 // @kotowari[REQ-config-022]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_outside_the_excluded_directories_still_fails_the_agent_scan() {
-    let fixture = RemoteFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let output =
         status_with_an_unreadable_directory(&fixture, "d/locked", NON_PRUNABLE_EXCLUDES[0]);
     assert_incomplete_scan_reported(&output, &["permission denied"]);

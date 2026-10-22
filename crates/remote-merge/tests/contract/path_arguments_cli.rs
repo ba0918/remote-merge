@@ -7,12 +7,12 @@
 
 use std::fs;
 
-use super::scan_listing_cli::AgentFixture;
+use super::cli_launch_support::AgentRootsFixture;
 
 // @kotowari[REQ-cli-078]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_absolute_path_stops_diff_before_any_command_reaches_the_agent_server() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         fs::create_dir_all(root).unwrap();

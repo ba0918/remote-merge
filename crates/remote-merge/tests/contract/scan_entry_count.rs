@@ -11,9 +11,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
+use super::cli_launch_support::{AgentRootsFixture, all_equal, statuses_by_path};
 use super::common::place_files;
-use super::scan_listing_cli::{AgentFixture, statuses_by_path};
-use super::scan_routes_agree::all_equal;
 
 /// ディレクトリ 1 件とその中のファイル 2 件。上限 2 はファイルの数と同じ
 const IN_ONE_DIRECTORY: [(&str, &str); 2] = [("dir/a.txt", "same\n"), ("dir/b.txt", "same\n")];
@@ -27,7 +26,7 @@ fn listed(output: &Output) -> BTreeMap<String, String> {
 // @kotowari[REQ-scan-010, EX-scan-012]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_scan_012_a_directory_is_not_counted_toward_the_limit_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         place_files(root, &IN_ONE_DIRECTORY);
@@ -56,7 +55,7 @@ fn links_then_excluded_file(root: &Path, outside: &Path) {
 // @kotowari[REQ-scan-010, REQ-scan-004]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_excluded_entry_after_the_last_counted_one_does_not_truncate_the_scan_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     let outside = fixture.temp.path().join("outside");
     for root in [&local_root, &remote_root] {

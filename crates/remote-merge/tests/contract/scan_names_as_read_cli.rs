@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use super::cli_launch_support::{AgentRootsFixture, statuses_by_path};
 use super::common::{place_files, place_symlink};
-use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// 名前に TAB・改行・"\" を含むファイル
 const SPECIAL_NAMES: [&str; 3] = ["x\ty.txt", "p\nq.txt", "b\\c.txt"];
@@ -48,7 +48,7 @@ fn only_equal(paths: impl IntoIterator<Item = &'static str>) -> BTreeMap<String,
 }
 
 fn listed_via_agent(
-    fixture: &AgentFixture,
+    fixture: &AgentRootsFixture,
     place: impl Fn(&Path, &Path),
 ) -> BTreeMap<String, String> {
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
@@ -59,7 +59,7 @@ fn listed_via_agent(
 // @kotowari[REQ-scan-006, EX-scan-015]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_read_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     assert_eq!(
         listed_via_agent(&fixture, place_special_names),
         only_equal(SPECIAL_NAMES)
@@ -70,7 +70,7 @@ async fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_rea
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_via_the_agent()
  {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     assert_eq!(
         listed_via_agent(&fixture, place_special_links),
         only_equal(SPECIAL_LINKS.map(|(name, _)| name))

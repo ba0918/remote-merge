@@ -19,8 +19,8 @@ use std::path::Path;
 use std::process::Output;
 
 use super::agent_support::{self, Setup};
+use super::cli_launch_support::AgentRootsFixture;
 use super::common::{CliEnv, restrict_permissions};
-use super::scan_listing_cli::AgentFixture;
 use super::server_faults::Faults;
 
 /// 100MB を超える中身を実際に読むテストを、同じプロセスの中で一つずつ走らせる。nextest は
@@ -107,7 +107,7 @@ fn assert_oversized_file_is_an_error(output: &Output) {
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_cli_081_an_oversized_file_is_an_unreadable_file_via_the_agent() {
     for oversized in ["local", "remote"] {
-        let fixture = AgentFixture::new().await;
+        let fixture = AgentRootsFixture::new().await;
         let [local_root, remote_root] =
             ["local", "remote"].map(|side| fixture.temp.path().join(side));
         for root in [&local_root, &remote_root] {
@@ -132,7 +132,7 @@ async fn ex_cli_081_an_oversized_file_is_an_unreadable_file_via_the_agent() {
 // @kotowari[REQ-cli-079]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_cli_079_the_agent_does_not_read_a_remote_file_over_the_limit() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     fs::create_dir_all(&local_root).unwrap();
     fs::write(local_root.join("big.bin"), b"small\0").unwrap();

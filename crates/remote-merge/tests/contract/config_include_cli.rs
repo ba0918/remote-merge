@@ -7,9 +7,9 @@
 
 use std::collections::BTreeMap;
 
+use super::cli_launch_support::statuses_by_path;
 use super::common::{CliEnv, gen_config, with_filter};
 use super::config_filters_cli::{combined, status};
-use super::scan_listing_cli::statuses_by_path;
 
 /// include を `include_line` にした設定で `status --all --format json` を起動する
 fn status_with_include(dirs: &CliEnv, include_line: &str) -> std::process::Output {

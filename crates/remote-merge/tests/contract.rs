@@ -26,6 +26,9 @@ mod backup_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/change_failures_agree.rs"]
 mod change_failures_agree;
+#[cfg(feature = "test-utils")]
+#[path = "contract/cli_launch_support.rs"]
+mod cli_launch_support;
 #[path = "contract/cli_results.rs"]
 mod cli_results;
 #[path = "contract/cli_usage.rs"]

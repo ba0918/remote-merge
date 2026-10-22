@@ -13,8 +13,8 @@ use std::process::Output;
 
 use remote_merge_core::test_tree::PermissionLocks;
 
+use super::cli_launch_support::{AgentRootsFixture, status_on_the_remote_server};
 use super::common::{CliEnv, gen_config, place_files};
-use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 読めるファイルと、中にファイルのある読めないディレクトリ "locked"
 const WITH_LOCKED: [(&str, &str); 2] = [("ok.txt", "same\n"), ("locked/secret.txt", "secret\n")];
@@ -76,7 +76,7 @@ fn req_scan_014_an_unreadable_directory_stops_the_local_scan() {
 // @kotowari[REQ-scan-014, EX-scan-013]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_scan_013_an_unreadable_directory_stops_the_scan_via_the_agent() {
-    let fixture = AgentFixture::new().await;
+    let fixture = AgentRootsFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &READABLE);
     place_files(&remote_root, &WITH_LOCKED);

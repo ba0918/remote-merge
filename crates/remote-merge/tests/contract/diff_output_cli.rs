@@ -4,31 +4,15 @@
 //!
 //! 標準エラーの警告と、main.rs が出すエラー（テキストでは標準エラー、JSON では標準出力の
 //! JSON）と終了コードは関数呼び出しでは観測できないため、実行ファイルを試験 SSH サーバに
-//! 対して `diff --left local --right develop` で起動する。起動の組み方は scan_listing_cli の
-//! `launch_status` と同じで、補助は status に固定されているため diff 用に同じ形で書く。
+//! 対して `diff --left local --right develop` で起動する（cli_launch_support の `launch_diff`）。
 
 use std::fs;
-use std::path::Path;
 use std::process::Output;
 
-use super::common::{CliEnv, gen_config, isolated_command};
+use super::cli_launch_support::launch_diff;
+use super::common::{CliEnv, gen_config};
 
 const NOT_FOUND: &str = "specified path(s) not found on either side";
-
-/// `config_path` の設定で diff を起動する。隔離の確認は呼び出し側で済ませる
-///
-/// `--config` を必ず渡し、[`isolated_command`] で一時ディレクトリ `temp` の下の "home" から起動する。
-/// 渡さないと実行ファイルは作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に
-/// 接続しうる。
-pub(super) fn launch_diff(temp: &Path, config_path: &Path, args: &[&str]) -> Output {
-    isolated_command(&temp.join("home"))
-        .arg("--config")
-        .arg(config_path)
-        .args(["diff", "--left", "local", "--right", "develop"])
-        .args(args)
-        .output()
-        .expect("failed to execute diff")
-}
 
 /// 左右に `files` を中身を違えて置き、設定を書いて隔離の確認を通してから diff を起動する
 fn diff_on_the_remote_server(files: &[&str], args: &[&str]) -> Output {
