@@ -3,6 +3,14 @@
 このプロジェクトの利用者に見える変更を、版ごとに記録する。版の正本は
 `crates/remote-merge/Cargo.toml` の `package.version`（PROJECT.md）。
 
+## [Unreleased]
+
+### 修正
+
+- `merge --hunks` で、`exclude` に当たるか `include` の外にあるファイルを名前で指定すると、`specified path(s) not found on either side` で止まっていました。
+  ファイル全体の `merge` と同じく、名前で指定したファイルには `include` と `exclude` を当てずに、選んだ hunk を当てるようにしました。
+- `merge --hunks` で左右のどちらにもないパスを指定したとき、ファイル全体の `merge` と同じく、そのパスを示す警告を出してから止まるようにしました。
+
 ## [0.3.3] - 2026-10-22
 
 ### 変更（互換性に注意）
@@ -125,6 +133,7 @@
 - SSH で大きなデータを送信中に相手が大量の出力を返すと、送受信が互いを待って止まる問題を修正しました。
 - エージェントへの標準入力を閉じた後に EOF を送り続け、CPU を消費する問題を修正しました。EOF 後の出力は引き続き受信します。
 
+[Unreleased]: https://github.com/ba0918/remote-merge/compare/v0.3.3...HEAD
 [0.3.3]: https://github.com/ba0918/remote-merge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ba0918/remote-merge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ba0918/remote-merge/compare/v0.3.0...v0.3.1
