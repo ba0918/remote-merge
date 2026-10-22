@@ -157,7 +157,7 @@ fn invalid_include_warning(raw: &str, value: &str) -> Option<String> {
 }
 
 /// 同じ値と、祖先が一覧にある値を名前だけで除き、名前の順に並べる
-pub fn drop_nested_include_paths(mut paths: Vec<String>) -> Vec<String> {
+fn drop_nested_include_paths(mut paths: Vec<String>) -> Vec<String> {
     paths.sort();
     paths.dedup();
     let mut result: Vec<String> = Vec::new();
