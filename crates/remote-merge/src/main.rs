@@ -316,6 +316,21 @@ fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
     }
 }
 
+/// format 引数を持つサブコマンドの結果を出して、その終了コードでプロセスを終える
+fn exit_with(format: &str, result: anyhow::Result<i32>) -> ! {
+    std::process::exit(handle_with_format(format, result))
+}
+
+/// 設定を読み、--yes を SSH の確認に反映する
+fn configured(
+    project_override: Option<&std::path::Path>,
+    yes: bool,
+) -> anyhow::Result<config::AppConfig> {
+    let mut config = config::load_config_with_project_override(project_override)?;
+    config.ssh.auto_yes = yes;
+    Ok(config)
+}
+
 fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let log_level = resolve_log_level(cli.log_level.as_deref(), cli.debug, cli.verbose);
@@ -344,14 +359,9 @@ fn try_main() -> anyhow::Result<()> {
             max_entries,
         } => {
             let format_str = format.clone();
-            let cfg =
-                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
-                    c.ssh.auto_yes = cli.yes;
-                    c
-                });
-            let code = handle_with_format(
+            exit_with(
                 &format_str,
-                cfg.and_then(|cfg| {
+                configured(cli.config.as_deref(), cli.yes).and_then(|cfg| {
                     remote_merge::cli::status::run_status(
                         remote_merge::cli::status::StatusArgs {
                             left,
@@ -368,7 +378,6 @@ fn try_main() -> anyhow::Result<()> {
                     )
                 }),
             );
-            std::process::exit(code);
         }
         Commands::Diff {
             encodings,
@@ -384,14 +393,9 @@ fn try_main() -> anyhow::Result<()> {
             max_entries,
         } => {
             let format_str = format.clone();
-            let cfg =
-                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
-                    c.ssh.auto_yes = cli.yes;
-                    c
-                });
-            let code = handle_with_format(
+            exit_with(
                 &format_str,
-                cfg.and_then(|cfg| {
+                configured(cli.config.as_deref(), cli.yes).and_then(|cfg| {
                     remote_merge::cli::diff::run_diff(
                         remote_merge::cli::diff::DiffArgs {
                             encodings: encodings.into(),
@@ -410,7 +414,6 @@ fn try_main() -> anyhow::Result<()> {
                     )
                 }),
             );
-            std::process::exit(code);
         }
         Commands::Merge {
             encodings,
@@ -428,14 +431,9 @@ fn try_main() -> anyhow::Result<()> {
             hunks,
         } => {
             let format_str = format.clone();
-            let cfg =
-                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
-                    c.ssh.auto_yes = cli.yes;
-                    c
-                });
-            let code = handle_with_format(
+            exit_with(
                 &format_str,
-                cfg.and_then(|cfg| {
+                configured(cli.config.as_deref(), cli.yes).and_then(|cfg| {
                     remote_merge::cli::merge::run_merge(
                         remote_merge::cli::merge::MergeArgs {
                             encodings: encodings.into(),
@@ -456,7 +454,6 @@ fn try_main() -> anyhow::Result<()> {
                     )
                 }),
             );
-            std::process::exit(code);
         }
         Commands::Sync {
             paths,
@@ -471,14 +468,9 @@ fn try_main() -> anyhow::Result<()> {
             max_entries,
         } => {
             let format_str = format.clone();
-            let cfg =
-                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
-                    c.ssh.auto_yes = cli.yes;
-                    c
-                });
-            let code = handle_with_format(
+            exit_with(
                 &format_str,
-                cfg.and_then(|cfg| {
+                configured(cli.config.as_deref(), cli.yes).and_then(|cfg| {
                     let args = remote_merge::cli::sync::SyncArgs {
                         paths,
                         left,
@@ -494,7 +486,6 @@ fn try_main() -> anyhow::Result<()> {
                     remote_merge::cli::sync::run_sync(args, cfg)
                 }),
             );
-            std::process::exit(code);
         }
         Commands::Rollback {
             target,
@@ -505,14 +496,9 @@ fn try_main() -> anyhow::Result<()> {
             format,
         } => {
             let format_str = format.clone();
-            let cfg =
-                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
-                    c.ssh.auto_yes = cli.yes;
-                    c
-                });
-            let code = handle_with_format(
+            exit_with(
                 &format_str,
-                cfg.and_then(|cfg| {
+                configured(cli.config.as_deref(), cli.yes).and_then(|cfg| {
                     remote_merge::cli::rollback::run_rollback(
                         remote_merge::cli::rollback::RollbackArgs {
                             target,
@@ -526,7 +512,6 @@ fn try_main() -> anyhow::Result<()> {
                     )
                 }),
             );
-            std::process::exit(code);
         }
         Commands::Logs {
             level,
@@ -538,15 +523,15 @@ fn try_main() -> anyhow::Result<()> {
                 eprintln!("Warning: --config is ignored for the 'logs' subcommand");
             }
             let format_str = format.clone();
-            let code = handle_with_format(&format_str, {
+            exit_with(
+                &format_str,
                 remote_merge::cli::logs::run_logs(remote_merge::cli::logs::LogsArgs {
                     level,
                     since,
                     tail,
                     format,
-                })
-            });
-            std::process::exit(code);
+                }),
+            );
         }
         Commands::Agent {
             root,
