@@ -87,15 +87,12 @@ impl client::Handler for SshHandler {
             .to_openssh()
             .map_err(|e| anyhow::anyhow!("Failed to serialize public key: {}", e))?;
 
-        let parts: Vec<&str> = openssh_str.splitn(2, ' ').collect();
-        if parts.len() < 2 {
+        let Some((server_key_type, server_key_base64)) = openssh_str.split_once(' ') else {
             return Err(anyhow::anyhow!(
                 "Invalid public key format: {}",
                 openssh_str
             ));
-        }
-        let server_key_type = parts[0];
-        let server_key_base64 = parts[1];
+        };
 
         if let Some((approved_type, approved_base64)) = &self.approved_key {
             let matches = approved_type == server_key_type && approved_base64 == server_key_base64;
@@ -117,11 +114,7 @@ impl client::Handler for SshHandler {
             }
             Ok(None) => {
                 // known_hosts ファイルが無い → 未知ホスト
-                return self.handle_unknown_host(
-                    server_key_type,
-                    server_key_base64,
-                    server_public_key,
-                );
+                return self.handle_unknown_host(server_key_type, server_key_base64);
             }
         };
 
@@ -162,7 +155,7 @@ impl client::Handler for SshHandler {
             )),
             // 別の鍵種別でだけ登録されたホストも、提示された鍵は確かめられていないので未知として扱う
             HostKeyJudgement::Unknown => {
-                self.handle_unknown_host(server_key_type, server_key_base64, server_public_key)
+                self.handle_unknown_host(server_key_type, server_key_base64)
             }
         }
     }
@@ -224,10 +217,9 @@ impl SshHandler {
         &mut self,
         key_type: &str,
         key_base64: &str,
-        public_key: &russh::keys::PublicKey,
     ) -> Result<bool, anyhow::Error> {
         if let Some(sender) = self.unknown_host_sender.take() {
-            let fingerprint = known_hosts_io::format_fingerprint(public_key);
+            let fingerprint = known_hosts_io::format_fingerprint(key_base64);
             let info = UnknownHostInfo {
                 host: self.host.clone(),
                 port: self.port,

@@ -9,27 +9,11 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use super::known_hosts::format_host_entry;
 use super::known_hosts_location::known_hosts_location;
 
-/// 公開鍵の SHA-256 フィンガープリントを `SHA256:xxx` 形式で返す
-pub(crate) fn format_fingerprint(public_key: &russh::keys::PublicKey) -> String {
+/// OpenSSH の形の公開鍵の base64 から、SHA-256 フィンガープリントを `SHA256:xxx` 形式で返す
+pub(crate) fn format_fingerprint(key_base64: &str) -> String {
     use sha2::{Digest, Sha256};
 
-    let openssh_str = match public_key.to_openssh() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to serialize public key to OpenSSH format: {}", e);
-            return "SHA256:<unknown>".to_string();
-        }
-    };
-    let parts: Vec<&str> = openssh_str.splitn(2, ' ').collect();
-    if parts.len() < 2 {
-        tracing::warn!(
-            target: "remote_merge::ssh::known_hosts_io",
-            "Invalid public key format (expected 'type base64'): {}",
-            openssh_str
-        );
-        return "SHA256:<unknown>".to_string();
-    }
-    let key_bytes = match BASE64.decode(parts[1]) {
+    let key_bytes = match BASE64.decode(key_base64) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to decode public key base64: {}", e);
