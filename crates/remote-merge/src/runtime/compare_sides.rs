@@ -16,7 +16,7 @@ pub struct CompareSides {
 }
 
 impl CompareSides {
-    pub(super) fn each(&self) -> Vec<(Role, &Side)> {
+    pub(crate) fn each(&self) -> Vec<(Role, &Side)> {
         let mut sides = vec![(Role::Left, &self.left), (Role::Right, &self.right)];
         if let Some(reference) = &self.reference {
             sides.push((Role::Ref, reference));
@@ -24,7 +24,7 @@ impl CompareSides {
         sides
     }
 
-    pub(super) fn by_role(&self) -> BTreeMap<Role, Side> {
+    pub(crate) fn by_role(&self) -> BTreeMap<Role, Side> {
         self.each()
             .into_iter()
             .map(|(role, side)| (role, side.clone()))

@@ -11,7 +11,7 @@ use remote_merge_engine::treat::status::{exit_code, shown, summary};
 use remote_merge_engine::treat::status_listing::status_listing;
 use remote_merge_engine::treat::uses::NothingUsed;
 
-use super::compare_steps::used_reference;
+use super::compare_steps::{connect_sides, used_reference};
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{
     CompareRequest, CompareScope, CompareSides, CoreRuntime, EntryLimit, ExternalLinks,
@@ -80,17 +80,12 @@ fn compare_and_list(
     reference: Option<Side>,
     max_entries: usize,
 ) -> anyhow::Result<StatusCommandResult> {
-    for side in [Some(&left), Some(&right), reference.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        core.connect_side(side)?;
-    }
     let sides = CompareSides {
         left,
         right,
         reference,
     };
+    connect_sides(core, &sides)?;
     let request = CompareRequest {
         scope: CompareScope::Whole,
         max_entries,

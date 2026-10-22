@@ -12,6 +12,7 @@ use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
+use super::compare_steps::connect_sides;
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult};
 use super::plan_apply::{apply_plan, change_counts, skip_reasons};
 use crate::runtime::{
@@ -46,16 +47,7 @@ pub fn plan_merge(
     paths: &[RelPath],
     max_entries: usize,
 ) -> anyhow::Result<PlannedMerge> {
-    for side in [
-        Some(&sides.left),
-        Some(&sides.right),
-        sides.reference.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        core.connect_side(side)?;
-    }
+    connect_sides(core, sides)?;
     let targets = merge_targets(paths, args.delete);
     let reference_check = sides.reference.is_some() && !args.force;
     let uses = MergeUses {

@@ -14,7 +14,7 @@ use remote_merge_engine::treat::incomplete::incomplete_errors;
 use remote_merge_engine::treat::sides::{compared_sides, reference_side};
 use remote_merge_engine::treat::uses::DiffUses;
 
-use super::compare_steps::used_reference;
+use super::compare_steps::{connect_sides, used_reference};
 use super::diff_compare::compare_scope;
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{
@@ -24,7 +24,6 @@ use crate::runtime::{
 use crate::service::output::{OutputFormat, format_json, format_multi_diff_text};
 use crate::service::path_resolver::{parse_path_arguments, paths_not_found};
 use crate::service::types::MultiDiffOutput;
-use crate::side::Side;
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
@@ -100,17 +99,7 @@ fn compare_and_show(
     scope: DiffScope,
     max_entries: usize,
 ) -> anyhow::Result<(MultiDiffOutput, i32)> {
-    let each: Vec<&Side> = [
-        Some(&sides.left),
-        Some(&sides.right),
-        sides.reference.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    for side in each {
-        core.connect_side(side)?;
-    }
+    connect_sides(core, sides)?;
     let request = CompareRequest {
         scope: CompareScope::Whole,
         max_entries,
@@ -170,13 +159,7 @@ fn compare_and_show(
     };
     let context = Context {
         config: &core.config.content,
-        sides: [
-            (Role::Left, sides.left.clone()),
-            (Role::Right, sides.right.clone()),
-        ]
-        .into_iter()
-        .chain(sides.reference.clone().map(|side| (Role::Ref, side)))
-        .collect(),
+        sides: sides.by_role(),
         overrides: args.encodings,
     };
     let mut output =

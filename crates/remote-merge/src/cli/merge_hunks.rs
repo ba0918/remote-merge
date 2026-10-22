@@ -12,6 +12,7 @@ use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::HunkUses;
 
+use super::compare_steps::connect_sides;
 use super::merge::{MergeArgs, MergeCommandResult};
 use super::merge_files::merge_request;
 use super::merge_hunks_result::{failed, no_changes, written};
@@ -29,16 +30,7 @@ pub(super) fn merge_hunks(
     hunks: &[usize],
     max_entries: usize,
 ) -> anyhow::Result<MergeCommandResult> {
-    for side in [
-        Some(&sides.left),
-        Some(&sides.right),
-        sides.reference.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        core.connect_side(side)?;
-    }
+    connect_sides(core, sides)?;
     let targets = merge_targets(paths, false);
     let Some(path) = targets.named.first().cloned() else {
         anyhow::bail!("--hunks requires a file path, not the whole root_dir");
@@ -77,13 +69,7 @@ pub(super) fn merge_hunks(
     }
     let context = Context {
         config: &core.config.content,
-        sides: [
-            (Role::Left, sides.left.clone()),
-            (Role::Right, sides.right.clone()),
-        ]
-        .into_iter()
-        .chain(sides.reference.clone().map(|side| (Role::Ref, side)))
-        .collect(),
+        sides: sides.by_role(),
         overrides: args.encodings,
     };
     let view = prepare(compared, &path, &context, reference_check);
