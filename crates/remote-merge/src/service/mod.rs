@@ -1,17 +1,4 @@
-//! Service層: CLI/MCP 共通のビジネスロジック。
-//!
-//! インターフェース（CLI, 将来のMCP）に依存しない。
-//! 入力は構造体、出力は Result<型>。
-//!
-//! ## アーキテクチャ
-//!
-//! ```text
-//! CLI / MCP (薄い変換層)
-//!     ↓
-//! Service層 (このモジュール)
-//!     ↓
-//! CoreRuntime + ドメイン層
-//! ```
+//! コマンドの出力の型（engine の型の再公開と製品だけの型）と、その text・JSON への書き出し。
 
 pub mod output;
 pub mod types;

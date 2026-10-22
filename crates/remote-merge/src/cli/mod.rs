@@ -1,6 +1,5 @@
-//! CLI サブコマンドの実装。
-//!
-//! clap 引数 → Service 呼び出し → stdout 出力の薄い変換層。
+//! サブコマンドの実装。引数から比べる側と範囲を決め、runtime で比べて変え、treat の規則で結果に
+//! して、出力の書き出しと終了コードにする。
 
 mod compare_steps;
 pub mod diff;
