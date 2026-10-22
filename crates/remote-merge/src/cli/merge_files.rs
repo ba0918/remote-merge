@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{Command, Follow, PathComparison, Selection, choose_method};
+use remote_merge_core::compare::{Command, Follow, PathComparison, Selection, Uses, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::service::path_resolver::paths_not_found;
@@ -66,7 +66,8 @@ pub fn plan_merge(
         .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
     // 名前で指定したファイルがフィルタに当たって親ディレクトリの下の走査に載らなかったときは、
     // 起点そのものとしてもう一度比べる（diff の REQ-cli-081 と同じ。REQ-merge-022）
-    let comparison = compare_named_files(core, sides, &request, &uses, comparison)?;
+    let comparison =
+        compare_named_files(core, sides, &request, targets.named(), &uses, comparison)?;
     if let Some(stopped) = core.root_gone_stop() {
         return Err(stopped);
     }
@@ -145,12 +146,11 @@ pub(super) fn compare_named_files(
     core: &mut CoreRuntime,
     sides: &CompareSides,
     request: &CompareRequest,
-    uses: &MergeUses,
+    named: &[String],
+    uses: &dyn Uses,
     mut comparison: Comparison,
 ) -> anyhow::Result<Comparison> {
-    let unseen: Vec<String> = uses
-        .targets
-        .named()
+    let unseen: Vec<String> = named
         .iter()
         .filter(|name| !comparison.paths.contains_key(*name))
         .cloned()
