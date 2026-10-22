@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-pub use crate::path_resolution::ResolvedPath;
+use crate::path_resolution::ResolvedPath;
 use crate::scan::include::is_inside;
 
 /// 起点のパスを、確かめた事実のパスと比べられる形にする

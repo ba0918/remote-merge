@@ -1,4 +1,5 @@
 //! 中身で決める組の判定（TBL-compare-002）と、読み込みの失敗の扱い（TBL-compare-004）の単体テスト
+use super::contents::{FailureHandling, read_failure_handling};
 use super::*;
 use crate::op_failure::{Disconnection, OpFailure};
 

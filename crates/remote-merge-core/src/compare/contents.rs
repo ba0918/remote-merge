@@ -6,7 +6,7 @@ use crate::op_failure::OpFailure;
 
 /// 読み込みの失敗の扱い（TBL-compare-004）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureHandling {
+pub(super) enum FailureHandling {
     /// 判定できないにする
     Undecidable,
     /// 判定せず、つなぎ直しの規則（docs/ir/ssh/reconnect.md の REQ-ssh-003）に任せる
@@ -16,7 +16,7 @@ pub enum FailureHandling {
 }
 
 /// 失敗の種類から扱いを決める。種類を足したらここで決め直すよう、すべて挙げる
-pub fn read_failure_handling(failure: &OpFailure) -> FailureHandling {
+pub(super) fn read_failure_handling(failure: &OpFailure) -> FailureHandling {
     match failure {
         // 状態ではあったのに読むときにない: 状態を集めた後に変わったもの（REQ-compare-003）
         OpFailure::NotFound

@@ -56,7 +56,7 @@ impl SideState {
 
 /// symlink を辿った先の状態（docs/ir/compare/judgement.md の REQ-compare-008）。通常ファイルは、
 /// 大きさと更新時刻の分からない通常ファイルとし、中身のハッシュで決める
-pub fn followed_state(points_to: LinkPoint) -> SideState {
+pub(super) fn followed_state(points_to: LinkPoint) -> SideState {
     match points_to {
         LinkPoint::Directory => SideState::Directory,
         LinkPoint::Missing => SideState::Absent,

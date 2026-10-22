@@ -44,7 +44,7 @@ pub fn choose_method(command: Command, checksum: bool, selection: Selection) -> 
 /// diff で、二つの symlink のリンクの組の判定と、辿った先の組の判定を合わせる。どちらかが同じで
 /// なければ差分あり（docs/ir/cli/symlink-diff.md の REQ-cli-020）。辿った先を判定できなければ、
 /// リンク文字列によらず判定できない（辿った先がその他の種類なら読まない。REQ-compare-009）
-pub fn combine_link_pair(link: &Verdict, followed: &Verdict) -> Verdict {
+pub(super) fn combine_link_pair(link: &Verdict, followed: &Verdict) -> Verdict {
     match (link, followed) {
         (Verdict::Same, Verdict::Same | Verdict::BothAbsent) => Verdict::Same,
         (Verdict::Same, Verdict::Differs | Verdict::OneSided(_) | Verdict::KindDiffers) => {

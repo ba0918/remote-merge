@@ -1,5 +1,7 @@
 //! 二つの通常ファイルの比べ方（TBL-compare-003）と、symlink の組と辿った先の組（REQ-compare-008）の
 //! 単体テスト
+use super::method::combine_link_pair;
+use super::state::followed_state;
 use super::*;
 use crate::scan::outcome::LinkPoint;
 

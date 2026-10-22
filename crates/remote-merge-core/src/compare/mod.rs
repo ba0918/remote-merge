@@ -17,17 +17,14 @@ mod table;
 mod verdict;
 
 pub use comparison::{Incomplete, NotObserved, PathComparison, Uses, has_content};
-pub use contents::{
-    ContentJudgement, FailureHandling, ReadOutcome, judge_hashes, read_failure_handling,
-    read_outcome,
-};
+pub use contents::{ContentJudgement, ReadOutcome, judge_hashes, read_outcome};
 pub use judge::judge_states;
-pub use method::{Command, Method, Selection, choose_method, combine_link_pair};
+pub use method::{Command, Method, Selection, choose_method};
 pub use pairs::{Follow, Pair, PairJudgement, hash_roles, judge_pairs};
 pub use recheck::{ChangeCheck, Observed, check_before_change};
 pub use settle::{PairVerdict, apply_reads, settle_pairs};
 pub use starts::{blocked_starts, links_outside, outside_on_the_way, paths_to_check};
-pub use state::{Mtime, SideState, followed_state};
+pub use state::{Mtime, SideState};
 pub use table::{PathStates, state_table};
 pub use verdict::{Judgement, Present, Role, SideFailure, Undecidable, Verdict};
 
