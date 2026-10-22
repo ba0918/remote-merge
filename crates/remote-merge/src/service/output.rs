@@ -82,19 +82,12 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
                 FileStatusKind::RightOnly => "R ",
                 FileStatusKind::Equal => "= ",
             };
-            let hunk_info = file
-                .hunks
-                .map(|n| format!(" ({} hunks)", n))
-                .unwrap_or_default();
             let ref_badge_str = file
                 .ref_badge
                 .as_ref()
                 .map(|b| ref_badge_display(b))
                 .unwrap_or("");
-            lines.push(format!(
-                "{}{}{}{}",
-                prefix, file.path, hunk_info, ref_badge_str
-            ));
+            lines.push(format!("{}{}{}", prefix, file.path, ref_badge_str));
         }
         lines.push(String::new());
     }
@@ -672,19 +665,16 @@ mod tests {
                 FileStatus {
                     path: "src/config.ts".into(),
                     status: FileStatusKind::Modified,
-                    hunks: None,
                     ref_badge: None,
                 },
                 FileStatus {
                     path: "src/new.ts".into(),
                     status: FileStatusKind::LeftOnly,
-                    hunks: None,
                     ref_badge: None,
                 },
                 FileStatus {
                     path: ".env".into(),
                     status: FileStatusKind::Modified,
-                    hunks: None,
                     ref_badge: None,
                 },
             ]),
@@ -896,19 +886,16 @@ mod tests {
                 FileStatus {
                     path: "a.rs".into(),
                     status: FileStatusKind::Modified,
-                    hunks: Some(2),
                     ref_badge: Some("differs".into()),
                 },
                 FileStatus {
                     path: "b.rs".into(),
                     status: FileStatusKind::Equal,
-                    hunks: None,
                     ref_badge: Some("missing_in_ref".into()),
                 },
                 FileStatus {
                     path: "c.rs".into(),
                     status: FileStatusKind::Modified,
-                    hunks: None,
                     ref_badge: Some("all_equal".into()),
                 },
             ]),
@@ -925,7 +912,6 @@ mod tests {
             errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
-        assert!(text.contains("M a.rs (2 hunks) [ref≠]"));
         assert!(text.contains("= b.rs [ref-]"));
         // all_equal badge should NOT be displayed
         assert!(!text.contains("c.rs [ref"));
@@ -948,7 +934,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
-                hunks: None,
                 ref_badge: None,
             }]),
             summary: StatusSummary {
@@ -2394,7 +2379,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "only_left.rs".into(),
                 status: FileStatusKind::LeftOnly,
-                hunks: None,
                 ref_badge: None,
             }]),
             summary: StatusSummary {
@@ -2436,7 +2420,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "only_right.rs".into(),
                 status: FileStatusKind::RightOnly,
-                hunks: None,
                 ref_badge: None,
             }]),
             summary: StatusSummary {

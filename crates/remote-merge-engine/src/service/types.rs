@@ -53,8 +53,6 @@ pub struct FileStatus {
     pub path: String,
     pub status: FileStatusKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hunks: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_badge: Option<String>,
 }
 
@@ -484,7 +482,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "src/config.ts".into(),
                 status: FileStatusKind::Modified,
-                hunks: None,
                 ref_badge: None,
             }]),
             summary: StatusSummary {
@@ -503,7 +500,7 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"modified\""));
         assert!(json.contains("\"local\""));
-        // hunks が None のときは出力されない
+        // status の項目は hunk の数を出さない
         assert!(!json.contains("\"hunks\""));
     }
 
@@ -809,7 +806,6 @@ mod tests {
         let file = FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            hunks: Some(2),
             ref_badge: Some("differs".into()),
         };
         let json = serde_json::to_string(&file).unwrap();
@@ -821,7 +817,6 @@ mod tests {
         let file = FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            hunks: None,
             ref_badge: None,
         };
         let json = serde_json::to_string(&file).unwrap();

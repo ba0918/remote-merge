@@ -45,7 +45,6 @@ pub fn status_listing(paths: &BTreeMap<String, PathComparison>, with_ref: bool) 
                 files.push(FileStatus {
                     path: path.clone(),
                     status,
-                    hunks: None,
                     ref_badge,
                 });
             }

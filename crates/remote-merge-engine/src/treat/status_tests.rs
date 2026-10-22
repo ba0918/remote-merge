@@ -244,7 +244,6 @@ fn listed(path: &str, status: FileStatusKind) -> FileStatus {
     FileStatus {
         path: path.into(),
         status,
-        hunks: None,
         ref_badge: None,
     }
 }
