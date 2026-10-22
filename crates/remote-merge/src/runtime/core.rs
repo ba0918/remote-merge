@@ -28,9 +28,9 @@ pub type PathHook = Box<dyn Fn(&str)>;
 ///
 /// SSH接続管理、ファイルI/O、ツリー取得を担当する。
 pub struct CoreRuntime {
-    pub rt: tokio::runtime::Runtime,
+    pub(crate) rt: tokio::runtime::Runtime,
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
-    pub ssh_clients: HashMap<String, SshClient>,
+    pub(crate) ssh_clients: HashMap<String, SshClient>,
     pub config: AppConfig,
     /// サーバ名 -> つないだエージェント（Agent 利用可能時のみ登録）
     pub(crate) agent_clients: HashMap<String, ConnectedAgent>,
