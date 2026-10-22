@@ -64,8 +64,8 @@ fn paths_in(json: &serde_json::Value, key: &str) -> Vec<String> {
         .collect()
 }
 
-/// 失敗の理由が権限か。ローカルの経路は OS の文言（"Permission denied"）、エージェントの経路は
-/// 小文字の "permission denied" で答える
+/// 失敗の理由が権限か。製品は理由を小文字の "permission denied" にそろえて答えるが、その書き方に
+/// よらないよう大小を区別せずに見る
 fn names_permission(error: &str) -> bool {
     error.to_lowercase().contains("permission denied")
 }
