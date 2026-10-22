@@ -295,6 +295,11 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
     let mut lines = Vec::new();
 
     for result in &output.merged {
+        // --hunks で差分のないファイルは、書き込んだ行でなくスキップの行で出す（REQ-merge-030）
+        if result.status == NO_CHANGES {
+            lines.push(format!("Skipped: {} (no changes)", result.path));
+            continue;
+        }
         let backup_info = result
             .backup
             .as_ref()
@@ -307,10 +312,7 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
             .unwrap_or("");
         let prefix = if result.status == "would merge" {
             "Would merge"
-        } else if result.status == "merged" {
-            "Merged"
         } else {
-            // "ok" (全体マージ), "skipped (no changes)" 等
             "Merged"
         };
         let hunk_info = if let Some(info) = &result.hunk_info {
@@ -326,11 +328,6 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
         } else {
             String::new()
         };
-        // --hunks で差分のないファイルは、書き込んだ行でなくスキップの行で出す（REQ-merge-030）
-        if result.status == NO_CHANGES {
-            lines.push(format!("Skipped: {} (no changes)", result.path));
-            continue;
-        }
         lines.push(format!(
             "{}: {}{}{}{}",
             prefix, result.path, hunk_info, backup_info, ref_badge_str
