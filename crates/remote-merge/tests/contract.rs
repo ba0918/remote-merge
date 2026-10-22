@@ -193,11 +193,15 @@ mod init;
 #[cfg(feature = "test-utils")]
 #[path = "contract/listing_support.rs"]
 mod listing_support;
+#[path = "contract/local_route_support.rs"]
+mod local_route_support;
 #[path = "contract/logs_level.rs"]
 mod logs_level;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_agent_outside_links.rs"]
 mod merge_agent_outside_links;
+#[path = "contract/merge_backup_paths.rs"]
+mod merge_backup_paths;
 #[path = "contract/merge_cli.rs"]
 mod merge_cli;
 #[cfg(feature = "test-utils")]
@@ -209,6 +213,8 @@ mod merge_content_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_created_directory_routes.rs"]
 mod merge_created_directory_routes;
+#[path = "contract/merge_delete_paths.rs"]
+mod merge_delete_paths;
 #[path = "contract/merge_dry_run_paths.rs"]
 mod merge_dry_run_paths;
 #[path = "contract/merge_filtered_named_paths.rs"]
@@ -225,6 +231,8 @@ mod merge_force_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_hard_links.rs"]
 mod merge_hard_links;
+#[path = "contract/merge_hunk_paths.rs"]
+mod merge_hunk_paths;
 #[path = "contract/merge_hunks.rs"]
 mod merge_hunks;
 #[cfg(feature = "test-utils")]
@@ -232,6 +240,8 @@ mod merge_hunks;
 mod merge_hunks_failures;
 #[path = "contract/merge_kind_subtree.rs"]
 mod merge_kind_subtree;
+#[path = "contract/merge_link_paths.rs"]
+mod merge_link_paths;
 #[path = "contract/merge_links.rs"]
 mod merge_links;
 #[cfg(feature = "test-utils")]
@@ -240,19 +250,25 @@ mod merge_missing_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_missing_root_dir.rs"]
 mod merge_missing_root_dir;
+#[path = "contract/merge_mode_paths.rs"]
+mod merge_mode_paths;
 #[path = "contract/merge_new_link_paths.rs"]
 mod merge_new_link_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_new_owner.rs"]
 mod merge_new_owner;
-#[path = "contract/merge_paths.rs"]
-mod merge_paths;
+#[path = "contract/merge_path_arguments.rs"]
+mod merge_path_arguments;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_permission_copy.rs"]
 mod merge_permission_copy;
+#[path = "contract/merge_quick_check_paths.rs"]
+mod merge_quick_check_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_recheck_cli.rs"]
 mod merge_recheck_cli;
+#[path = "contract/merge_recheck_paths.rs"]
+mod merge_recheck_paths;
 #[path = "contract/merge_ref_hunks_fix.rs"]
 mod merge_ref_hunks_fix;
 #[path = "contract/merge_ref_kinds.rs"]
@@ -269,6 +285,8 @@ mod merge_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_symlink_changed_routes.rs"]
 mod merge_symlink_changed_routes;
+#[path = "contract/merge_unreadable_paths.rs"]
+mod merge_unreadable_paths;
 #[path = "contract/merge_write.rs"]
 mod merge_write;
 #[cfg(feature = "test-utils")]
