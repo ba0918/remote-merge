@@ -79,20 +79,18 @@ fn nothing_is_made_when_the_root_dir_is_gone() {
 // root_dir の上を辿れない（検索の権限がない）ときは、root_dir がないではなく権限がないにする（D48）
 #[test]
 fn a_root_dir_under_an_unsearchable_directory_is_permission_denied() {
-    use std::os::unix::fs::PermissionsExt;
     // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
     if unsafe { libc::geteuid() == 0 } {
         return;
     }
-    let temp = tempfile::tempdir().unwrap();
+    let temp = crate::test_tree::TestTree::new();
     let locked = temp.path().join("locked");
     fs::create_dir_all(locked.join("root")).unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    temp.lock(&locked, 0o000);
 
     let written = write(&locked.join("root"), &entry("sub/a.txt"), b"x");
     let linked = create_symlink(&locked.join("root"), &entry("sub/link"), "t");
 
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(written, Err(OpFailure::PermissionDenied));
     assert_eq!(linked, Err(OpFailure::PermissionDenied));
 }

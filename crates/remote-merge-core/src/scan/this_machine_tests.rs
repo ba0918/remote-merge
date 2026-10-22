@@ -9,7 +9,7 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use super::*;
@@ -323,13 +323,12 @@ fn a_time_without_a_fraction_of_a_second_is_read_with_seconds_precision() {
     reason = "root で走っているために前提を作れなかったことを知らせる"
 )]
 fn an_entry_that_cannot_be_stat_ed_is_answered_with_its_own_path() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = crate::test_tree::TestTree::new();
     let root = temp.path();
     fs::create_dir_all(root.join("d/x")).unwrap();
-    fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o644)).unwrap();
+    temp.lock(root.join("d"), 0o644);
     let applies = fs::symlink_metadata(root.join("d/x")).is_err();
     let answer = ask(root, b"", true, &[]);
-    fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o755)).unwrap();
     if !applies {
         eprintln!("note: running as root; entries can be stat'ed without permission");
         return;
