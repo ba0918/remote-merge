@@ -2,14 +2,14 @@
 //! 走査が、読めた更新時刻を既定の値で埋めずに、ローカルとエージェントのどちらの経路でも読んだ
 //! とおりの秒とナノ秒で載せること（docs/ir/scan/listing.md の REQ-scan-016）の契約テスト。
 //!
-//! 経路ごとの root_dir と偽サーバは子の一覧の契約テスト（path_operations_agree）のものを使う。
+//! 経路ごとの root_dir とエージェントのプロセスは process_routes_support のものを使う。
 
 use std::collections::BTreeMap;
 use std::fs;
 
 use remote_merge_core::scan::outcome::Listing;
 
-use super::path_operations_agree::{MAX_ENTRIES, Routes, set_mtime};
+use super::process_routes_support::{MAX_ENTRIES, Routes, touch};
 
 /// 走査で載った項目の root_dir からのパスと更新時刻（秒とナノ秒）
 type Times = BTreeMap<String, Option<(i64, u32)>>;
@@ -28,13 +28,12 @@ fn times_text(scan: Result<Listing, String>) -> String {
 }
 
 // @kotowari[REQ-scan-016]
-#[tokio::test(flavor = "multi_thread")]
-async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_both_routes() {
+#[test]
+fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("old.txt"), "old\n").unwrap();
-        set_mtime(&root.join("old.txt"), "@-1000000.25");
-    })
-    .await;
+        touch(&root.join("old.txt"), "@-1000000.25");
+    });
 
     let local = times(
         remote_merge_engine::local_io::scan_listing(

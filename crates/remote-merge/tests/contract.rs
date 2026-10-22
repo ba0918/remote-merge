@@ -286,6 +286,9 @@ mod path_routes_agree;
 #[path = "contract/paths_not_regular.rs"]
 mod paths_not_regular;
 #[cfg(feature = "test-utils")]
+#[path = "contract/process_routes_support.rs"]
+mod process_routes_support;
+#[cfg(feature = "test-utils")]
 #[path = "contract/reference_other_kinds.rs"]
 mod reference_other_kinds;
 #[cfg(feature = "test-utils")]

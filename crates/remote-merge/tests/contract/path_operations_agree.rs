@@ -8,10 +8,8 @@
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::Path;
 
-use remote_merge::agent::client::AgentClient;
 use remote_merge_core::scan::children::ChildListing;
 use remote_merge_core::scan::drive::scan;
 use remote_merge_core::scan::exclude::Exclude;
@@ -19,89 +17,13 @@ use remote_merge_core::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
 use remote_merge_core::scan::outcome::{ScanError, ScanFailure, ScanRequest, ScanScope};
 
 use super::listing_support::{UnreadableLink, agent_children};
+use super::process_routes_support::{MAX_ENTRIES, Routes, touch};
 use remote_merge_core::machine_ops::PermissionMode;
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
 
-pub(super) const MAX_ENTRIES: usize = 10_000;
-
 fn listing_text(listing: Result<ChildListing, String>) -> String {
     format!("{:?}", entries(listing))
-}
-
-/// 一つの経路の root_dir と、その外のディレクトリ
-pub(super) struct RouteDir {
-    pub(super) root: PathBuf,
-    outside: PathBuf,
-}
-
-impl RouteDir {
-    fn new(base: &Path, name: &str, state: impl Fn(&Path, &Path)) -> Self {
-        let root = base.join(name).join("root");
-        let outside = base.join(name).join("outside");
-        fs::create_dir_all(&root).unwrap();
-        fs::create_dir_all(&outside).unwrap();
-        state(&root, &outside);
-        Self { root, outside }
-    }
-}
-
-/// 二つの経路の root_dir
-pub(super) struct Routes {
-    home: tempfile::TempDir,
-    pub(super) local: RouteDir,
-    pub(super) agent: RouteDir,
-}
-
-impl Routes {
-    pub(super) async fn new(state: impl Fn(&Path, &Path)) -> Self {
-        let home = tempfile::Builder::new()
-            .permissions(fs::Permissions::from_mode(0o700))
-            .tempdir()
-            .unwrap();
-        let local = RouteDir::new(home.path(), "local", &state);
-        let agent = RouteDir::new(home.path(), "agent", &state);
-        Self { home, local, agent }
-    }
-
-    /// エージェントのプロセスを起動して `operation` を行う
-    pub(super) fn over_agent<T>(&self, operation: impl FnOnce(&mut Agent) -> T) -> T {
-        let mut agent = Agent::start(&self.agent.root, self.home.path());
-        let result = operation(&mut agent);
-        agent.stop();
-        result
-    }
-}
-
-pub(super) struct Agent {
-    child: Child,
-    pub(super) client: AgentClient<std::process::ChildStdout, std::process::ChildStdin>,
-}
-
-impl Agent {
-    fn start(root: &Path, cwd: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .arg("agent")
-            .arg("--root")
-            .arg(root)
-            .current_dir(cwd)
-            .env("RUST_LOG", "off")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let client =
-            AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap())
-                .unwrap();
-        Self { child, client }
-    }
-
-    fn stop(mut self) {
-        let _ = self.client.shutdown();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
 }
 
 /// 二つの経路の結果。エラーは文言のまま持つ
@@ -238,24 +160,13 @@ fn mode_of(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o7777
 }
 
-/// 更新時刻をナノ秒まで決める（symlink はリンク自身）
-pub(super) fn set_mtime(path: &Path, stamp: &str) {
-    let status = Command::new("touch")
-        .args(["-h", "-d", stamp])
-        .arg(path)
-        .status()
-        .unwrap();
-    assert!(status.success());
-}
-
 // @kotowari[REQ-paths-013, EX-paths-026]
-#[tokio::test(flavor = "multi_thread")]
-async fn removing_a_terminal_symlink_removes_only_the_link_on_both_routes() {
+#[test]
+fn removing_a_terminal_symlink_removes_only_the_link_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("t.txt"), "target\n").unwrap();
         symlink("t.txt", root.join("l")).unwrap();
-    })
-    .await;
+    });
 
     remove_on_all_routes(&routes, "l").assert_all_ok();
 
@@ -273,13 +184,12 @@ async fn removing_a_terminal_symlink_removes_only_the_link_on_both_routes() {
 }
 
 // @kotowari[EX-paths-027]
-#[tokio::test(flavor = "multi_thread")]
-async fn removing_a_directory_fails_and_keeps_it_on_both_routes() {
+#[test]
+fn removing_a_directory_fails_and_keeps_it_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::create_dir(root.join("d")).unwrap();
         fs::write(root.join("d/inner.txt"), "inner\n").unwrap();
-    })
-    .await;
+    });
 
     remove_on_all_routes(&routes, "d").assert_all_fail_naming(&["remove", "d"]);
 
@@ -292,15 +202,13 @@ async fn removing_a_directory_fails_and_keeps_it_on_both_routes() {
 }
 
 // @kotowari[EX-paths-028]
-#[tokio::test(flavor = "multi_thread")]
-async fn changing_permissions_through_an_intermediate_symlink_outside_the_root_succeeds_on_both_routes()
- {
+#[test]
+fn changing_permissions_through_an_intermediate_symlink_outside_the_root_succeeds_on_both_routes() {
     let routes = Routes::new(|root, outside| {
         fs::write(outside.join("a.txt"), "shared\n").unwrap();
         fs::set_permissions(outside.join("a.txt"), fs::Permissions::from_mode(0o644)).unwrap();
         symlink(outside, root.join("shared")).unwrap();
-    })
-    .await;
+    });
 
     chmod_on_all_routes(&routes, "shared/a.txt", 0o640).assert_all_ok();
 
@@ -315,13 +223,12 @@ async fn changing_permissions_through_an_intermediate_symlink_outside_the_root_s
 }
 
 // @kotowari[REQ-paths-015, EX-paths-031]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_mode_with_setuid_is_refused_without_change_on_both_routes() {
+#[test]
+fn a_mode_with_setuid_is_refused_without_change_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("a.sh"), "#!/bin/sh\n").unwrap();
         fs::set_permissions(root.join("a.sh"), fs::Permissions::from_mode(0o644)).unwrap();
-    })
-    .await;
+    });
 
     chmod_on_all_routes(&routes, "a.sh", 0o4755).assert_all_fail_naming(&["permission", "a.sh"]);
 
@@ -331,13 +238,12 @@ async fn a_mode_with_setuid_is_refused_without_change_on_both_routes() {
 }
 
 // @kotowari[REQ-paths-018, EX-paths-035]
-#[tokio::test(flavor = "multi_thread")]
-async fn changing_a_setgid_directory_to_775_keeps_setgid_on_both_routes() {
+#[test]
+fn changing_a_setgid_directory_to_775_keeps_setgid_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::create_dir(root.join("shared")).unwrap();
         fs::set_permissions(root.join("shared"), fs::Permissions::from_mode(0o2775)).unwrap();
-    })
-    .await;
+    });
 
     chmod_on_all_routes(&routes, "shared", 0o775).assert_all_ok();
 
@@ -347,9 +253,9 @@ async fn changing_a_setgid_directory_to_775_keeps_setgid_on_both_routes() {
 }
 
 // @kotowari[REQ-paths-016, EX-paths-032]
-#[tokio::test(flavor = "multi_thread")]
-async fn changing_the_permissions_of_a_missing_path_names_the_operation_the_path_and_the_cause() {
-    let routes = Routes::new(|_, _| {}).await;
+#[test]
+fn changing_the_permissions_of_a_missing_path_names_the_operation_the_path_and_the_cause() {
+    let routes = Routes::new(|_, _| {});
 
     chmod_on_all_routes(&routes, "missing.txt", 0o644).assert_all_fail_naming(&[
         "permission",
@@ -359,21 +265,20 @@ async fn changing_the_permissions_of_a_missing_path_names_the_operation_the_path
 }
 
 // @kotowari[REQ-paths-017, EX-paths-033]
-#[tokio::test(flavor = "multi_thread")]
-async fn listing_the_same_directory_gives_the_same_entries_on_both_routes() {
+#[test]
+fn listing_the_same_directory_gives_the_same_entries_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("a.txt"), "some text\n").unwrap();
         fs::create_dir(root.join("s")).unwrap();
         fs::set_permissions(root.join("s"), fs::Permissions::from_mode(0o2755)).unwrap();
         symlink(" t ", root.join("l")).unwrap();
         fs::create_dir_all(root.join("v/vendor")).unwrap();
-        set_mtime(&root.join("a.txt"), "@1700000000.123456789");
-        set_mtime(&root.join("s"), "@1700000001.987654321");
-        set_mtime(&root.join("l"), "@1700000002.000000123");
-        set_mtime(&root.join("v"), "@1700000003.5");
-        set_mtime(&root.join("v/vendor"), "@1700000004.25");
-    })
-    .await;
+        touch(&root.join("a.txt"), "@1700000000.123456789");
+        touch(&root.join("s"), "@1700000001.987654321");
+        touch(&root.join("l"), "@1700000002.000000123");
+        touch(&root.join("v"), "@1700000003.5");
+        touch(&root.join("v/vendor"), "@1700000004.25");
+    });
 
     let (local, [local_text, agent]) = list_on_all_routes(&routes, "");
 
@@ -406,16 +311,15 @@ async fn listing_the_same_directory_gives_the_same_entries_on_both_routes() {
 }
 
 // @kotowari[REQ-paths-017, EX-paths-036]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_path_pattern_exclude_does_not_hide_a_deeper_child_of_the_same_name_on_both_routes() {
+#[test]
+fn a_path_pattern_exclude_does_not_hide_a_deeper_child_of_the_same_name_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::create_dir_all(root.join("vendor")).unwrap();
         fs::write(root.join("vendor/x.txt"), "x\n").unwrap();
         fs::create_dir_all(root.join("a/vendor")).unwrap();
         fs::write(root.join("a/vendor/y.txt"), "y\n").unwrap();
-        set_mtime(&root.join("a/vendor"), "@1700000000.5");
-    })
-    .await;
+        touch(&root.join("a/vendor"), "@1700000000.5");
+    });
     let exclude = ["vendor/**".to_string()];
 
     let (local, [local_text, agent]) = list_on_all_routes_excluding(&routes, "a", &exclude);
@@ -426,13 +330,12 @@ async fn a_path_pattern_exclude_does_not_hide_a_deeper_child_of_the_same_name_on
 }
 
 // @kotowari[REQ-paths-017]
-#[tokio::test(flavor = "multi_thread")]
-async fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_both_routes() {
+#[test]
+fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_both_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("old.txt"), "old\n").unwrap();
-        set_mtime(&root.join("old.txt"), "@-1");
-    })
-    .await;
+        touch(&root.join("old.txt"), "@-1");
+    });
 
     let (local, [local_text, agent]) = list_on_all_routes(&routes, "");
 
@@ -441,17 +344,16 @@ async fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_both_rout
 }
 
 // @kotowari[REQ-paths-017, EX-paths-037]
-#[tokio::test(flavor = "multi_thread")]
-async fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_same_names_on_both_routes()
- {
+#[test]
+fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_same_names_on_both_routes()
+{
     let routes = Routes::new(|root, _| {
         fs::create_dir(root.join("a")).unwrap();
         for name in ["x\ty.txt", "p\nq.txt"] {
             fs::write(root.join("a").join(name), "x\n").unwrap();
-            set_mtime(&root.join("a").join(name), "@1700000000.5");
+            touch(&root.join("a").join(name), "@1700000000.5");
         }
-    })
-    .await;
+    });
 
     let (local, [local_text, agent]) = list_on_all_routes(&routes, "a");
 

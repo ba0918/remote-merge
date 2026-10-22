@@ -4,24 +4,30 @@
 //! （docs/ir/paths/operations.md の REQ-paths-013・REQ-paths-020）の契約テスト。
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use remote_merge_core::machine_ops::{self, EntryLink};
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::EntryPath;
 
-use super::operation_failures_agree::{anyhow_kind, kind};
-use super::path_operations_agree::Routes;
+use super::process_routes_support::{Routes, anyhow_kind, kind};
 
-/// "f" は通常ファイル、"l" は "t" を指す symlink、"dl" はリンク切れの symlink、検索の権限のない "locked" の下に "a.txt" がある
+/// "f" は通常ファイル、"l" は "t" を指す symlink、"dl" はリンク切れの symlink、"locked" の下に "a.txt"
+/// がある。"locked" の検索の権限は、作った後で外す
 fn state(root: &Path, _: &Path) {
     fs::write(root.join("f"), "f\n").unwrap();
     symlink("t", root.join("l")).unwrap();
     symlink("nowhere", root.join("dl")).unwrap();
     fs::create_dir(root.join("locked")).unwrap();
     fs::write(root.join("locked/a.txt"), "a\n").unwrap();
-    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+/// [`state`] の状態を二つの経路に作り、"locked" の検索の権限を外す
+fn routes() -> Routes {
+    let routes = Routes::new(state);
+    routes.lock_on_both("locked", 0o644);
+    routes
 }
 
 fn link_text(link: Result<EntryLink, OpFailure>) -> String {
@@ -55,9 +61,9 @@ fn on_agent(routes: &Routes, operation: &str, entry: &EntryPath) -> String {
 }
 
 // @kotowari[REQ-paths-013, REQ-paths-020]
-#[tokio::test(flavor = "multi_thread")]
-async fn writes_links_and_link_reads_give_the_same_result_on_both_routes() {
-    let routes = Routes::new(state).await;
+#[test]
+fn writes_links_and_link_reads_give_the_same_result_on_both_routes() {
+    let routes = routes();
     // root はどのディレクトリにも入れるので、権限がないの失敗を作れない
     let permissions_apply = fs::metadata(routes.local.root.join("locked/a.txt")).is_err();
     let mut cases = vec![
@@ -103,17 +109,13 @@ async fn writes_links_and_link_reads_give_the_same_result_on_both_routes() {
             differences.push(format!("{operation} {path}: {outcomes:?}"));
         }
     }
-    for route in [&routes.local, &routes.agent] {
-        fs::set_permissions(route.root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
     assert!(differences.is_empty(), "{differences:#?}");
 }
 
 // @kotowari[REQ-merge-042, REQ-paths-013]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_write_or_a_link_failing_after_creating_parents_leaves_no_parent_on_both_routes() {
-    let routes = Routes::new(state).await;
+#[test]
+fn a_write_or_a_link_failing_after_creating_parents_leaves_no_parent_on_both_routes() {
+    let routes = routes();
     let long = "x".repeat(300);
     let cases = [
         ("write", format!("new/sub/{long}"), "new"),
@@ -135,9 +137,5 @@ async fn a_write_or_a_link_failing_after_creating_parents_leaves_no_parent_on_bo
             differences.push(format!("{operation}: {outcomes:?} left={left:?}"));
         }
     }
-    for route in [&routes.local, &routes.agent] {
-        fs::set_permissions(route.root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
     assert!(differences.is_empty(), "{differences:#?}");
 }

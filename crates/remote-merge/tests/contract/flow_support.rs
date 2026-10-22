@@ -5,7 +5,7 @@
 //! 経路ごとに左右と参照先の root_dir を作り、左はいつもローカル、右（サーバ "fixture"）と参照先
 //! （サーバ "reference"）は調べる経路（ローカル・エージェント）にする。
 //! 製品の実行時処理は HOME の known_hosts を読み書きするので、HOME を一時ディレクトリにしたテストの
-//! プロセスで動かす（path_operations_agree と同じ形）。親の側は flow_routes にある。
+//! プロセスで動かす。親の側は flow_routes にある。
 
 use std::fs;
 use std::path::{Path, PathBuf};

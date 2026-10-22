@@ -13,7 +13,7 @@ use std::path::Path;
 use remote_merge_core::scan::outcome::{LinkPoint, ListedKind, Listing};
 use serde_json::{Value, json};
 
-use super::path_operations_agree::{MAX_ENTRIES, Routes, set_mtime};
+use super::process_routes_support::{MAX_ENTRIES, Routes, touch};
 
 const EXCLUDE: [&str; 2] = ["loopdir", "cache"];
 const STAMP: &str = "@1700000000.123456789";
@@ -49,7 +49,7 @@ fn place_tree(root: &Path) {
         "p\nq.txt",
         "b\\c.txt",
     ] {
-        set_mtime(&root.join(path), STAMP);
+        touch(&root.join(path), STAMP);
     }
 }
 
@@ -120,10 +120,10 @@ fn without_unread_digits(mut a: Value, mut b: Value) -> (Value, Value) {
 }
 
 // @kotowari[REQ-scan-017, REQ-scan-006, REQ-scan-016]
-#[tokio::test(flavor = "multi_thread")]
-async fn kinds_sizes_permissions_link_targets_and_times_are_the_same_on_every_route() {
+#[test]
+fn kinds_sizes_permissions_link_targets_and_times_are_the_same_on_every_route() {
     let exclude: Vec<String> = EXCLUDE.iter().map(|p| p.to_string()).collect();
-    let routes = Routes::new(|root, _| place_tree(root)).await;
+    let routes = Routes::new(|root, _| place_tree(root));
     let request = remote_merge_core::scan::outcome::ScanRequest {
         scope: remote_merge_core::scan::outcome::ScanScope::Whole,
         max_entries: MAX_ENTRIES,

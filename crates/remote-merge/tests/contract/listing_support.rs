@@ -13,7 +13,7 @@ use remote_merge_core::scan::raw::{
 };
 use remote_merge_engine::child_listing::into_child_listing;
 
-use super::path_operations_agree::MAX_ENTRIES;
+use super::process_routes_support::MAX_ENTRIES;
 
 /// エージェントの経路で、製品と同じく子の一覧の走査を頼んで子の一覧にする
 pub(super) fn agent_children<R: Read, W: Write>(
