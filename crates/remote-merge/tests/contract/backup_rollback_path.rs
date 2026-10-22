@@ -447,7 +447,7 @@ fn an_unresolvable_destination_fails_with_the_cause_after_a_single_prefix() {
     fs::remove_file(develop.path().join("file.txt")).unwrap();
     symlink("file.txt", develop.path().join("file.txt")).unwrap();
 
-    let (output, _) = restore(
+    let (output, code) = restore(
         rollback_args("develop", None),
         config(&local, &develop, true),
         targets(&develop, &store),
@@ -459,6 +459,36 @@ fn an_unresolvable_destination_fails_with_the_cause_after_a_single_prefix() {
         output.failed[0].error,
         "cannot resolve path: too many levels of symbolic links"
     );
+    assert_eq!(code, 2);
+}
+
+// 書き戻し先の親が自分を指す symlink に変わっていても、同じくそのパスを辿れない失敗にする
+// @kotowari[REQ-backup-003]
+#[test]
+fn a_destination_parent_that_became_a_cyclic_symlink_fails_with_the_cause() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(develop.path().join("dir")).unwrap();
+    fs::write(develop.path().join("dir/file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let mut args = merge_args("dir/file.txt");
+    args.delete = true;
+    merge_files(args, config.clone(), targets(&develop, &store));
+    fs::remove_dir(develop.path().join("dir")).unwrap();
+    symlink("dir", develop.path().join("dir")).unwrap();
+
+    let (output, code) = restore(
+        rollback_args("develop", None),
+        config,
+        targets(&develop, &store),
+    );
+
+    assert!(
+        output.failed[0].error.starts_with("cannot resolve path: "),
+        "{output:?}"
+    );
+    assert_eq!(code, 2);
 }
 
 // @kotowari[REQ-backup-033]

@@ -144,3 +144,38 @@ async fn req_scan_018_merge_stops_before_writing_on_a_link_that_cannot_be_follow
         assert_eq!(fs::read(remote_root.join("c.txt")).unwrap(), b"right\n");
     }
 }
+
+// ローカルの書き込み先でも、親が辿れない symlink なら書き込む前に止まる
+// @kotowari[REQ-scan-018]
+#[test]
+fn req_scan_018_a_merge_to_a_local_destination_stops_below_a_link_that_cannot_be_followed() {
+    use super::backup_support::{config, merge_args, targets};
+    let local = tempfile::TempDir::new().unwrap();
+    let develop = tempfile::TempDir::new().unwrap();
+    let store = tempfile::TempDir::new().unwrap();
+    fs::create_dir(local.path().join("cycle")).unwrap();
+    fs::write(local.path().join("cycle/file.txt"), "replacement\n").unwrap();
+    std::os::unix::fs::symlink("cycle", develop.path().join("cycle")).unwrap();
+
+    let error = remote_merge::cli::merge::execute_merge(
+        merge_args("cycle/file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .err()
+    .expect("the scan below a link that cannot be followed must stop");
+
+    assert!(
+        error.to_string().contains("Cannot follow symbolic link"),
+        "{error:#}"
+    );
+    assert!(
+        develop
+            .path()
+            .join("cycle")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}

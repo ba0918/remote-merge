@@ -4,11 +4,12 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
 use super::backup_support::{
-    config, config_with_servers, listed_sessions, merge_args, merge_files, restore, rollback_args,
-    store_entries, targets,
+    config, config_with_servers, fixed_now, listed_sessions, merge_args, merge_files, restore,
+    rollback_args, store_entries, targets,
 };
 
 fn mode(path: &std::path::Path) -> u32 {
@@ -262,4 +263,183 @@ fn creating_a_new_file_in_a_missing_directory_records_nothing_and_leaves_no_sess
     );
     assert_no_session_left(store.path());
     assert!(listed_sessions("develop", config, targets(&develop, &store)).is_empty());
+}
+
+// ─── 集約先だけに保存し、無効なら何も作らない（REQ-backup-001・005） ─────────────────
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_merge_saves_its_backup_only_in_the_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+
+    let output = merge_files(
+        merge_args("file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new content\n"
+    );
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+    let backup = output.merged[0].backup.as_deref().unwrap();
+    assert!(backup.starts_with("20260914-120000/file.txt"), "{backup}");
+    assert!(
+        !backup.contains(store.path().to_string_lossy().as_ref()),
+        "{backup}"
+    );
+    assert!(fs::read_dir(store.path()).unwrap().next().is_some());
+}
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_deletion_saves_its_backup_only_in_the_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(develop.path().join("obsolete.txt"), "obsolete\n").unwrap();
+    let mut args = merge_args("obsolete.txt");
+    args.delete = true;
+
+    let output = merge_files(
+        args,
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+
+    assert!(!develop.path().join("obsolete.txt").exists());
+    assert!(
+        output.deleted[0]
+            .backup
+            .as_deref()
+            .is_some_and(|value| value.ends_with("/obsolete.txt")),
+        "{output:?}"
+    );
+    let remaining = fs::read_dir(develop.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert!(remaining.is_empty(), "remaining entries: {remaining:?}");
+}
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_hunk_merge_saves_its_backup_only_in_the_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "first\nchanged\nthird\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "first\nold\nthird\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.hunks = Some(vec![0]);
+
+    let output = merge_files(
+        args,
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+
+    assert!(
+        output.merged[0]
+            .backup
+            .as_deref()
+            .is_some_and(|value| value.ends_with("/file.txt")),
+        "{output:?}"
+    );
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+}
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_merge_into_local_keeps_its_backup_out_of_the_local_root() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "old\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote content\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    let config = config(&local, &develop, true);
+    let before = fs::read_dir(local.path()).unwrap().count();
+
+    let output = merge_files(args, config, targets(&develop, &store));
+
+    assert_eq!(fs::read_dir(local.path()).unwrap().count(), before);
+    assert!(output.merged[0].backup.is_some(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(local.path().join("file.txt")).unwrap(),
+        "new remote content\n"
+    );
+}
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_merge_between_servers_keeps_its_backup_out_of_both_roots() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let staging = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote content\n").unwrap();
+    fs::write(staging.path().join("file.txt"), "old\n").unwrap();
+    let config = config_with_servers(
+        &local,
+        &[
+            ("develop", "develop.invalid", 22, develop.path()),
+            ("staging", "staging.invalid", 22, staging.path()),
+        ],
+        true,
+    );
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_local("staging", staging.path())
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(fixed_now());
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("staging".into());
+    args.force = true;
+
+    let output = merge_files(args, config, targets);
+
+    assert!(output.merged[0].backup.is_some(), "{output:?}");
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_to_string(staging.path().join("file.txt")).unwrap(),
+        "new remote content\n"
+    );
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new remote content\n"
+    );
+}
+
+// 集約先の場所が決まっていても、無効なバックアップはそこに何も作らない
+// @kotowari[REQ-backup-005]
+#[test]
+fn disabled_backup_writes_without_creating_entries_in_a_located_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+
+    merge_files(
+        merge_args("file.txt"),
+        config(&local, &develop, false),
+        targets(&develop, &store),
+    );
+
+    assert_eq!(fs::read_dir(store.path()).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new content\n"
+    );
 }
