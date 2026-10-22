@@ -8,7 +8,7 @@
 /// バックスラッシュだけは引用符を閉じてから前にバックスラッシュを置く。fish は単一引用符の中でも
 /// `\'` と `\\` を解釈するので、POSIX の `'\''` の書き方だけでは引用符の中にバックスラッシュが残る。
 pub(crate) fn wrap_for_login_shell(script: &str) -> String {
-    let mut command = String::with_capacity(WRAP_OVERHEAD + wrapped_script_len(script));
+    let mut command = String::with_capacity(script.len() + "sh -c ''".len());
     command.push_str("sh -c '");
     for ch in script.chars() {
         if ch == '\'' || ch == '\\' {
@@ -24,47 +24,30 @@ pub(crate) fn wrap_for_login_shell(script: &str) -> String {
     command
 }
 
-/// [`wrap_for_login_shell`] がスクリプトの前後に足す `sh -c '` と `'` の長さ（バイト）。
-pub(crate) const WRAP_OVERHEAD: usize = "sh -c ''".len();
-
-/// [`wrap_for_login_shell`] で包んだときにスクリプトの部分が占める長さ（バイト）。
-///
-/// 単一引用符とバックスラッシュは、引用符を閉じて前にバックスラッシュを置き開き直す4バイトになり、他の文字はそのまま残る。包んだ長さは
-/// スクリプトを分けて数えた長さの和に [`WRAP_OVERHEAD`] を足したものになる。
-pub(crate) fn wrapped_script_len(script: &str) -> usize {
-    let escaped = script
-        .bytes()
-        .filter(|b| matches!(b, b'\'' | b'\\'))
-        .count();
-    script.len() + 3 * escaped
-}
-
-/// テストでリモートのログインシェルの代わりに使うシェル。
-#[cfg(test)]
-pub(crate) const LOGIN_SHELLS: [&str; 4] = ["sh", "bash", "dash", "fish"];
-
-/// テストで `shell` が入っていないことを知らせ、そのシェルでの確認を飛ばす。
-///
-/// `REMOTE_MERGE_TEST_REQUIRE_FISH` が空でなければ、fish がないことを失敗にする（CI は fish を
-/// 入れてこの変数を置き、fish での確認が黙って抜けないようにする）。
-#[cfg(test)]
-#[expect(
-    clippy::print_stderr,
-    reason = "テストで確認を飛ばしたことを知らせる（ライブラリには含まれない）"
-)]
-pub(crate) fn skip_missing_shell(shell: &str) {
-    let fish_required =
-        std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_FISH").is_some_and(|value| !value.is_empty());
-    assert!(
-        !(shell == "fish" && fish_required),
-        "fish is required by REMOTE_MERGE_TEST_REQUIRE_FISH but is not installed"
-    );
-    eprintln!("note: {shell} is not installed; skipped running under it");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// リモートのログインシェルの代わりに使うシェル。
+    const LOGIN_SHELLS: [&str; 4] = ["sh", "bash", "dash", "fish"];
+
+    /// `shell` が入っていないことを知らせ、そのシェルでの確認を飛ばす。
+    ///
+    /// `REMOTE_MERGE_TEST_REQUIRE_FISH` が空でなければ、fish がないことを失敗にする（CI は fish を
+    /// 入れてこの変数を置き、fish での確認が黙って抜けないようにする）。
+    #[expect(
+        clippy::print_stderr,
+        reason = "テストで確認を飛ばしたことを知らせる（ライブラリには含まれない）"
+    )]
+    fn skip_missing_shell(shell: &str) {
+        let fish_required = std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_FISH")
+            .is_some_and(|value| !value.is_empty());
+        assert!(
+            !(shell == "fish" && fish_required),
+            "fish is required by REMOTE_MERGE_TEST_REQUIRE_FISH but is not installed"
+        );
+        eprintln!("note: {shell} is not installed; skipped running under it");
+    }
 
     /// `shell -c command` を実行して標準出力を返す。シェルが入っていなければ `None`。
     fn run_with(shell: &str, command: &str, dir: &std::path::Path) -> Option<std::process::Output> {
