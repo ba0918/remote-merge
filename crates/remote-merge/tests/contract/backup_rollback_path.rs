@@ -74,7 +74,9 @@ fn rollback_does_not_restore_a_file_when_its_current_content_cannot_be_backed_up
     merged_file_fixture(&local, &develop, &store);
     let file = develop.path().join("file.txt");
     fs::write(&file, "content before rollback\n").unwrap();
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    if !super::common::restrict_permissions(&file, 0o000) {
+        return;
+    }
 
     let result = execute_rollback(
         rollback_args("develop", None),

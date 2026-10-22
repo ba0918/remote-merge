@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use super::merge_support::{Fixture, args, fixture, sync_args};
 
-/// 読めない側を指定したファイルを三つ作る。
+/// 読めない側を指定したファイルを三つ作る。読めなくできない（root で動く）なら None。
 /// source-locked.txt は local、destination-locked.txt は develop、both-locked.txt は両側が読めない。
-fn unreadable_files(fixture: &Fixture) -> [&'static str; 3] {
+fn unreadable_files(fixture: &Fixture) -> Option<[&'static str; 3]> {
     let files = [
         "source-locked.txt",
         "destination-locked.txt",
@@ -20,11 +20,15 @@ fn unreadable_files(fixture: &Fixture) -> [&'static str; 3] {
         fixture.write("local", path, "a longer new version\n");
         fixture.write("develop", path, "old\n");
     }
-    fixture.make_unreadable("local", "source-locked.txt");
-    fixture.make_unreadable("develop", "destination-locked.txt");
-    fixture.make_unreadable("local", "both-locked.txt");
-    fixture.make_unreadable("develop", "both-locked.txt");
-    files
+    [
+        ("local", "source-locked.txt"),
+        ("develop", "destination-locked.txt"),
+        ("local", "both-locked.txt"),
+        ("develop", "both-locked.txt"),
+    ]
+    .iter()
+    .all(|(side, path)| fixture.make_unreadable(side, path))
+    .then_some(files)
 }
 
 fn error_of<'a>(failed: &'a serde_json::Value, path: &str) -> &'a str {
@@ -72,7 +76,9 @@ fn assert_read_failures(failed: &serde_json::Value) {
 #[test]
 fn merge_reports_which_side_could_not_be_read() {
     let fixture = fixture();
-    let files = unreadable_files(&fixture);
+    let Some(files) = unreadable_files(&fixture) else {
+        return;
+    };
 
     let (json, _) = fixture.merge_json(args(&files));
 
@@ -85,7 +91,9 @@ fn merge_reports_which_side_could_not_be_read() {
 #[test]
 fn sync_reports_which_side_could_not_be_read() {
     let fixture = fixture();
-    let files = unreadable_files(&fixture);
+    let Some(files) = unreadable_files(&fixture) else {
+        return;
+    };
 
     let (json, _) = fixture.sync_json(sync_args(&files));
 

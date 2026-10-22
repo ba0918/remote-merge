@@ -1,4 +1,3 @@
-#![expect(unsafe_code, reason = "root で動いているかを libc の geteuid で調べる")]
 mod common;
 
 use common::{CliEnv, remote_merge_cmd};
@@ -35,8 +34,7 @@ fn the_isolated_homes_of_a_command_without_config_are_removed_with_the_command()
 #[test]
 fn a_command_whose_isolated_homes_cannot_be_removed_says_so() {
     use std::os::unix::fs::PermissionsExt;
-    // SAFETY: geteuid は引数を取らず、常に成功して呼び出したプロセスの実効 uid を返す
-    if unsafe { libc::geteuid() } == 0 {
+    if !common::permissions_apply() {
         return;
     }
     let command = remote_merge_cmd();

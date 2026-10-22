@@ -160,15 +160,6 @@ fn a_file_whose_reference_alone_cannot_be_read_keeps_its_judgement_without_a_bad
     assert!(file("b.txt").get("ref_badge").is_none(), "{json}");
 }
 
-fn make_unreadable(root: &std::path::Path, path: &str) {
-    let file = root.join(path);
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o200)).unwrap();
-    assert!(
-        fs::File::open(&file).is_err(),
-        "test needs an unreadable {path}"
-    );
-}
-
 // 存在だけで決まる印は中身の読み込みに左右されず、三つともにあるファイルは読みに行った中身を読めなければ
 // 印を出さない。m.txt（左右にあり参照先にない）と o.txt（左だけにあり参照先にある）は左を、
 // t.txt（三つともにあり、左と参照先が同じ大きさで更新時刻が違う）は参照先を読めない
@@ -183,9 +174,15 @@ fn only_a_badge_decided_by_contents_depends_on_reading_them() {
     write_at(fixture.local.path(), "t.txt", b"alpha\n", T0);
     write_at(fixture.develop.path(), "t.txt", b"bravo!\n", T0);
     write_at(fixture.staging.path(), "t.txt", b"basee\n", T0 + 30);
-    make_unreadable(fixture.local.path(), "m.txt");
-    make_unreadable(fixture.local.path(), "o.txt");
-    make_unreadable(fixture.staging.path(), "t.txt");
+    for (root, path) in [
+        (&fixture.local, "m.txt"),
+        (&fixture.local, "o.txt"),
+        (&fixture.staging, "t.txt"),
+    ] {
+        if !super::common::restrict_permissions(&root.path().join(path), 0o200) {
+            return;
+        }
+    }
     let mut args = args(Some("local"), Some("develop"));
     args.all = true;
     args.ref_server = Some("staging".into());

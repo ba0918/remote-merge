@@ -16,6 +16,7 @@ use super::backup_support::{
     config, listed_sessions, merge_args, merge_files, restore, rollback_args, rollback_list_args,
     store_entries, targets,
 };
+use super::common::{permissions_apply, restrict_permissions};
 
 // rollback は --format に text と json だけを受け付ける（"diff" は知らない値。REQ-backup-037）
 // @kotowari[REQ-backup-037]
@@ -40,8 +41,8 @@ fn rollback_rejects_the_diff_format() {
 }
 
 /// 戻せるもの・スキップするもの・失敗するものを一つずつ含むセッションを作り、
-/// 書き戻しの結果を返す。
-fn restored_skipped_and_failed() -> (RollbackOutput, i32) {
+/// 書き戻しの結果を返す。失敗させるファイルを読めなくできない（root で動く）なら None。
+fn restored_skipped_and_failed() -> Option<(RollbackOutput, i32)> {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -69,7 +70,9 @@ fn restored_skipped_and_failed() -> (RollbackOutput, i32) {
     assert_eq!(output.deleted.len(), 1, "{output:?}");
     fs::remove_dir(develop.path().join("gone")).unwrap();
     let blocked = develop.path().join("failed.txt");
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    if !restrict_permissions(&blocked, 0o000) {
+        return None;
+    }
 
     let result = execute_rollback(
         rollback_args("develop", None),
@@ -84,7 +87,7 @@ fn restored_skipped_and_failed() -> (RollbackOutput, i32) {
     assert_eq!(output.restored.len(), 1, "{output:?}");
     assert_eq!(output.skipped.len(), 1, "{output:?}");
     assert_eq!(output.failed.len(), 1, "{output:?}");
-    (output, result.exit_code)
+    Some((output, result.exit_code))
 }
 
 fn line_for<'a>(text: &'a str, path: &str) -> &'a str {
@@ -97,7 +100,9 @@ fn line_for<'a>(text: &'a str, path: &str) -> &'a str {
 // @kotowari[REQ-backup-037]
 #[test]
 fn rollback_text_marks_each_file_and_summarises_the_counts() {
-    let (output, _) = restored_skipped_and_failed();
+    let Some((output, _)) = restored_skipped_and_failed() else {
+        return;
+    };
 
     let text = format_rollback_text(&output);
 
@@ -150,7 +155,9 @@ fn rollback_text_summary_has_no_counts_when_nothing_was_skipped_or_failed() {
 // @kotowari[REQ-backup-037]
 #[test]
 fn rollback_json_has_the_result_fields() {
-    let (output, _) = restored_skipped_and_failed();
+    let Some((output, _)) = restored_skipped_and_failed() else {
+        return;
+    };
 
     let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
 
@@ -202,11 +209,13 @@ fn rollback_exit_codes_follow_the_result() {
         config,
         targets(&develop, &store),
     );
-    let (_, partial) = restored_skipped_and_failed();
 
     assert_eq!(listed.exit_code, 0);
     assert_eq!(previewed.exit_code, 0);
     assert_eq!(restored, 0);
+    let Some((_, partial)) = restored_skipped_and_failed() else {
+        return;
+    };
     assert_eq!(partial, 2);
 }
 
@@ -230,8 +239,8 @@ fn rollback_exits_with_2_when_every_file_is_skipped_or_failed() {
         if make_skip {
             fs::remove_file(&file).unwrap();
             symlink("dir", &file).unwrap();
-        } else {
-            fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        } else if !restrict_permissions(&file, 0o000) {
+            continue;
         }
 
         let result = execute_rollback(
@@ -314,6 +323,9 @@ fn rollback_exits_with_2_when_a_file_is_restored_and_another_is_skipped() {
 // @kotowari[REQ-backup-038]
 #[test]
 fn rollback_exits_with_2_when_a_file_is_restored_and_another_fails() {
+    if !permissions_apply() {
+        return;
+    }
     let (output, exit_code) = restore_after_disturbing_one_of_two(|changed| {
         fs::set_permissions(changed, fs::Permissions::from_mode(0o000)).unwrap();
     });
@@ -368,7 +380,11 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
 
 /// 書き戻す先の親ディレクトリを辿れなくして、そのファイルの確かめを失敗させた
 /// rollback --dry-run の結果と終了コードを返す。書き込み先を変えていないことも確かめる。
-fn dry_run_with_a_blocked_parent() -> (RollbackOutput, i32) {
+/// 権限で辿れなくできない（root で動く）なら None。
+fn dry_run_with_a_blocked_parent() -> Option<(RollbackOutput, i32)> {
+    if !permissions_apply() {
+        return None;
+    }
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -400,13 +416,15 @@ fn dry_run_with_a_blocked_parent() -> (RollbackOutput, i32) {
         fs::read_to_string(develop.path().join("kept.txt")).unwrap(),
         "merged\n"
     );
-    (output, result.exit_code)
+    Some((output, result.exit_code))
 }
 
 // @kotowari[REQ-backup-038, EX-backup-031]
 #[test]
 fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
-    let (output, exit_code) = dry_run_with_a_blocked_parent();
+    let Some((output, exit_code)) = dry_run_with_a_blocked_parent() else {
+        return;
+    };
 
     assert!(
         output
@@ -422,7 +440,9 @@ fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
 // @kotowari[REQ-backup-037, EX-backup-031]
 #[test]
 fn ex_backup_031_dry_run_text_shows_the_failed_path_and_its_error() {
-    let (output, _) = dry_run_with_a_blocked_parent();
+    let Some((output, _)) = dry_run_with_a_blocked_parent() else {
+        return;
+    };
     let failure = output
         .failed
         .iter()

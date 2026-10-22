@@ -44,6 +44,9 @@ async fn the_three_operations_go_to_the_agent_on_a_server_without_sudo() {
 // @kotowari[REQ-ssh-010]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_operation_the_agent_fails_fails_that_file_and_the_next_file_still_goes_to_the_agent() {
+    if !super::common::permissions_apply() {
+        return;
+    }
     let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
     fixture.put("a-locked/old.txt", None, Some("old\n"));
     fixture.put("b-old.txt", None, Some("old\n"));

@@ -25,6 +25,9 @@ fn routes() -> [(&'static str, Setup); 1] {
 // @kotowari[REQ-cli-096, EX-cli-095]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_is_reported_in_errors_and_not_compared() {
+    if !super::common::permissions_apply() {
+        return;
+    }
     for (route, setup) in routes() {
         let fixture = AgentFixture::new(setup, Faults::default()).await;
         fixture.put("secret/a.txt", Some("local\n"), None);

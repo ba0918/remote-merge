@@ -137,7 +137,9 @@ async fn a_merge_cut_before_the_second_write_reports_written_not_written_and_unt
 async fn a_single_file_that_cannot_be_written_fails_alone_and_the_rest_are_written() {
     let fixture = three_files(Faults::default()).await;
     let b = fixture.remote().join("b.txt");
-    fs::set_permissions(&b, fs::Permissions::from_mode(0o444)).unwrap();
+    if !super::common::restrict_permissions(&b, 0o444) {
+        return;
+    }
 
     let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
     fs::set_permissions(&b, fs::Permissions::from_mode(0o644)).unwrap();

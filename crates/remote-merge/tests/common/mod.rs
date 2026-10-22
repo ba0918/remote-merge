@@ -606,6 +606,41 @@ pub fn remote_merge_cmd() -> IsolatedCommand {
     }
 }
 
+// ─── 権限で止める前提 ────────────────────────────────────
+
+/// `path` の権限を `mode` にし、この利用者がその権限で止められるかを返す。`mode` に持ち主の読む
+/// 権限がなければ読めないこと、読めて書く権限がなければ書けないことを確かめる。root で動くと権限の
+/// ビットでは止められないので、理由を標準エラーに示して false を返す。false のとき、呼び出し側は
+/// 前提を作れないテストを、関係のない表明で落とさずに確かめずに終える
+pub fn restrict_permissions(path: &Path, mode: u32) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("failed to change the mode");
+    let is_dir = fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir());
+    let restricted = match (mode & 0o400 == 0, mode & 0o200 == 0, is_dir) {
+        (true, _, true) => fs::read_dir(path).is_err(),
+        (true, _, false) => fs::File::open(path).is_err(),
+        (false, true, true) => tempfile::tempfile_in(path).is_err(),
+        (false, true, false) => fs::OpenOptions::new().write(true).open(path).is_err(),
+        (false, false, _) => panic!("mode {mode:o} takes neither reading nor writing away"),
+    };
+    if !restricted {
+        eprintln!(
+            "skipped: mode {mode:o} does not restrict {} (running as root)",
+            path.display()
+        );
+    }
+    restricted
+}
+
+/// 権限のビットがこの利用者を止めるか。止めなければ理由を標準エラーに示して false を返す。
+/// 繰り返しの途中で前提を作れずに残りを飛ばさないよう、繰り返す前に一度確かめるときに使う
+pub fn permissions_apply() -> bool {
+    let probe = TempDir::new().expect("failed to create a probe directory");
+    let file = probe.path().join("probe");
+    fs::write(&file, "").expect("failed to create a probe file");
+    restrict_permissions(&file, 0o000)
+}
+
 // ─── 接続を拒否するポート ────────────────────────────────
 
 /// 持っている間、手元で何も待ち受けないと決まっているポート。そこへの接続は拒否される。

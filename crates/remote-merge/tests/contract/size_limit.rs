@@ -16,7 +16,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::CliEnv;
+use super::common::{CliEnv, restrict_permissions};
 use super::scan_listing_cli::AgentFixture;
 
 /// 100MB を超える中身を実際に読むテストを、同じプロセスの中で一つずつ走らせる。nextest は
@@ -48,12 +48,6 @@ fn set_mode(path: &Path, mode: u32) {
 
 fn mode_of(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o777
-}
-
-/// `path` を読めなくし、読めなくなったか（root で動くと読めてしまう）を返す
-fn make_unreadable(path: &Path) -> bool {
-    set_mode(path, 0o000);
-    fs::read(path).is_err()
 }
 
 fn json_of(output: &Output) -> serde_json::Value {
@@ -169,7 +163,9 @@ async fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_i
     fs::write(local_root.join("big.bin"), b"small\n").unwrap();
     let remote = remote_root.join("big.bin");
     place_sparse(&remote, LIMIT + 1, b'r');
-    let precondition_holds = make_unreadable(&remote);
+    if !restrict_permissions(&remote, 0o000) {
+        return;
+    }
 
     let output = fixture.run_with_agent(
         &local_root,
@@ -181,7 +177,6 @@ async fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_i
 
     let mode = mode_of(&remote);
     set_mode(&remote, 0o644);
-    assert!(precondition_holds, "test needs an unreadable remote file");
     assert_merge_refused_without_reading(&output);
     assert_eq!(mode, 0o000);
     assert_eq!(fs::metadata(&remote).unwrap().len(), LIMIT + 1);
@@ -426,8 +421,7 @@ fn req_cli_079_sync_without_force_does_not_write_a_source_file_over_the_limit() 
     let env = CliEnv::new(&[], &[]);
     let local = env.local_dir.join("big.bin");
     place_sparse(&local, LIMIT + 1, b'l');
-    if !make_unreadable(&local) {
-        eprintln!("skipped: the file is readable without permission (running as root)");
+    if !restrict_permissions(&local, 0o000) {
         return;
     }
 
@@ -459,8 +453,7 @@ fn req_cli_079_rollback_without_force_keeps_a_file_over_the_limit_it_cannot_back
     let remote = env.remote_dir.join("a.txt");
     fs::remove_file(&remote).unwrap();
     place_sparse(&remote, LIMIT + 1, b'r');
-    if !make_unreadable(&remote) {
-        eprintln!("skipped: the file is readable without permission (running as root)");
+    if !restrict_permissions(&remote, 0o000) {
         return;
     }
 

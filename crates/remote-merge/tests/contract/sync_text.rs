@@ -34,7 +34,9 @@ fn text_has_the_heading_a_line_per_target_the_files_and_the_summary() {
         fixture.write("develop", path, "develop old\n");
         fixture.write("staging", path, "staging old\n");
     }
-    fixture.make_unreadable("staging", "b.txt");
+    if !fixture.make_unreadable("staging", "b.txt") {
+        return;
+    }
 
     let (output, _) = fixture.sync(args(&["."], &["develop", "staging"]));
     let text = format_sync_text(&output);

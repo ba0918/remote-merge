@@ -6,7 +6,6 @@
 //! ディレクトリを一時ディレクトリにし、利用者の設定を読ませない。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::SystemTime;
@@ -134,15 +133,11 @@ impl Fixture {
             .unwrap();
     }
 
-    /// 権限を 0o200 に落として読めなくする。
-    /// root で実行すると権限を落としても読めてしまうため、開けないことを確かめて前提の崩れを知らせる。
-    pub fn make_unreadable(&self, side: &str, path: &str) {
-        let full = self.root(side).join(path);
-        fs::set_permissions(&full, fs::Permissions::from_mode(0o200)).unwrap();
-        assert!(
-            fs::File::open(&full).is_err(),
-            "test needs an unreadable {side}/{path}"
-        );
+    /// 権限を 0o200 に落として読めなくし、読めなくなったかを返す（root で動くと読めてしまう。
+    /// [`restrict_permissions`](super::common::restrict_permissions)）
+    #[must_use]
+    pub fn make_unreadable(&self, side: &str, path: &str) -> bool {
+        super::common::restrict_permissions(&self.root(side).join(path), 0o200)
     }
 
     pub(super) fn append_config(&self, text: &str) {

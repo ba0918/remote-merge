@@ -49,7 +49,9 @@ fn a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two() 
     fixture.write("develop", "a.txt", "develop old\n");
     fixture.write("staging", "a.txt", "staging old\n");
     fixture.write("staging", "b.txt", "staging old\n");
-    fixture.make_unreadable("staging", "b.txt");
+    if !fixture.make_unreadable("staging", "b.txt") {
+        return;
+    }
 
     let (output, code) = fixture.sync(args(&["."], &["develop", "staging"]));
 
@@ -72,7 +74,9 @@ fn a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds() {
     fixture.write("local", "a.txt", "incoming\n");
     fixture.write("develop", "a.txt", "develop old\n");
     fixture.write("staging", "a.txt", "staging old\n");
-    fixture.make_unreadable("staging", "a.txt");
+    if !fixture.make_unreadable("staging", "a.txt") {
+        return;
+    }
 
     let (output, code) = fixture.sync(args(&["."], &["develop", "staging"]));
 
@@ -103,31 +107,38 @@ fn a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code
 /// develop は "success"（書き込み 3・削除 2）、staging は "partial"（書き込み 2・失敗 1・削除 1）、
 /// production は "failed"（失敗 3）になる構成で --delete を付けて書き込む。
 /// 集計の五項目が互いに違う値（3・1・5・3・4）になるよう件数を選んだ。
-fn three_targets_with_every_status() -> (SyncOutput, super::sync_support::Fixture) {
+/// 読めなくできない（root で動く）なら None
+fn three_targets_with_every_status() -> Option<(SyncOutput, super::sync_support::Fixture)> {
     let fixture = fixture();
     for path in ["a.txt", "b.txt", "c.txt"] {
         fixture.write("local", path, "incoming\n");
         fixture.write("develop", path, "develop old\n");
         fixture.write("production", path, "production old\n");
-        fixture.make_unreadable("production", path);
+        if !fixture.make_unreadable("production", path) {
+            return None;
+        }
     }
     fixture.write("develop", "gone1.txt", "only on develop\n");
     fixture.write("develop", "gone2.txt", "only on develop\n");
     fixture.write("staging", "a.txt", "staging old\n");
     fixture.write("staging", "b.txt", "staging old\n");
-    fixture.make_unreadable("staging", "b.txt");
+    if !fixture.make_unreadable("staging", "b.txt") {
+        return None;
+    }
     fixture.write("staging", "gone.txt", "only on staging\n");
     let mut args = args(&["."], &["develop", "staging", "production"]);
     args.delete = true;
 
     let (output, _) = fixture.sync(args);
-    (output, fixture)
+    Some((output, fixture))
 }
 
 // @kotowari[REQ-cli-041, REQ-cli-042]
 #[test]
 fn summary_counts_targets_successful_targets_and_files_across_every_target() {
-    let (output, _fixture) = three_targets_with_every_status();
+    let Some((output, _fixture)) = three_targets_with_every_status() else {
+        return;
+    };
 
     assert_eq!(
         output
@@ -164,7 +175,9 @@ fn keys(value: &Value) -> Vec<&str> {
 // @kotowari[REQ-cli-043]
 #[test]
 fn json_has_the_source_every_target_with_lowercase_status_and_the_summary() {
-    let (output, fixture) = three_targets_with_every_status();
+    let Some((output, fixture)) = three_targets_with_every_status() else {
+        return;
+    };
 
     let json: Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
 

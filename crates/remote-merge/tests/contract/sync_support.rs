@@ -92,18 +92,12 @@ impl Fixture {
         self.root(side).join(path).exists()
     }
 
-    /// 書き込み先のファイルを読めなくする（書き込みはできる）
+    /// 書き込み先のファイルを読めなくし（書き込みはできる）、読めなくなったかを返す（root で動くと
+    /// 読めてしまう。[`restrict_permissions`](super::common::restrict_permissions)）
     #[cfg(unix)]
-    pub fn make_unreadable(&self, side: &str, path: &str) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let full = self.root(side).join(path);
-        fs::set_permissions(&full, fs::Permissions::from_mode(0o200)).unwrap();
-        assert!(
-            fs::File::open(&full).is_err(),
-            "test needs an unreadable file: {}",
-            full.display()
-        );
+    #[must_use]
+    pub fn make_unreadable(&self, side: &str, path: &str) -> bool {
+        super::common::restrict_permissions(&self.root(side).join(path), 0o200)
     }
 
     fn runtime_targets(&self) -> RuntimeTargets {

@@ -3,10 +3,8 @@
 //! REQ-compare-014）と、書き込みの最中の `接続断` の後の終了コード（docs/ir/ssh/reconnect.md の
 //! REQ-ssh-022）を、ファイル全体の merge と同じにすることの契約テスト。
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
-
 use super::agent_support::{AgentFixture, Setup, json};
+use super::common::restrict_permissions;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 /// `failed` の一件目の error
@@ -16,12 +14,6 @@ fn first_failure(output: &std::process::Output) -> String {
         .as_str()
         .unwrap_or_else(|| panic!("no failure: {result}"))
         .to_string()
-}
-
-/// `path` を読めなくし、読めなくなったか（root で動くと読めてしまう）を返す
-fn make_unreadable(path: &std::path::Path) -> bool {
-    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
-    fs::read(path).is_err()
 }
 
 // @kotowari[REQ-compare-014, REQ-merge-009]
@@ -35,8 +27,9 @@ async fn req_compare_014_a_hunk_merge_read_failure_names_each_side_that_failed()
         fixture.local().join("b.txt"),
         fixture.remote().join("b.txt"),
     ];
-    if !(make_unreadable(&right) && both.iter().all(|path| make_unreadable(path))) {
-        eprintln!("note: running as root; unreadable files cannot be made");
+    if !(restrict_permissions(&right, 0o000)
+        && both.iter().all(|path| restrict_permissions(path, 0o000)))
+    {
         return;
     }
 

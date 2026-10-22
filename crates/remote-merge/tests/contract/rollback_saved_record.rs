@@ -1,7 +1,3 @@
-#![expect(
-    unsafe_code,
-    reason = "テストは権限・FIFO・時刻を直接扱うため libc を呼ぶ"
-)]
 #![cfg(unix)]
 //! rollback が書き戻す前に退避した記録を読み戻せないとき、そのファイルだけを書き戻さずに失敗にし、
 //! ほかのファイルを書き戻す（docs/ir/backup/rollback-path.md の REQ-backup-046・EX-backup-032）。
@@ -48,8 +44,7 @@ fn config_file(dir: &Path, root: &Path) -> PathBuf {
 // @kotowari[REQ-backup-046, EX-backup-032]
 #[test]
 fn ex_backup_032_a_saved_record_that_cannot_be_read_back_stops_only_that_file() {
-    // SAFETY: geteuid は引数を取らず、常に成功する
-    if unsafe { libc::geteuid() } == 0 {
+    if !super::common::permissions_apply() {
         return;
     }
     let root = tempfile::tempdir().unwrap();

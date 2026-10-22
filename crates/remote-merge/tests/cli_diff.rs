@@ -1761,17 +1761,6 @@ fn a_parent_component_stops_diff_before_connecting_to_the_server() {
 
 // ── REQ-cli-089: 読めないファイルを空とみなさない ──
 
-/// `path` を読めなくする。読めなくしても読める（root で動く）ときは false を返す
-fn make_unreadable(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
-    if std::fs::read(path).is_ok() {
-        eprintln!("skipped: the file is readable without permission (running as root)");
-        return false;
-    }
-    true
-}
-
 /// `diff <args> --left local --right develop --format json` の出力と JSON
 fn diff_json(env: &CliEnv, args: &[&str]) -> (std::process::Output, serde_json::Value) {
     let output = env
@@ -1800,7 +1789,7 @@ fn env_with_unreadable_remote_a() -> Option<CliEnv> {
         &[("a.txt", "left a\n"), ("b.txt", "left b\n")],
         &[("a.txt", "right a\n"), ("b.txt", "right b\n")],
     );
-    make_unreadable(&env.remote_dir.join("a.txt")).then_some(env)
+    restrict_permissions(&env.remote_dir.join("a.txt"), 0o000).then_some(env)
 }
 
 // @kotowari[REQ-cli-089, EX-cli-087]
@@ -1853,7 +1842,9 @@ fn req_cli_089_same_sized_files_unreadable_on_both_sides_are_not_equal_after_a_s
         .unwrap()
         .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
         .unwrap();
-    if !make_unreadable(&local) || !make_unreadable(&env.remote_dir.join("a.txt")) {
+    if !restrict_permissions(&local, 0o000)
+        || !restrict_permissions(&env.remote_dir.join("a.txt"), 0o000)
+    {
         return;
     }
 
@@ -1868,8 +1859,8 @@ fn req_cli_089_same_sized_files_unreadable_on_both_sides_are_not_equal_after_a_s
 #[test]
 fn req_cli_089_a_named_file_unreadable_on_both_sides_is_an_error_and_not_missing() {
     let env = CliEnv::new(&[("a.txt", "left a\n")], &[("a.txt", "right a\n")]);
-    if !make_unreadable(&env.local_dir.join("a.txt"))
-        || !make_unreadable(&env.remote_dir.join("a.txt"))
+    if !restrict_permissions(&env.local_dir.join("a.txt"), 0o000)
+        || !restrict_permissions(&env.remote_dir.join("a.txt"), 0o000)
     {
         return;
     }
@@ -1929,7 +1920,9 @@ fn req_cli_089_an_unreadable_file_that_was_not_named_does_not_change_the_result(
         .unwrap()
         .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
         .unwrap();
-    if !make_unreadable(&local) || !make_unreadable(&env.remote_dir.join("z.txt")) {
+    if !restrict_permissions(&local, 0o000)
+        || !restrict_permissions(&env.remote_dir.join("z.txt"), 0o000)
+    {
         return;
     }
 
@@ -1951,7 +1944,7 @@ fn req_cli_022_the_reason_for_an_unreadable_link_target_carries_the_read_failure
     place_symlink(&env.local_dir, "link.txt", "target.txt");
     place_symlink(&env.remote_dir, "link.txt", "target.txt");
     let target = env.local_dir.join("target.txt");
-    if !make_unreadable(&target) {
+    if !restrict_permissions(&target, 0o000) {
         return;
     }
     // 読み込みの失敗は経路によらない種類の文言で示す（REQ-paths-020）
@@ -1976,7 +1969,7 @@ fn req_cli_089_the_reason_does_not_depend_on_how_the_file_was_compared() {
         .unwrap()
         .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
         .unwrap();
-    if !make_unreadable(&env.remote_dir.join("a.txt")) {
+    if !restrict_permissions(&env.remote_dir.join("a.txt"), 0o000) {
         return;
     }
 

@@ -128,7 +128,9 @@ async fn ex_ssh_055_a_file_the_agent_cannot_read_fails_and_the_rest_is_written()
     fixture.put("a.txt", Some("new a\n"), Some("old a\n"));
     fixture.put("b.txt", Some("new b\n"), Some("old b\n"));
     let unreadable = fixture.remote().join("a.txt");
-    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+    if !super::common::restrict_permissions(&unreadable, 0o000) {
+        return;
+    }
 
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
     fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o644)).unwrap();

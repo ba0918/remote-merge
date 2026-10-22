@@ -237,7 +237,9 @@ fn a_dry_run_reports_a_file_whose_reference_could_not_be_read_as_incomplete() {
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("develop", "file.txt", "develop old\n");
     fixture.write("staging", "file.txt", "base\n");
-    fixture.make_unreadable("staging", "file.txt");
+    if !fixture.make_unreadable("staging", "file.txt") {
+        return;
+    }
     let mut args = args(&["file.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
@@ -254,8 +256,10 @@ fn a_dry_run_reports_a_file_whose_reference_could_not_be_read_as_incomplete() {
     assert_eq!(fixture.read("develop", "file.txt"), "develop old\n");
 }
 
-/// 参照先の file.txt だけを読めなくし、other.txt は読み込み元だけが参照先から変わった構成
-fn unreadable_reference_beside_a_readable_file(fixture: &Fixture) {
+/// 参照先の file.txt だけを読めなくし、other.txt は読み込み元だけが参照先から変わった構成。
+/// 読めなくできた（root で動いていない）かを返す
+#[must_use]
+fn unreadable_reference_beside_a_readable_file(fixture: &Fixture) -> bool {
     for (side, file, other) in [
         ("local", "incoming\n", "new\n"),
         ("develop", "develop old\n", "base\n"),
@@ -264,7 +268,7 @@ fn unreadable_reference_beside_a_readable_file(fixture: &Fixture) {
         fixture.write(side, "file.txt", file);
         fixture.write(side, "other.txt", other);
     }
-    fixture.make_unreadable("staging", "file.txt");
+    fixture.make_unreadable("staging", "file.txt")
 }
 
 fn merged_paths(json: &serde_json::Value) -> Vec<&str> {
@@ -281,7 +285,9 @@ fn merged_paths(json: &serde_json::Value) -> Vec<&str> {
 #[test]
 fn a_dry_run_reports_an_unreadable_file_among_readable_files_as_incomplete() {
     let fixture = fixture();
-    unreadable_reference_beside_a_readable_file(&fixture);
+    if !unreadable_reference_beside_a_readable_file(&fixture) {
+        return;
+    }
     let mut args = args(&["file.txt", "other.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
@@ -311,7 +317,9 @@ fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not
         fixture.write(side, "file.txt", file);
         fixture.write(side, "other.txt", other);
     }
-    fixture.make_unreadable("staging", "file.txt");
+    if !fixture.make_unreadable("staging", "file.txt") {
+        return;
+    }
     let mut args = args(&["file.txt", "other.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
@@ -398,7 +406,9 @@ fn a_forced_dry_run_gives_a_badge_decided_by_existence_alone_to_an_unreadable_fi
     let fixture = fixture();
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("staging", "file.txt", "base\n");
-    fixture.make_unreadable("local", "file.txt");
+    if !fixture.make_unreadable("local", "file.txt") {
+        return;
+    }
     let mut args = with_reference(&["file.txt"]);
     args.dry_run = true;
     args.force = true;
