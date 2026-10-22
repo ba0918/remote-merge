@@ -3,7 +3,8 @@
 //! symlink を置き換えるために古いリンクを消した後に作れなかった）しかないとき、そのファイルを failed に
 //! 出し、書き込み先の status を "partial" にすること（docs/ir/cli/sync.md の TBL-cli-007）の契約テスト
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 async fn refusing(request: &'static str) -> AgentFixture {
@@ -19,7 +20,7 @@ async fn refusing(request: &'static str) -> AgentFixture {
 
 fn assert_partial_with_the_failed(output: &std::process::Output, path: &str) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let target = &json(output)["targets"][0];
+    let target = &stdout_json(output)["targets"][0];
     assert_eq!(target["status"], "partial", "{target}");
     assert_eq!(target["failed"][0]["path"], path, "{target}");
     assert!(target["merged"].as_array().unwrap().is_empty(), "{target}");

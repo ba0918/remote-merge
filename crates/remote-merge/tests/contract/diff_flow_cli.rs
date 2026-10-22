@@ -10,25 +10,13 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
 
-use super::common::{CliEnv, place_files, place_symlink};
+use super::common::{CliEnv, file_entry, place_files, place_symlink, set_mtime, stdout_json};
 
 pub(super) fn run(env: &CliEnv, command: &str, args: &[&str]) -> Output {
     env.cmd_with(command)
         .args(args)
         .output()
         .expect("failed to execute remote-merge")
-}
-
-pub(super) fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
-}
-
-pub(super) fn entry<'a>(json: &'a Value, path: &str) -> &'a Value {
-    json["files"]
-        .as_array()
-        .and_then(|files| files.iter().find(|file| file["path"] == path))
-        .unwrap_or_else(|| panic!("{path} missing: {json}"))
 }
 
 pub(super) fn error_reason(json: &Value, path: &str) -> String {
@@ -39,15 +27,6 @@ pub(super) fn error_reason(json: &Value, path: &str) -> String {
         .as_str()
         .unwrap()
         .to_string()
-}
-
-pub(super) fn set_mtime(path: &std::path::Path, time: SystemTime) {
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .unwrap()
-        .set_modified(time)
-        .unwrap();
 }
 
 // @kotowari[REQ-compare-007, REQ-cli-080, EX-compare-008]
@@ -61,7 +40,7 @@ fn ex_compare_008_the_whole_diff_compares_files_with_the_same_metadata_by_conten
     let output = run(&env, "diff", &["--format", "json"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let hunks = entry(&json(&output), "a.txt")["hunks"].to_string();
+    let hunks = file_entry(&stdout_json(&output), "a.txt")["hunks"].to_string();
     assert!(
         hunks.contains("alpha") && hunks.contains("bravo"),
         "{hunks}"
@@ -90,7 +69,7 @@ fn ex_compare_012_big_files_with_the_same_content_are_the_same_without_reading_t
     let output = run(&env, "diff", &["big.bin", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert!(json(&output).get("errors").is_none(), "{output:?}");
+    assert!(stdout_json(&output).get("errors").is_none(), "{output:?}");
 }
 
 // @kotowari[REQ-compare-011, REQ-cli-079, REQ-cli-089, EX-compare-013]
@@ -103,7 +82,7 @@ fn ex_compare_013_big_files_with_different_content_are_reported_without_reading_
     let output = run(&env, "diff", &["big.bin", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     let reason = error_reason(&json, "big.bin");
     assert!(
         reason.starts_with("read failed: left: file too large"),
@@ -125,7 +104,7 @@ fn req_cli_021_a_directory_with_more_than_ten_thousand_children_is_compared_whol
     let output = run(&env, "diff", &["d", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert!(json.get("errors").is_none(), "{json}");
     assert_eq!(
         json["summary"]["scanned_files"], 10_001,

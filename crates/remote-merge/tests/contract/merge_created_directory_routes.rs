@@ -7,7 +7,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 const SHARED: &str = "shared";
@@ -36,7 +37,10 @@ fn merge_into_setgid_parent(fixture: &AgentFixture, target_root: &Path, sides: &
 
     let output = fixture.run_with_sides(&["merge", FILE], sides);
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
+        Some(1)
+    );
     assert_eq!(fs::read_to_string(target_root.join(FILE)).unwrap(), "new\n");
     mode_of(&target_root.join("shared/new"))
 }
@@ -97,7 +101,10 @@ fn merge_symlink_into_new_directories(
 
     let output = fixture.run_with_sides(&["merge", LINK], sides);
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
+        Some(1)
+    );
     let created = target_root.join(LINK);
     assert_eq!(fs::read_link(&created).unwrap(), Path::new("x.txt"));
     [

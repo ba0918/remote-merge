@@ -9,8 +9,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, SystemTime};
 
-use super::common::{CliEnv, place_binary_file, place_symlink};
-use super::diff_flow_cli::{entry, error_reason, json, run, set_mtime};
+use super::common::set_mtime;
+use super::common::{CliEnv, file_entry, place_binary_file, place_symlink, stdout_json};
+use super::diff_flow_cli::{error_reason, run};
 use super::scan_other_kinds::make_fifo;
 
 // 種類の違いの note は両側に項目があるときだけ、判定に使った両側の種類で出す（E13）
@@ -24,9 +25,9 @@ fn req_cli_020_the_kind_note_names_both_kinds_and_is_absent_for_one_sided_links(
     let output = run(&env, "diff", &["only", "k", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let json = json(&output);
-    assert!(entry(&json, "only").get("note").is_none(), "{json}");
-    let note = entry(&json, "k")["note"]
+    let json = stdout_json(&output);
+    assert!(file_entry(&json, "only").get("note").is_none(), "{json}");
+    let note = file_entry(&json, "k")["note"]
         .as_str()
         .unwrap_or_default()
         .to_string();
@@ -46,7 +47,7 @@ fn req_cli_053_binary_and_link_changes_count_as_files_with_changes() {
     place_symlink(&env.local_dir, "link", "t.txt");
     place_symlink(&env.remote_dir, "link", "u.txt");
 
-    let json = json(&run(&env, "diff", &["--format", "json"]));
+    let json = stdout_json(&run(&env, "diff", &["--format", "json"]));
     let text = run(&env, "diff", &[]);
 
     assert_eq!(json["summary"]["files_with_changes"], 2, "{json}");
@@ -66,16 +67,18 @@ fn req_compare_003_a_named_path_under_a_file_is_absent_on_that_side() {
     let output = run(&env, "diff", &["a/b.txt", "c.txt", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert!(json.get("errors").is_none(), "{json}");
     assert!(
-        entry(&json, "a/b.txt")["hunks"]
+        file_entry(&json, "a/b.txt")["hunks"]
             .to_string()
             .contains("left"),
         "{json}"
     );
     assert!(
-        entry(&json, "c.txt")["hunks"].to_string().contains("\"r\""),
+        file_entry(&json, "c.txt")["hunks"]
+            .to_string()
+            .contains("\"r\""),
         "{json}"
     );
 }
@@ -91,7 +94,7 @@ fn ex_compare_010_diff_reports_fifos_on_both_sides_with_both_side_names() {
         let output = run(&env, "diff", &args);
 
         assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
-        let reason = error_reason(&json(&output), "pipe");
+        let reason = error_reason(&stdout_json(&output), "pipe");
         assert_eq!(reason, "not a regular file: left; right", "{args:?}");
     }
 }
@@ -119,10 +122,10 @@ fn ex_compare_015_status_and_diff_report_the_same_unreadable_file_with_the_same_
     for output in [&status, &diff] {
         assert_eq!(output.status.code(), Some(2), "{output:?}");
     }
-    let reason = error_reason(&json(&diff), "a.txt");
+    let reason = error_reason(&stdout_json(&diff), "a.txt");
     assert!(reason.starts_with("read failed: right: "), "{reason}");
-    assert_eq!(error_reason(&json(&status), "a.txt"), reason);
-    assert!(json(&diff)["files"].as_array().unwrap().is_empty());
+    assert_eq!(error_reason(&stdout_json(&status), "a.txt"), reason);
+    assert!(stdout_json(&diff)["files"].as_array().unwrap().is_empty());
 }
 
 // リンク文字列の違う二つの symlink の辿った先の片方がその他の種類なら、その側を空のファイルとして
@@ -138,7 +141,7 @@ fn req_compare_009_links_with_different_strings_to_another_kind_are_not_diffed_a
     let output = run(&env, "diff", &["link", "--format", "json"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(error_reason(&json, "link"), "not a regular file: right");
     assert!(!json["files"].to_string().contains("\"x\""), "{json}");
 }

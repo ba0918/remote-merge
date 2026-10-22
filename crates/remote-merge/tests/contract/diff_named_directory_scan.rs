@@ -6,16 +6,11 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::process::Output;
 
 use serde_json::Value;
 
+use super::common::stdout_json;
 use super::scan_missing_root::{ROUTES, Sides};
-
-fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
-}
 
 fn paths_in(json: &Value, key: &str) -> Vec<String> {
     json[key]
@@ -48,7 +43,7 @@ async fn a_name_that_is_not_utf8_below_a_named_directory_is_reported_as_unreadab
 
         let output = sides.run_into_tested(&["diff", "dir"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         let files = paths_in(&result, "files");
         assert_eq!(files, ["dir/ok.txt"], "{route:?}: {result}");
         assert_eq!(
@@ -82,7 +77,7 @@ async fn an_unreadable_directory_below_a_named_directory_reports_the_whole_name(
         let output = sides.run_into_tested(&["diff", "dir", "b.txt"]);
         drop(locks);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(paths_in(&result, "files"), ["b.txt"], "{route:?}: {result}");
         let errors = result["errors"].as_array().cloned().unwrap_or_default();
         assert_eq!(errors.len(), 1, "{route:?}: {result}");
@@ -110,7 +105,7 @@ async fn a_link_that_cannot_be_followed_below_a_named_directory_is_reported_alon
 
         let output = sides.run_into_tested(&["diff", "dir", "b.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(
             paths_in(&result, "files"),
             ["b.txt", "dir/a.txt"],

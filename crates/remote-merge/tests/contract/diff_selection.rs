@@ -9,6 +9,7 @@ use remote_merge::service::output::format_json;
 use remote_merge::service::types::exit_code;
 
 use super::args_support::diff_args;
+use super::common::file_entry;
 use super::diff_support::*;
 
 // ── REQ-cli-052: 比べる対象をパスで選ぶ ──
@@ -119,7 +120,7 @@ fn req_cli_001_directory_json_has_a_structured_entry_for_each_changed_file() {
     assert_eq!(json["files"].as_array().unwrap().len(), 2, "{json}");
     for path in ["d/alpha.txt", "d/beta.txt"] {
         assert_eq!(
-            lines_of(entry(&json, path)),
+            lines_of(file_entry(&json, path)),
             vec![
                 ("removed".to_string(), "old".to_string()),
                 ("added".to_string(), "new".to_string())
@@ -174,7 +175,7 @@ fn req_cli_052_a_directory_on_one_side_compares_its_children() {
 
         assert_eq!(paths_of(&output), set(&["d/a.txt", "d/b.txt"]), "{path}");
         assert_eq!(
-            lines_of(entry(&json, "d/a.txt")),
+            lines_of(file_entry(&json, "d/a.txt")),
             vec![("removed".to_string(), "one".to_string())],
             "{path}"
         );

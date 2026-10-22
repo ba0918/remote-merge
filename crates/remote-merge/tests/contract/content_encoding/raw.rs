@@ -115,7 +115,8 @@ fn ex_content_007_rollback_restores_raw_bytes_after_encoding_configuration_chang
 // @kotowari[REQ-content-004, EX-content-006]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_content_006_alias_byte_change_is_detected_by_the_final_raw_recheck() {
-    use super::super::agent_support::{AgentFixture, Setup, json};
+    use super::super::agent_support::{AgentFixture, Setup};
+    use super::super::common::stdout_json;
     use super::super::server_faults::Faults;
     use super::super::server_removal::{Rewrite, RewriteKind};
     let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
@@ -138,7 +139,7 @@ async fn ex_content_006_alias_byte_change_is_detected_by_the_final_raw_recheck()
         "cp932",
     ]);
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(json(&output)["failed"][0]["path"], "a");
+    assert_eq!(stdout_json(&output)["failed"][0]["path"], "a");
     assert_eq!(
         std::fs::read(fixture.remote().join("a")).unwrap(),
         b"\xfa\x4a\n"

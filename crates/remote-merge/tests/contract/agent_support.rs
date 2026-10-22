@@ -158,14 +158,3 @@ impl AgentFixture {
         fs::read_to_string(self.remote().join(relative)).unwrap()
     }
 }
-
-/// 出力の JSON。読めなければ標準出力と標準エラーを示して止める
-pub fn json(output: &Output) -> serde_json::Value {
-    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
-        panic!(
-            "{error}: stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
-    })
-}

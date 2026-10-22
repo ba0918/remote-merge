@@ -2,7 +2,8 @@
 //! 削除・権限の変更・子の一覧をエージェントで行うこと（docs/ir/ssh/fallback.md の REQ-ssh-010）の
 //! 契約テスト。
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::diff_support::lines_of;
 use super::server_faults::Faults;
 
@@ -18,7 +19,7 @@ async fn the_three_operations_go_to_the_agent_on_a_server_without_sudo() {
     assert!(merge.status.success(), "{merge:?}");
     let sync = fixture.run(&["sync", "old.txt", "--delete", "--force"]);
     assert!(sync.status.success(), "{sync:?}");
-    let diff = json(&fixture.run(&["diff", "dir"]));
+    let diff = stdout_json(&fixture.run(&["diff", "dir"]));
     assert_eq!(diff["files"].as_array().map(Vec::len), Some(1), "{diff}");
     assert_eq!(diff["files"][0]["path"], "dir/a.txt", "{diff}");
     assert_eq!(
@@ -58,7 +59,7 @@ async fn an_operation_the_agent_fails_fails_that_file_and_the_next_file_still_go
     drop(locks);
 
     assert_eq!(sync.status.code(), Some(2), "{sync:?}");
-    let result = json(&sync).to_string();
+    let result = stdout_json(&sync).to_string();
     assert!(result.contains("a-locked/old.txt"), "{result}");
     assert!(locked.join("old.txt").exists());
     assert!(!fixture.remote().join("b-old.txt").exists());

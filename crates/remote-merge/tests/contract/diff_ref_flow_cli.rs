@@ -8,8 +8,9 @@ use std::process::Output;
 
 use serde_json::{Value, json};
 
-use super::common::{CliEnv, place_binary_file, place_files, place_symlink};
-use super::diff_flow_cli::{entry, json as parse};
+use super::common::{
+    CliEnv, file_entry, place_binary_file, place_files, place_symlink, stdout_json,
+};
 
 fn three_way(env: &CliEnv, extra: &[&str]) -> (Output, Value) {
     let mut args = vec![
@@ -21,7 +22,7 @@ fn three_way(env: &CliEnv, extra: &[&str]) -> (Output, Value) {
         .args(&args)
         .output()
         .expect("failed to execute diff");
-    let json = parse(&output);
+    let json = stdout_json(&output);
     (output, json)
 }
 
@@ -51,7 +52,7 @@ fn ex_cli_104_a_file_missing_in_the_ref_and_different_on_both_sides_is_one_whole
 
     let (_, json) = three_way(&env, &[]);
 
-    assert_whole_file_conflict(entry(&json, "new.txt"));
+    assert_whole_file_conflict(file_entry(&json, "new.txt"));
 }
 
 // @kotowari[REQ-cli-097, REQ-cli-099, EX-cli-105]
@@ -65,10 +66,12 @@ fn ex_cli_105_a_file_removed_on_one_side_and_changed_on_the_other_is_one_whole_f
 
     let (_, json) = three_way(&env, &[]);
 
-    assert_whole_file_conflict(entry(&json, "a.txt"));
+    assert_whole_file_conflict(file_entry(&json, "a.txt"));
     // 消した側と、参照先と同じままの側の組は競合ではない
     assert!(
-        entry(&json, "kept.txt").get("conflict_count").is_none(),
+        file_entry(&json, "kept.txt")
+            .get("conflict_count")
+            .is_none(),
         "{json}"
     );
 }
@@ -83,7 +86,7 @@ fn ex_cli_108_binaries_changed_differently_on_both_sides_are_one_whole_file_conf
 
     let (_, json) = three_way(&env, &[]);
 
-    assert_whole_file_conflict(entry(&json, "img.bin"));
+    assert_whole_file_conflict(file_entry(&json, "img.bin"));
 }
 
 // @kotowari[REQ-cli-100, EX-cli-109]
@@ -97,7 +100,7 @@ fn ex_cli_109_a_link_shows_the_link_target_of_the_ref() {
 
     let (_, json) = three_way(&env, &[]);
 
-    let link = entry(&json, "link");
+    let link = file_entry(&json, "link");
     assert_eq!(link["link_targets"]["ref"], "base", "{link}");
     assert!(link.get("ref_hunks").is_none(), "{link}");
 }
@@ -112,7 +115,7 @@ fn ex_cli_110_a_binary_shows_the_hash_of_the_ref_and_no_ref_hunks() {
 
     let (_, json) = three_way(&env, &[]);
 
-    let image = entry(&json, "img.bin");
+    let image = file_entry(&json, "img.bin");
     let expected = remote_merge_core::sha256::hex_of_bytes(b"\0base");
     assert_eq!(image["ref_hash"], expected, "{image}");
     assert!(image.get("ref_hunks").is_none(), "{image}");
@@ -126,7 +129,7 @@ fn ex_cli_114_a_binary_ref_of_text_files_shows_the_hash_of_the_ref() {
 
     let (_, json) = three_way(&env, &[]);
 
-    let file = entry(&json, "a.txt");
+    let file = file_entry(&json, "a.txt");
     let expected = remote_merge_core::sha256::hex_of_bytes(b"\0base");
     assert_eq!(file["ref_hash"], expected, "{file}");
     assert!(file.get("ref_hunks").is_none(), "{file}");
@@ -145,7 +148,7 @@ fn ex_cli_111_a_truncated_ref_diff_marks_the_file_truncated() {
 
     let (_, json) = three_way(&env, &["--max-lines", "3"]);
 
-    let file = entry(&json, "a.txt");
+    let file = file_entry(&json, "a.txt");
     assert_eq!(file["truncated"], true, "{file}");
 }
 
@@ -164,7 +167,7 @@ fn ex_compare_004_the_ref_does_not_show_contents_outside_its_root_dir() {
 
     let (output, json) = three_way(&env, &[]);
 
-    let file = entry(&json, "shared/a.txt");
+    let file = file_entry(&json, "shared/a.txt");
     assert!(file.get("ref").is_none(), "{file}");
     assert!(file.get("ref_hunks").is_none(), "{file}");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -196,5 +199,8 @@ fn ex_cli_115_a_path_below_an_outside_link_of_the_ref_is_reported() {
                 .is_some_and(|reason| reason.contains("--follow-external-links"))),
         "{json}"
     );
-    assert!(entry(&json, "shared/a.txt").get("ref").is_none(), "{json}");
+    assert!(
+        file_entry(&json, "shared/a.txt").get("ref").is_none(),
+        "{json}"
+    );
 }

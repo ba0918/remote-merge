@@ -11,7 +11,8 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 fn owners(target_root: &Path) -> (u32, u32) {
@@ -25,7 +26,7 @@ fn merge_new(fixture: &AgentFixture, target_root: &Path, sides: &[&str]) -> (u32
     let output = fixture.run_with_sides(&["merge", "new/a.txt"], sides);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
-        json(&output)["merged"].as_array().map(Vec::len),
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
         Some(1),
         "{output:?}"
     );

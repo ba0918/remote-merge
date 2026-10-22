@@ -9,7 +9,8 @@
 use std::fs;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 const SOURCE_TO_LOCAL: [&str; 4] = ["--left", "fixture", "--right", "local"];
@@ -25,7 +26,7 @@ struct Outcome {
 }
 
 fn outcome(output: &std::process::Output) -> Outcome {
-    let result = json(output);
+    let result = stdout_json(output);
     let merged = result["merged"].as_array().cloned().unwrap_or_default();
     Outcome {
         exit_code: output.status.code(),

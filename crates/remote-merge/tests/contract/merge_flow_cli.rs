@@ -11,18 +11,13 @@ use std::process::Output;
 
 use serde_json::Value;
 
-use super::common::CliEnv;
+use super::common::{CliEnv, stdout_json};
 
 pub(super) fn merge(env: &CliEnv, args: &[&str]) -> Output {
     env.cmd_with("merge")
         .args(args)
         .output()
         .expect("failed to execute merge")
-}
-
-pub(super) fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
 }
 
 pub(super) fn paths_in(json: &Value, list: &str) -> Vec<String> {
@@ -61,7 +56,7 @@ fn ex_cli_101_a_kind_mismatch_is_skipped_and_ends_with_exit_code_2() {
     let output = merge(&env, &[&["x", "a.txt"][..], &LOCAL_TO_DEVELOP].concat());
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(paths_in(&json, "merged"), ["a.txt"]);
     assert_eq!(paths_in(&json, "skipped"), ["x"]);
     assert_eq!(
@@ -81,7 +76,7 @@ fn ex_cli_102_a_destination_only_file_is_skipped_without_changing_the_exit_code(
     let output = merge(&env, &[&["."][..], &LOCAL_TO_DEVELOP].concat());
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(paths_in(&json, "skipped"), ["extra.txt"]);
     assert_eq!(
         json["skipped"][0]["reason"],
@@ -101,7 +96,7 @@ fn ex_compare_005_a_dry_run_does_not_plan_a_destination_changed_since_the_refere
     let output = merge(&env, &[&["a.txt", "--dry-run"][..], &WITH_REF].concat());
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert!(paths_in(&json, "merged").is_empty(), "{json}");
     assert_eq!(
         error_of(&json, "a.txt"),
@@ -127,7 +122,7 @@ fn ex_compare_009_three_links_are_checked_by_their_link_strings() {
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert_eq!(
-        error_of(&json(&output), "link"),
+        error_of(&stdout_json(&output), "link"),
         "destination changed since reference"
     );
     assert_eq!(
@@ -155,7 +150,7 @@ fn ex_merge_067_a_dry_run_delete_is_shown_as_would_delete() {
     let output = merge(&env, &[&["."][..], &args, &["--format", "json"]].concat());
     let text = merge(&env, &[&["."][..], &args[..]].concat());
 
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(json["deleted"][0]["path"], "old.txt", "{json}");
     assert_eq!(json["deleted"][0]["status"], "would delete", "{json}");
     let stdout = String::from_utf8_lossy(&text.stdout);

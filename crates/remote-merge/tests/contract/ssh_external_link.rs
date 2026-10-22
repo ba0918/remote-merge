@@ -5,8 +5,9 @@ use std::os::unix::fs::symlink;
 
 use tempfile::TempDir;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
 use super::args_support::merge_args;
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 fn verify_local_external_link() {
@@ -91,7 +92,7 @@ async fn an_external_parent_link_is_backed_up_and_updated_through_the_agent() {
 
         let output = fixture.run(&["merge", requested]);
         assert!(output.status.success(), "{requested}: {output:?}");
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(result["merged"][0]["path"], "linked/file.txt", "{result}");
         assert!(result["merged"][0]["backup"].as_str().is_some(), "{result}");
         assert!(

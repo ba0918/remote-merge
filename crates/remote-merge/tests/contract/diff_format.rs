@@ -7,6 +7,7 @@ use remote_merge::service::output::format_multi_diff_text;
 use remote_merge::service::types::MultiDiffOutput;
 
 use super::args_support::diff_args;
+use super::common::file_entry;
 use super::diff_support::*;
 
 // ── REQ-cli-053: JSON の形 ──
@@ -28,7 +29,7 @@ fn req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys(
     assert_eq!(top, BTreeSet::from(["files", "summary"]), "{json}");
     assert!(json["summary"].is_object(), "{json}");
 
-    let file = entry(&json, "f.txt");
+    let file = file_entry(&json, "f.txt");
     let keys: BTreeSet<&str> = file
         .as_object()
         .unwrap()
@@ -77,9 +78,9 @@ fn req_cli_053_dotenv_and_a_link_to_it_show_their_content_diff_with_or_without_f
         ("removed".to_string(), "KEY=left".to_string()),
         ("added".to_string(), "KEY=right".to_string()),
     ];
-    assert_eq!(lines_of(entry(&json, ".env")), expected, "{json}");
-    assert_eq!(lines_of(entry(&json, "link.txt")), expected, "{json}");
-    let keys: BTreeSet<&str> = entry(&json, ".env")
+    assert_eq!(lines_of(file_entry(&json, ".env")), expected, "{json}");
+    assert_eq!(lines_of(file_entry(&json, "link.txt")), expected, "{json}");
+    let keys: BTreeSet<&str> = file_entry(&json, ".env")
         .as_object()
         .unwrap()
         .keys()
@@ -118,7 +119,7 @@ fn req_cli_053_binary_hashes_and_note_appear_only_on_the_files_they_apply_to() {
     let (output, _) = fixture.diff(&["f.txt", "b.bin", "d"]);
     let json = json(&output);
 
-    let has = |path: &str, key: &str| entry(&json, path).get(key).is_some();
+    let has = |path: &str, key: &str| file_entry(&json, path).get(key).is_some();
     for key in ["binary", "left_hash", "right_hash"] {
         assert!(has("b.bin", key), "{key}: {json}");
         assert!(!has("f.txt", key), "{key}: {json}");
@@ -170,7 +171,7 @@ fn req_cli_054_change_lines_stop_at_the_limit_without_counting_context() {
 
     let output = diff_with_max_lines(&fixture, Some(3));
     let json = json(&output);
-    let file = entry(&json, "f.txt");
+    let file = file_entry(&json, "f.txt");
     let lines = lines_of(file);
 
     assert_eq!(count_changes(&lines), 3, "{json}");
@@ -199,7 +200,7 @@ fn req_cli_054_zero_or_no_limit_outputs_every_change_line() {
     for max_lines in [Some(0), None] {
         let output = diff_with_max_lines(&fixture, max_lines);
         let json = json(&output);
-        let file = entry(&json, "f.txt");
+        let file = file_entry(&json, "f.txt");
 
         assert_eq!(count_changes(&lines_of(file)), 5, "{max_lines:?}: {json}");
         assert_eq!(file["truncated"], false, "{max_lines:?}");
@@ -320,7 +321,7 @@ fn req_cli_053_hunk_starts_use_zero_based_line_numbers() {
 
     let (output, _) = fixture.diff(&["f.txt"]);
     let json = json(&output);
-    let file = entry(&json, "f.txt");
+    let file = file_entry(&json, "f.txt");
 
     assert_eq!(file["hunks"][0]["left_start"], 2, "{json}");
     assert_eq!(file["hunks"][0]["right_start"], 2, "{json}");

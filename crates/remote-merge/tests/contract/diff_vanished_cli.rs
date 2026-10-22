@@ -3,7 +3,8 @@
 //! 判定できないパスとして示すこと（docs/ir/compare/flow.md の REQ-compare-003）の CLI の契約テスト。
 //! エージェントの偽サーバが、右のハッシュの問いを受ける前にファイルのあるディレクトリを消す。
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 use super::server_removal::{Removal, When};
 
@@ -23,7 +24,7 @@ async fn ex_compare_003_a_file_removed_before_it_was_read_is_reported_as_undecid
     let output = fixture.run(&["diff"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let files = result["files"].as_array().unwrap();
     assert!(files.is_empty(), "{result}");
     let errors = result["errors"].as_array().unwrap();

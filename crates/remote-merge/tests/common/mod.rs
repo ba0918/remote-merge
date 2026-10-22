@@ -59,6 +59,16 @@ pub fn place_symlink(dir: &Path, link_path: &str, target_path: &str) {
     unix_fs::symlink(target_path, &full_link).unwrap();
 }
 
+/// `path` の更新時刻を `time` にする
+pub fn set_mtime(path: &Path, time: std::time::SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
 // ─── ANSI エスケープ除去 ─────────────────────────────────
 
 /// ANSI エスケープシーケンスを除去してプレーンテキストにする
@@ -613,6 +623,27 @@ impl ClosedPort {
     pub fn port(&self) -> u16 {
         self.port
     }
+}
+
+// ─── 出力の読み方 ────────────────────────────────────────
+
+/// 標準出力の JSON。読めなければ標準出力と標準エラーを示して止める
+pub fn stdout_json(output: &Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!(
+            "stdout is not JSON ({error}): stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
+}
+
+/// JSON の "files" から "path" が `path` の項目を探す
+pub fn file_entry<'a>(json: &'a serde_json::Value, path: &str) -> &'a serde_json::Value {
+    json["files"]
+        .as_array()
+        .and_then(|files| files.iter().find(|file| file["path"] == path))
+        .unwrap_or_else(|| panic!("{path} missing: {json}"))
 }
 
 // ─── アサーションヘルパー ────────────────────────────────

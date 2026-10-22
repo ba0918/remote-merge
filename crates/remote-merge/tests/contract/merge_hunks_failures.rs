@@ -3,13 +3,13 @@
 //! REQ-compare-014）と、書き込みの最中の `接続断` の後の終了コード（docs/ir/ssh/reconnect.md の
 //! REQ-ssh-022）を、ファイル全体の merge と同じにすることの契約テスト。
 
-use super::agent_support::{AgentFixture, Setup, json};
-use super::common::restrict_permissions;
+use super::agent_support::{AgentFixture, Setup};
+use super::common::{restrict_permissions, stdout_json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 /// `failed` の一件目の error
 fn first_failure(output: &std::process::Output) -> String {
-    let result = json(output);
+    let result = stdout_json(output);
     result["failed"][0]["error"]
         .as_str()
         .unwrap_or_else(|| panic!("no failure: {result}"))
@@ -64,7 +64,11 @@ async fn req_ssh_022_a_hunk_write_confirmed_after_a_lost_reply_still_exits_with_
     let output = fixture.run(&["merge", "a.txt", "--hunks", "0", "--force"]);
 
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
-    assert_eq!(json(&output)["merged"][0]["path"], "a.txt", "{output:?}");
+    assert_eq!(
+        stdout_json(&output)["merged"][0]["path"],
+        "a.txt",
+        "{output:?}"
+    );
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 

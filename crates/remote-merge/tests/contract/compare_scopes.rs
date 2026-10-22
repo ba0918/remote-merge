@@ -11,6 +11,7 @@ use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
 use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 
+use super::common::set_mtime;
 use super::compare_support::{NothingUsed, comparison_text, request};
 use super::flow_support::{Child, FlowRoutes, ROUTES, Route, child};
 
@@ -169,12 +170,7 @@ fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_
             std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_789);
         for root in [left, right] {
             fs::write(root.join("b.txt"), "same\n").unwrap();
-            fs::File::options()
-                .write(true)
-                .open(root.join("b.txt"))
-                .unwrap()
-                .set_modified(mtime)
-                .unwrap();
+            set_mtime(&root.join("b.txt"), mtime);
             fs::create_dir(root.join("e")).unwrap();
         }
         fs::create_dir_all(left.join("d/sub")).unwrap();

@@ -7,9 +7,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, SystemTime};
 
-use super::common::CliEnv;
-use super::diff_flow_cli::set_mtime;
-use super::merge_flow_cli::{LOCAL_TO_DEVELOP, error_of, json, merge, paths_in};
+use super::common::set_mtime;
+use super::common::{CliEnv, stdout_json};
+use super::merge_flow_cli::{LOCAL_TO_DEVELOP, error_of, merge, paths_in};
 
 // 名前で指定したファイルは、root_dir 全体を走査するときも中身で比べ、指定したディレクトリの下の
 // ファイルは大きさと更新時刻で比べる（TBL-compare-003）
@@ -29,7 +29,7 @@ fn req_merge_005_a_named_file_is_compared_by_content_even_in_a_whole_scan() {
     let output = merge(&env, &[&["a.txt", "d/"][..], &LOCAL_TO_DEVELOP].concat());
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert_eq!(paths_in(&json(&output), "merged"), ["a.txt"]);
+    assert_eq!(paths_in(&stdout_json(&output), "merged"), ["a.txt"]);
     assert_eq!(
         fs::read_to_string(env.remote_dir.join("d/b.txt")).unwrap(),
         "bravo\n"
@@ -53,7 +53,7 @@ fn ex_compare_012_a_merge_of_big_files_with_the_same_content_writes_nothing() {
     let output = merge(&env, &[&["big.bin"][..], &LOCAL_TO_DEVELOP].concat());
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert!(
         json["failed"].as_array().is_none_or(Vec::is_empty),
         "{json}"
@@ -83,7 +83,7 @@ fn ex_compare_015_a_checksum_merge_reports_an_unreadable_file_with_the_read_fail
     }
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let error = error_of(&json(&output), "a.txt");
+    let error = error_of(&stdout_json(&output), "a.txt");
     assert!(error.starts_with("read failed: right: "), "{error}");
     assert_eq!(fs::read_to_string(&remote).unwrap(), "rght\n");
 }

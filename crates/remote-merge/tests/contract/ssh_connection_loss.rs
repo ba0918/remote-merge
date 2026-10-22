@@ -2,7 +2,8 @@
 //! 読み取りの `接続断` を同じ経路で一度だけやり直し、変更の `接続断` を繰り返さないこと
 //! （docs/ir/ssh/reconnect.md・docs/ir/ssh/sudo.md）の契約テスト。
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 fn agent_cut(request: &'static str, repeat: Repeat) -> Faults {
@@ -44,7 +45,7 @@ async fn a_scan_cut_once_is_scanned_again_after_restarting_the_agent_and_compare
     // 違いがあるときの終了コード 1 で、やり直した走査の一覧で比べている
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(
-        json(&output).to_string().contains("only-remote.txt"),
+        stdout_json(&output).to_string().contains("only-remote.txt"),
         "{output:?}"
     );
     assert_eq!(fixture.server.faults().agent_starts(), 2);
@@ -68,7 +69,7 @@ async fn a_scan_cut_again_after_the_retry_stops_the_command_with_exit_code_2() {
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     // 比べる流れは名前で指定したパスも走査で集めるので、止めた誤りは走査の失敗を示す
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert!(result["error"].as_str().is_some(), "{result}");
     assert!(!result.to_string().contains("\"hunks\""), "{result}");
     // 一度だけやり直し、三度目は尋ねない
@@ -96,7 +97,7 @@ async fn an_agent_read_cut_once_restarts_the_agent_and_reads_again() {
     let output = fixture.run(&["status"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let files = json(&output)["files"].to_string();
+    let files = stdout_json(&output)["files"].to_string();
     assert!(
         files.contains("example.txt") && files.contains("modified"),
         "{files}"
@@ -184,7 +185,7 @@ async fn an_agent_read_whose_ssh_session_is_cut_once_on_a_sudo_server_reconnects
     let output = fixture.run(&["status"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let files = json(&output)["files"].to_string();
+    let files = stdout_json(&output)["files"].to_string();
     assert!(
         files.contains("example.txt") && files.contains("modified"),
         "{files}"

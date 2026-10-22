@@ -4,6 +4,7 @@
 //! 手を付けていない error にすること（docs/ir/merge/concurrency.md の REQ-merge-044）の契約テスト。
 //! root_dir がない error を付けるのは、まとめて尋ねたことでそれが分かったまとめの最初のファイル
 
+use super::common::stdout_json;
 use super::root_gone_support::*;
 
 // --dry-run も、書き込み先のパスの確認で root_dir がないと分かれば止める。root 直下のパスでも同じ
@@ -16,7 +17,7 @@ async fn a_dry_run_merge_of_root_level_paths_stops_when_the_root_dir_is_gone() {
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt", "--dry-run"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
         assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
     }
@@ -31,7 +32,7 @@ async fn a_dry_run_sync_of_root_level_paths_stops_when_the_root_dir_is_gone() {
 
         let output = fixture.run(&["sync", ".", "--dry-run", "--force"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         let failed = &result["targets"][0]["failed"];
         assert_stopped(&fixture, &output, failed, "a.txt", "b.txt");
     }
@@ -48,7 +49,7 @@ async fn a_dry_run_hunk_merge_stops_when_the_root_dir_is_gone() {
         let output = fixture.run(&["merge", "a.txt", "--hunks", "0", "--dry-run", "--force"]);
 
         assert_eq!(output.status.code(), Some(2), "{output:?}");
-        let result = json(&output);
+        let result = stdout_json(&output);
         let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
         assert!(
             failure(&result["failed"], "a.txt").contains(&message),
@@ -72,7 +73,7 @@ async fn a_root_dir_found_gone_by_the_backup_read_is_reported_on_the_file_read()
 
         let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_stopped(&fixture, &output, &result["failed"], "b.txt", "a.txt");
         let gone = failure(&result["failed"], "b.txt");
         assert!(gone.contains("cannot read b.txt"), "{gone}");
@@ -92,7 +93,7 @@ async fn a_rollback_whose_root_dir_is_gone_before_the_save_reports_it_once() {
 
         let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
         assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
     }

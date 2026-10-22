@@ -9,7 +9,7 @@
 use std::process::Output;
 
 use super::args_support::sync_args;
-use super::common::CliEnv;
+use super::common::{CliEnv, stdout_json};
 
 /// 左にだけ "a.txt" があり、"missing.txt" は左右のどちらにもない
 fn env() -> CliEnv {
@@ -24,11 +24,6 @@ fn run(env: &CliEnv, command: &str, extra: &[&str]) -> Output {
         _ => cmd.args(["--right", "develop"]),
     };
     cmd.args(extra).output().unwrap()
-}
-
-fn json(output: &Output) -> serde_json::Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
 }
 
 /// merge の出力か sync の最初の書き込み先の、`key` の項目のパス
@@ -56,7 +51,7 @@ fn ex_merge_042_a_path_on_neither_side_is_warned_and_failed_in_a_dry_run() {
 
         let output = run(&env, command, &["a.txt", "missing.txt", "--dry-run"]);
 
-        let json = json(&output);
+        let json = stdout_json(&output);
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("missing.txt"),
             "{command}: {output:?}"
@@ -81,7 +76,7 @@ fn req_merge_035_a_path_on_neither_side_is_warned_and_failed_when_writing() {
 
         let output = run(&env, command, &["a.txt", "missing.txt"]);
 
-        let json = json(&output);
+        let json = stdout_json(&output);
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("missing.txt"),
             "{command}: {output:?}"
@@ -155,7 +150,7 @@ fn req_merge_035_a_path_on_neither_side_under_a_different_kind_is_failed_not_ski
 
             let env = env_under_a_different_kind();
             let output = run(&env, command, &with_other);
-            let json = json(&output);
+            let json = stdout_json(&output);
             assert_eq!(
                 paths(&json, command, "failed"),
                 ["x/nope.txt"],

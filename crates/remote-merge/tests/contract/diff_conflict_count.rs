@@ -7,8 +7,8 @@
 
 use serde_json::Value;
 
-use super::common::CliEnv;
-use super::diff_ref_cli::{diff, json};
+use super::common::{CliEnv, stdout_json};
+use super::diff_ref_cli::diff;
 
 /// 参照先 `base`、左 `left`、右 `right` の "a.txt" を --ref で比べたときの "conflict_count"
 fn conflict_count(base: &str, left: &str, right: &str) -> Value {
@@ -20,7 +20,7 @@ fn conflict_count(base: &str, left: &str, right: &str) -> Value {
             "json",
         ],
     );
-    let json = json(&output);
+    let json = stdout_json(&output);
     let file = json["files"]
         .as_array()
         .expect("\"files\" missing")

@@ -17,7 +17,8 @@ use std::os::unix::fs::PermissionsExt;
 
 use serde_json::Value;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 const NOT_WRITTEN: &str = "not written";
@@ -98,7 +99,7 @@ async fn an_agent_lost_before_writing_is_restarted_to_confirm_the_file_was_not_w
     let output = fixture.run(&["merge", "a.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let error = failure(&result["failed"], "a.txt");
     assert!(error.contains(NOT_WRITTEN), "{error}");
     assert_eq!(fixture.read_remote("a.txt"), "remote old\n");
@@ -119,7 +120,7 @@ async fn a_merge_cut_before_the_second_write_reports_written_not_written_and_unt
     let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
     let b = failure(&result["failed"], "b.txt");
     assert!(b.contains(NOT_WRITTEN) && !b.contains(UNTOUCHED), "{b}");
@@ -145,7 +146,7 @@ async fn a_single_file_that_cannot_be_written_fails_alone_and_the_rest_are_writt
     fs::set_permissions(&b, fs::Permissions::from_mode(0o644)).unwrap();
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(paths(&result["failed"]), ["b.txt"], "{result}");
     assert_eq!(fixture.read_remote("a.txt"), "local\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
@@ -168,7 +169,7 @@ async fn a_read_lost_again_after_restarting_fails_that_file_and_leaves_the_rest_
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert!(
         failure(&result["failed"], "a.txt").contains(READ_FAILED),
         "{result}"
@@ -197,7 +198,7 @@ async fn a_deletion_cut_before_it_is_requested_reports_not_deleted_and_leaves_th
     let output = fixture.run(&["sync", ".", "--delete", "--force"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let failed = &result["targets"][0]["failed"];
     assert!(failure(failed, "x.txt").contains(NOT_DELETED), "{result}");
     assert!(failure(failed, "y.txt").contains(UNTOUCHED), "{result}");
@@ -225,7 +226,7 @@ async fn a_rollback_cut_before_the_first_restore_reports_not_written_and_an_unto
     let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let failed = &result["failed"];
     let first = paths(failed)[0];
     let second = if first == "a.txt" { "b.txt" } else { "a.txt" };
@@ -259,7 +260,7 @@ async fn a_sync_cut_on_one_target_leaves_its_rest_untouched_and_writes_every_fil
     );
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let targets = result["targets"].as_array().unwrap();
     let cut_target = targets
         .iter()
@@ -299,7 +300,7 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
     let output = fixture.run(&["merge", "a.txt", "--with-permissions"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let error = failure(&result["failed"], "a.txt");
     assert!(
         error.contains(CONTENT_WRITTEN) && error.contains(PERMISSIONS_UNCHANGED),
@@ -329,7 +330,7 @@ async fn an_agent_gone_before_the_next_change_is_confirmed_and_the_rest_is_untou
     let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
     let b = failure(&result["failed"], "b.txt");
     assert!(b.contains(NOT_WRITTEN) && !b.contains(UNTOUCHED), "{b}");
@@ -355,7 +356,7 @@ async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
     assert_eq!(paths(&result["failed"]), ["b.txt"], "{result}");
     assert!(
@@ -392,7 +393,7 @@ async fn a_write_whose_ssh_session_is_cut_on_a_sudo_server_is_confirmed_after_re
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
     assert!(
         failure(&result["failed"], "b.txt").contains(UNTOUCHED),
@@ -419,7 +420,7 @@ async fn a_new_file_written_before_its_reply_is_lost_leaves_its_permission_chang
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert!(paths(&result["merged"]).is_empty(), "{result}");
     let error = failure(&result["failed"], "a.txt");
     assert!(
@@ -460,7 +461,7 @@ async fn a_sync_whose_only_change_is_partially_written_is_partial() {
     let output = fixture.run(&["sync", "big.bin", "--force"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let target = &result["targets"][0];
     assert_eq!(target["status"], "partial", "{result}");
     let error = failure(&target["failed"], "big.bin");
@@ -510,7 +511,7 @@ async fn a_write_cut_between_its_chunks_is_reported_as_partial_with_the_backup_l
     let output = fixture.run(&["merge", "big.bin"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let error = failure(&result["failed"], "big.bin");
     assert!(error.contains(PARTIAL), "{error}");
     let sessions = backup_sessions(&fixture);
@@ -540,7 +541,7 @@ async fn a_change_that_cannot_be_confirmed_after_the_cut_is_reported_as_unknown(
     let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let a = failure(&result["failed"], "a.txt");
     assert!(a.contains(UNKNOWN) && !a.contains(UNTOUCHED), "{a}");
     assert!(
@@ -605,7 +606,7 @@ async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_
     let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     for path in ["a.txt", "b.txt"] {
         let error = failure(&result["failed"], path);
         assert!(
@@ -641,7 +642,7 @@ async fn a_refused_permission_copy_reports_the_written_content_with_exit_code_2(
     let output = fixture.run(&["merge", "a.txt", "--with-permissions"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert!(
         failure(&result["failed"], "a.txt").contains(CONTENT_WRITTEN),
         "{result}"
@@ -663,7 +664,7 @@ async fn a_setuid_source_mode_is_not_copied_and_the_written_content_is_reported(
     let output = fixture.run(&["merge", "run.sh", "--with-permissions"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let error = failure(&result["failed"], "run.sh");
     assert!(
         error.contains(CONTENT_WRITTEN) && error.contains("setuid"),

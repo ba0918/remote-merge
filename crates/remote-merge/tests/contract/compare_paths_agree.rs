@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime};
 use remote_merge::runtime::CompareScope;
 use remote_merge_core::compare::{Command, Follow, Method, Selection, choose_method};
 
+use super::common::set_mtime;
 use super::compare_support::{DiffUses, NothingUsed, comparison_text, request};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
@@ -54,12 +55,7 @@ fn answer(mut child: Child) {
 fn write_at(path: &Path, content: &str, mtime: SystemTime) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, content).unwrap();
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .unwrap()
-        .set_modified(mtime)
-        .unwrap();
+    set_mtime(path, mtime);
 }
 
 fn at(nanos: u64) -> SystemTime {

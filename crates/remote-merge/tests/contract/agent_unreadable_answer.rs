@@ -2,7 +2,8 @@
 //! エージェントの応答を読めないことを `接続断` として扱い、同じ経路で一度だけやり直すこと
 //! （docs/ir/CONTEXT.md の `接続断`、docs/ir/ssh/reconnect.md）の契約テスト。
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::{set_mtime, stdout_json};
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 fn garbled(request: &'static str, repeat: Repeat) -> Faults {
@@ -21,12 +22,7 @@ fn garbled(request: &'static str, repeat: Repeat) -> Faults {
 /// remote の `path` の更新時刻を local と違う時刻にし、中身で比べさせる
 fn with_remote_time_apart(fixture: &AgentFixture, path: &str) {
     let apart = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
-    std::fs::File::options()
-        .write(true)
-        .open(fixture.remote().join(path))
-        .unwrap()
-        .set_modified(apart)
-        .unwrap();
+    set_mtime(&fixture.remote().join(path), apart);
 }
 
 fn hash_requests(fixture: &AgentFixture) -> usize {
@@ -49,7 +45,7 @@ async fn an_answer_the_client_cannot_read_restarts_the_agent_once_and_reads_agai
     let output = fixture.run(&["status"]);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let files = json(&output)["files"].to_string();
+    let files = stdout_json(&output)["files"].to_string();
     assert!(files.contains("modified"), "{files}");
     assert_eq!(fixture.server.faults().agent_starts(), 2);
     assert_eq!(hash_requests(&fixture), 2);
@@ -65,7 +61,7 @@ async fn answers_that_stay_unreadable_stop_without_switching_to_ssh() {
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(
-        !json(&output).to_string().contains("\"hunks\""),
+        !stdout_json(&output).to_string().contains("\"hunks\""),
         "{output:?}"
     );
     assert_eq!(fixture.server.faults().agent_starts(), 2);

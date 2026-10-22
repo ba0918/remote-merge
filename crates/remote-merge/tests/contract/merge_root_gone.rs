@@ -8,6 +8,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use super::common::stdout_json;
 use super::root_gone_support::*;
 
 // @kotowari[REQ-merge-044, EX-merge-066]
@@ -19,7 +20,7 @@ async fn a_merge_stops_for_the_server_whose_root_dir_is_gone_in_the_middle() {
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
         assert_stopped(&fixture, &output, &result["failed"], "b.txt", "c.txt");
     }
@@ -36,7 +37,7 @@ async fn a_merge_of_existing_files_stops_when_the_root_dir_is_gone_before_a_read
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
         assert_stopped(&fixture, &output, &result["failed"], "b.txt", "c.txt");
     }
@@ -57,7 +58,7 @@ async fn a_merge_with_permissions_stops_when_the_root_dir_is_gone_before_a_chmod
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt", "--with-permissions"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
         assert_stopped(&fixture, &output, &result["failed"], "b.txt", "c.txt");
     }
@@ -79,7 +80,7 @@ async fn a_merge_whose_root_dir_is_gone_before_the_first_change_reports_it_once(
 
         let output = fixture.run(&["merge", "dir/a.txt", "dir/b.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_stopped(
             &fixture,
             &output,
@@ -94,7 +95,7 @@ async fn a_merge_whose_root_dir_is_gone_before_the_first_change_reports_it_once(
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
         assert!(
             failure(&result["failed"], "c.txt").contains(UNTOUCHED),

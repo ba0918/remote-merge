@@ -5,6 +5,7 @@ use std::fs;
 
 use remote_merge::service::output::format_multi_diff_text;
 
+use super::common::file_entry;
 use super::diff_support::*;
 
 // ── REQ-cli-060: 片側にだけあるファイル ──
@@ -22,11 +23,11 @@ fn req_cli_060_a_file_on_one_side_is_all_removed_or_all_added_lines() {
 
     let pair = |kind: &str, content: &str| (kind.to_string(), content.to_string());
     assert_eq!(
-        lines_of(entry(&json, "left-only.txt")),
+        lines_of(file_entry(&json, "left-only.txt")),
         vec![pair("removed", "one"), pair("removed", "two")]
     );
     assert_eq!(
-        lines_of(entry(&json, "right-only.txt")),
+        lines_of(file_entry(&json, "right-only.txt")),
         vec![pair("added", "three"), pair("added", "four")]
     );
     let text = format_multi_diff_text(&output);
@@ -43,7 +44,7 @@ fn assert_reported_as_binary(left: &[u8], right: &[u8]) {
 
     let (output, _) = fixture.diff(&["f"]);
     let json = json(&output);
-    let file = entry(&json, "f");
+    let file = file_entry(&json, "f");
 
     assert_eq!(file["binary"], true, "{json}");
     assert_eq!(file["left_hash"], sha256(left), "{json}");
@@ -81,7 +82,7 @@ fn req_cli_061_a_nul_only_after_8192_bytes_leaves_the_file_as_text() {
 
     let (output, _) = fixture.diff(&["f"]);
     let json = json(&output);
-    let file = entry(&json, "f");
+    let file = file_entry(&json, "f");
 
     assert!(file.get("binary").is_none(), "{json}");
     assert!(file.get("left_hash").is_none(), "{json}");
@@ -124,7 +125,7 @@ fn ex_cli_080_a_multibyte_character_cut_at_8192_bytes_leaves_the_file_as_text() 
 
     let (output, _) = fixture.diff(&["f"]);
     let json = json(&output);
-    let file = entry(&json, "f");
+    let file = file_entry(&json, "f");
 
     assert!(file.get("binary").is_none(), "{json}");
     assert!(file.get("left_hash").is_none(), "{json}");
@@ -147,7 +148,7 @@ fn req_cli_061_the_side_without_the_binary_is_missing() {
 
     let (output, _) = fixture.diff(&["f"]);
     let json = json(&output);
-    let file = entry(&json, "f");
+    let file = file_entry(&json, "f");
 
     assert_eq!(file["binary"], true, "{json}");
     assert_eq!(file["left_hash"], sha256(content), "{json}");
@@ -198,7 +199,7 @@ fn req_cli_061_an_existing_empty_side_of_a_binary_has_a_hash() {
 
         let (output, _) = fixture.diff(&["f"]);
         let json = json(&output);
-        let file = entry(&json, "f");
+        let file = file_entry(&json, "f");
 
         assert_eq!(file["left_hash"], sha256(left), "{json}");
         assert_eq!(file["right_hash"], sha256(right), "{json}");
@@ -214,7 +215,7 @@ fn req_cli_061_a_changed_binary_under_a_directory_is_reported() {
 
     let (output, _) = fixture.diff(&["d"]);
     let json = json(&output);
-    let file = entry(&json, "d/b.bin");
+    let file = file_entry(&json, "d/b.bin");
 
     assert_eq!(file["binary"], true, "{json}");
     assert_eq!(file["left_hash"], sha256(left), "{json}");

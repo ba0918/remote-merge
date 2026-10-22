@@ -5,6 +5,7 @@
 //! だけでなく、既にあるファイルの書く前の読み込み・--delete の削除・権限の変更で消えたときも止める。
 //! root_dir がない失敗の文言は一度だけ出す。エージェントと SSH の経路で同じに確かめる。
 
+use super::common::stdout_json;
 use super::root_gone_support::*;
 
 // @kotowari[REQ-merge-044]
@@ -16,7 +17,7 @@ async fn a_sync_stops_for_the_server_whose_root_dir_is_gone_in_the_middle() {
 
         let output = fixture.run(&["sync", ".", "--force"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         let failed = &result["targets"][0]["failed"];
         assert_stopped(&fixture, &output, failed, "b.txt", "c.txt");
     }
@@ -40,7 +41,7 @@ async fn a_sync_with_delete_stops_when_the_root_dir_is_gone_before_a_removal() {
 
         let output = fixture.run(&["sync", ".", "--delete", "--force"]);
 
-        let result = json(&output);
+        let result = stdout_json(&output);
         let failed = &result["targets"][0]["failed"];
         assert_stopped(&fixture, &output, failed, "y.txt", "z.txt");
     }
@@ -59,7 +60,7 @@ async fn assert_a_rollback_stops(setup: Setup, files: &[(&str, Option<&str>, Opt
 
     let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
 
-    let result = json(&output);
+    let result = stdout_json(&output);
     let failed = &result["failed"];
     let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
     let gone = paths(failed)

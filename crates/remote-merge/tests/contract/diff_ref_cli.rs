@@ -11,7 +11,7 @@ use std::process::Output;
 
 use serde_json::Value;
 
-use super::common::CliEnv;
+use super::common::{CliEnv, file_entry, stdout_json};
 
 /// diff を起動する
 pub(super) fn diff(env: &CliEnv, args: &[&str]) -> Output {
@@ -27,21 +27,6 @@ pub(super) fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-pub(super) fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
-}
-
-/// JSON の "files" から `path` のファイルを探す
-fn file<'a>(json: &'a Value, path: &str) -> &'a Value {
-    json["files"]
-        .as_array()
-        .expect("\"files\" missing")
-        .iter()
-        .find(|file| file["path"] == path)
-        .unwrap_or_else(|| panic!("{path} missing from {json}"))
 }
 
 fn has_key(value: &Value, key: &str) -> bool {
@@ -88,9 +73,9 @@ fn req_cli_062_local_as_ref_makes_a_three_way_diff() {
         ],
     );
 
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(
-        file(&json, "differs.txt")["ref"]["label"],
+        file_entry(&json, "differs.txt")["ref"]["label"],
         "local",
         "{json}"
     );
@@ -126,7 +111,7 @@ fn json_with_staging_ref(env: &CliEnv, paths: &[&str]) -> Value {
     args.extend([
         "--left", "local", "--right", "develop", "--ref", "staging", "--format", "json",
     ]);
-    json(&diff(env, &args))
+    stdout_json(&diff(env, &args))
 }
 
 // @kotowari[REQ-cli-063, REQ-cli-062]
@@ -135,7 +120,7 @@ fn req_cli_063_json_has_the_ref_and_the_diff_from_left_to_ref() {
     let env = reference_env();
     let json = json_with_staging_ref(&env, &["differs.txt"]);
 
-    let differs = file(&json, "differs.txt");
+    let differs = file_entry(&json, "differs.txt");
     assert_eq!(differs["ref"]["label"], "staging", "{json}");
     let staging_root = env.temp_root().join("staging");
     let root = differs["ref"]["root"].as_str().expect("\"root\" missing");
@@ -162,7 +147,7 @@ fn req_cli_063_ref_hunks_are_empty_when_left_equals_the_ref() {
     let env = reference_env();
     let json = json_with_staging_ref(&env, &["same_as_ref.txt"]);
 
-    let same = file(&json, "same_as_ref.txt");
+    let same = file_entry(&json, "same_as_ref.txt");
     assert_eq!(same["ref"]["label"], "staging", "{json}");
     assert_eq!(same["ref_hunks"], serde_json::json!([]), "{json}");
 }
@@ -173,7 +158,7 @@ fn req_cli_063_only_the_ref_is_shown_when_the_ref_file_cannot_be_read() {
     let env = reference_env();
     let json = json_with_staging_ref(&env, &["missing_in_ref.txt"]);
 
-    let missing = file(&json, "missing_in_ref.txt");
+    let missing = file_entry(&json, "missing_in_ref.txt");
     assert_eq!(missing["ref"]["label"], "staging", "{json}");
     assert!(!has_key(missing, "ref_hunks"), "{json}");
 }
@@ -196,9 +181,9 @@ fn req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks() {
         ],
     );
 
-    let json = json(&output);
+    let json = stdout_json(&output);
     for path in ["differs.txt", "same_as_ref.txt"] {
-        let found = file(&json, path);
+        let found = file_entry(&json, path);
         for key in ["ref", "ref_hunks"] {
             assert!(!has_key(found, key), "{path} has {key}: {json}");
         }
@@ -354,7 +339,7 @@ fn req_cli_065_json_counts_and_locates_conflicts() {
     let json = json_with_staging_ref(&env, &paths);
 
     for (path, count) in CONFLICTING {
-        let found = file(&json, path);
+        let found = file_entry(&json, path);
         assert_eq!(found["conflict_count"], count, "{path}: {json}");
         // "conflict_regions" の要素の中身は FLAG-cli-058 の範囲のため、あることだけを見る
         let regions = found["conflict_regions"].as_array();
@@ -412,7 +397,7 @@ fn req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text() {
     let env = conflict_env();
     let json = json_with_staging_ref(&env, &NOT_CONFLICTING);
     for path in NOT_CONFLICTING {
-        let found = file(&json, path);
+        let found = file_entry(&json, path);
         assert!(!has_key(found, "conflict_count"), "{path}: {json}");
         assert!(!has_key(found, "conflict_regions"), "{path}: {json}");
     }
@@ -451,8 +436,8 @@ fn req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref() {
         let warning =
             format!("Warning: --ref server is the same as {side} side; ref comparison skipped.");
         assert!(stderr(&output).contains(&warning), "{output:?}");
-        let json = json(&output);
-        let differs = file(&json, "differs.txt");
+        let json = stdout_json(&output);
+        let differs = file_entry(&json, "differs.txt");
         assert!(!has_key(differs, "ref"), "--ref {reference}: {json}");
         assert!(!has_key(differs, "ref_hunks"), "--ref {reference}: {json}");
         assert!(
@@ -494,9 +479,9 @@ fn ex_cli_088_a_ref_file_that_cannot_be_read_is_reported_in_errors_with_only_the
         ],
     );
 
-    let json = json(&output);
+    let json = stdout_json(&output);
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let differs = file(&json, "differs.txt");
+    let differs = file_entry(&json, "differs.txt");
     assert_eq!(differs["ref"]["label"], "staging", "{json}");
     assert!(!has_key(differs, "ref_hunks"), "{json}");
     let errors: Vec<&str> = json["errors"]

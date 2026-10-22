@@ -118,7 +118,7 @@ fn ex_config_077_mixed_remote_content_resolves_identically_for_every_scope() {
         let (json, code) = diff(&fixture, &paths, Default::default(), false);
         assert_eq!(code, 1);
         for (path, encoding) in [("old/a.php", "euc-jp"), ("new/a.php", "utf-8")] {
-            let file = super::super::diff_support::entry(&json, path);
+            let file = super::super::common::file_entry(&json, path);
             assert_eq!(file["encodings"]["right"], encoding);
             assert!(
                 super::super::diff_support::lines_of(file)

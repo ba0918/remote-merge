@@ -12,6 +12,7 @@ use std::os::unix::fs::symlink;
 use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
 
+use super::common::set_mtime;
 use super::compare_support::{DiffUses, NothingUsed, comparison_text, request};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
@@ -59,12 +60,7 @@ fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targe
             fs::write(root.join("t.txt"), content).unwrap();
             // メタデータで比べても中身で決めるよう、更新時刻を違えておく
             let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(nanos);
-            fs::File::options()
-                .write(true)
-                .open(root.join("t.txt"))
-                .unwrap()
-                .set_modified(mtime)
-                .unwrap();
+            set_mtime(&root.join("t.txt"), mtime);
             symlink("t.txt", root.join("same-text")).unwrap();
             symlink("gone", root.join("dangling")).unwrap();
         }

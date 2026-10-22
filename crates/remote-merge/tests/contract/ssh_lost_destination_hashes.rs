@@ -6,7 +6,8 @@
 
 use serde_json::Value;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 /// 書き込み先の中身のハッシュの要求を毎回切る
@@ -65,7 +66,7 @@ async fn req_ssh_003_a_merge_whose_destination_hashes_are_lost_fails_each_file()
     let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_failed_per_file(&fixture, &json(&output)["failed"]);
+    assert_failed_per_file(&fixture, &stdout_json(&output)["failed"]);
 }
 
 // @kotowari[REQ-ssh-003, REQ-ssh-022]
@@ -76,5 +77,5 @@ async fn req_ssh_003_a_sync_whose_destination_hashes_are_lost_fails_each_file() 
     let output = fixture.run(&["sync", "a.txt", "b.txt", "c.txt", "--force"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_failed_per_file(&fixture, &json(&output)["targets"][0]["failed"]);
+    assert_failed_per_file(&fixture, &stdout_json(&output)["targets"][0]["failed"]);
 }

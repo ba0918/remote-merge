@@ -9,7 +9,7 @@ use std::fs;
 use std::process::Output;
 
 use super::cli_launch_support::AgentRootsFixture;
-use super::common::CliEnv;
+use super::common::{CliEnv, stdout_json};
 
 fn one_modified_file() -> CliEnv {
     CliEnv::new(&[("file.txt", "short\n")], &[("file.txt", "much longer\n")])
@@ -20,11 +20,6 @@ fn status(env: &CliEnv, args: &[&str]) -> Output {
         .args(args)
         .output()
         .expect("failed to execute status")
-}
-
-fn json(output: &Output) -> serde_json::Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"))
 }
 
 // @kotowari[REQ-cli-070]
@@ -50,7 +45,7 @@ fn without_verbose_the_agent_is_not_reported() {
         &env,
         &["--left", "local", "--right", "develop", "--format", "json"],
     );
-    assert!(json(&output).get("agent").is_none(), "{output:?}");
+    assert!(stdout_json(&output).get("agent").is_none(), "{output:?}");
 
     let output = status(&env, &["--left", "local", "--right", "develop"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -69,7 +64,7 @@ fn a_local_right_side_has_no_agent_even_with_verbose() {
             "--left", "develop", "--right", "local", "-v", "--format", "json",
         ],
     );
-    assert!(json(&output).get("agent").is_none(), "{output:?}");
+    assert!(stdout_json(&output).get("agent").is_none(), "{output:?}");
 
     let output = status(&env, &["--left", "develop", "--right", "local", "-v"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -89,5 +84,5 @@ async fn verbose_json_reports_connected_when_the_agent_serves_the_right_side() {
 
     let output = fixture.status_via_agent(&local_root, &remote_root, &["-v"]);
 
-    assert_eq!(json(&output)["agent"], "connected", "{output:?}");
+    assert_eq!(stdout_json(&output)["agent"], "connected", "{output:?}");
 }

@@ -7,7 +7,8 @@ use std::os::unix::fs::PermissionsExt;
 
 use remote_merge_core::route_choice::{AgentState, RouteChoice, choose_route};
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 fn unusable_states() -> Vec<AgentState> {
@@ -51,7 +52,7 @@ fn req_ssh_024_each_row_of_the_table_picks_the_agent_or_stops() {
 /// いないこと（リモートのファイルの操作はエージェントでしか行わない）
 fn assert_stopped_before_reading(fixture: &AgentFixture, output: &std::process::Output, why: &str) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let error = json(output)["error"].to_string();
+    let error = stdout_json(output)["error"].to_string();
     assert!(error.contains(why), "{error}");
     assert!(fixture.server.faults().agent_requests().is_empty());
 }
@@ -136,7 +137,7 @@ async fn ex_ssh_055_a_file_the_agent_cannot_read_fails_and_the_rest_is_written()
     fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o644)).unwrap();
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     let failed = result["failed"].to_string();
     assert!(failed.contains("a.txt"), "{result}");
     assert!(!failed.contains("b.txt"), "{result}");

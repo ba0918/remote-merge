@@ -8,21 +8,15 @@
 use std::fs;
 use std::process::Output;
 
-use serde_json::Value;
-
+use super::common::stdout_json;
 use super::scan_missing_root::{ROUTES, Sides};
 use super::scan_other_kinds::{make_fifo, make_socket};
 
 const NOT_REGULAR: &str = "not a regular file";
 
-fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
-}
-
 /// `key` の配列に、`path` のパスで、理由に "not a regular file" を含む項目があるか
 fn reported(output: &Output, key: &str, path: &str) -> bool {
-    json(output)[key].as_array().is_some_and(|items| {
+    stdout_json(output)[key].as_array().is_some_and(|items| {
         items
             .iter()
             .any(|item| item["path"] == path && item.to_string().contains(NOT_REGULAR))
@@ -72,15 +66,17 @@ async fn ex_compare_011_a_socket_only_on_the_destination_is_not_deleted_by_sync_
 
 /// sync の書き込み先ごとの failed に、`path` のパスで理由に "not a regular file" を含む項目があるか
 fn target_failed(output: &Output, path: &str) -> bool {
-    json(output)["targets"].as_array().is_some_and(|targets| {
-        targets.iter().any(|target| {
-            target["failed"].as_array().is_some_and(|items| {
-                items
-                    .iter()
-                    .any(|item| item["path"] == path && item.to_string().contains(NOT_REGULAR))
+    stdout_json(output)["targets"]
+        .as_array()
+        .is_some_and(|targets| {
+            targets.iter().any(|target| {
+                target["failed"].as_array().is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|item| item["path"] == path && item.to_string().contains(NOT_REGULAR))
+                })
             })
         })
-    })
 }
 
 // @kotowari[REQ-compare-009]

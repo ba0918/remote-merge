@@ -6,7 +6,8 @@ use std::fs;
 
 use remote_merge_core::test_tree::PermissionLocks;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 /// 読めないようにしたディレクトリ。テストが途中で失敗しても、一時ディレクトリを消す前に戻す
@@ -36,7 +37,7 @@ async fn an_unreadable_directory_is_reported_in_errors_and_not_compared() {
         let output = fixture.run(&["diff", "secret"]);
 
         assert_eq!(output.status.code(), Some(2), "{route}: {output:?}");
-        let result = json(&output);
+        let result = stdout_json(&output);
         let files = result["files"]
             .as_array()
             .unwrap_or_else(|| panic!("{route}: {result}"));
@@ -61,7 +62,7 @@ async fn a_regular_file_is_compared_as_a_file_without_errors() {
         let output = fixture.run(&["diff", "a.txt"]);
 
         assert_eq!(output.status.code(), Some(1), "{route}: {output:?}");
-        let result = json(&output);
+        let result = stdout_json(&output);
         assert_eq!(result["files"][0]["path"], "a.txt", "{route}: {result}");
         assert!(
             !result["files"][0]["hunks"].as_array().unwrap().is_empty(),

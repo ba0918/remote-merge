@@ -8,7 +8,8 @@
 
 use serde_json::Value;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 use super::ssh_interrupted_changes::backup_sessions;
 
@@ -31,7 +32,7 @@ async fn merged_without_backup(setup: Setup, faults: Faults) -> AgentFixture {
 fn rollback(fixture: &AgentFixture) -> Value {
     let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    json(&output)
+    stdout_json(&output)
 }
 
 /// 先に書き戻すファイルは書いていない失敗、もう一つは手を付けていない失敗で、どちらも結果が
@@ -187,7 +188,7 @@ fn dry_run_with_every_path_inspection_cut(fixture: &AgentFixture, arm: impl FnOn
     // 接続断でその回を止めたので、dry-run でも終了コード 2 で終える
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert_eq!(fixture.read_remote("a.txt"), "merged a\n");
-    json(&output)
+    stdout_json(&output)
 }
 
 // @kotowari[REQ-ssh-003, REQ-backup-038]

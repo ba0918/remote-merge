@@ -9,7 +9,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::Output;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 /// 自分自身を指す、名前が 0xff の symlink
@@ -32,7 +33,7 @@ async fn fixture(link_on_remote: bool) -> AgentFixture {
 
 fn assert_reported_and_went_on(label: &str, output: &Output) {
     assert_eq!(output.status.code(), Some(2), "{label}: {output:?}");
-    let result = json(output);
+    let result = stdout_json(output);
     assert!(
         result["files"].to_string().contains("c.txt"),
         "{label}: {result}"

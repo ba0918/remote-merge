@@ -92,16 +92,6 @@ pub(super) fn set(paths: &[&str]) -> BTreeSet<String> {
     paths.iter().map(|path| path.to_string()).collect()
 }
 
-/// JSON の files から `path` の項目を取り出す
-pub(super) fn entry<'a>(json: &'a Value, path: &str) -> &'a Value {
-    json["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|file| file["path"] == path)
-        .unwrap_or_else(|| panic!("{path} missing: {json}"))
-}
-
 /// 項目の全ての hunk の行を (type, content) の並びにする
 pub(super) fn lines_of(entry: &Value) -> Vec<(String, String)> {
     entry["hunks"]

@@ -12,8 +12,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::common::CliEnv;
-use super::diff_ref_cli::{diff, json};
+use super::common::{CliEnv, stdout_json};
+use super::diff_ref_cli::diff;
 
 /// 三つのサーバに中身の違う "file.txt" を置き、`reference` のものだけを `replace` で差し替える
 fn env_with_reference(reference: &str, replace: impl FnOnce(&Path)) -> CliEnv {
@@ -53,7 +53,7 @@ fn diff_with_reference(env: &CliEnv, reference: &str) -> (Value, Option<i32>) {
             "file.txt", "--left", left, "--right", right, "--ref", reference, "--format", "json",
         ],
     );
-    (json(&output), output.status.code())
+    (stdout_json(&output), output.status.code())
 }
 
 fn assert_only_the_ref_without_errors(json: &Value, code: Option<i32>, reference: &str) {

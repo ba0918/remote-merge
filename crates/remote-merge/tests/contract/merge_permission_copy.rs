@@ -6,7 +6,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 const FILE: &str = "a.txt";
@@ -35,7 +36,10 @@ async fn copy_new_file_from_remote() -> u32 {
     );
 
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
+        Some(1)
+    );
     let created = fixture.local().join(FILE);
     assert_eq!(fs::read_to_string(&created).unwrap(), "remote\n");
     // 読み込み元をどちらの経路で走査したか
@@ -76,6 +80,9 @@ async fn req_merge_014_a_hunk_merge_with_permissions_copies_the_source_mode() {
     );
 
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
+        Some(1)
+    );
     assert_eq!(mode_of(&fixture.local().join(FILE)), 0o600);
 }

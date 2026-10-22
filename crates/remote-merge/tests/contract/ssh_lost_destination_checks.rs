@@ -6,7 +6,8 @@
 
 use serde_json::Value;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
 fn checks_cut_every_time() -> Faults {
@@ -55,7 +56,7 @@ async fn req_ssh_003_a_merge_whose_destination_checks_are_lost_fails_each_file()
 
         let output = fixture.run(&args);
 
-        assert_failed_per_file(&fixture, &output, &json(&output)["failed"]);
+        assert_failed_per_file(&fixture, &output, &stdout_json(&output)["failed"]);
     }
 }
 
@@ -66,6 +67,6 @@ async fn req_ssh_003_a_sync_whose_destination_checks_are_lost_fails_each_file() 
 
     let output = fixture.run(&["sync", "a.txt", "b.txt", "--force"]);
 
-    let failed = &json(&output)["targets"][0]["failed"];
+    let failed = &stdout_json(&output)["targets"][0]["failed"];
     assert_failed_per_file(&fixture, &output, failed);
 }

@@ -7,7 +7,8 @@
 
 use std::fs;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 use super::server_removal::{Rewrite, RewriteKind};
 
@@ -42,7 +43,7 @@ async fn a_destination_rewritten_after_the_comparison_is_not_written() {
     let output = fixture.run(&["merge", "a.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(failed_paths(&json(&output)), ["a.txt"]);
+    assert_eq!(failed_paths(&stdout_json(&output)), ["a.txt"]);
     assert_eq!(fs::read(fixture.remote().join("a.txt")).unwrap(), REWRITTEN);
 }
 
@@ -57,7 +58,7 @@ async fn a_destination_only_file_rewritten_after_the_comparison_is_not_deleted()
     let output = fixture.run(&["merge", ".", "--delete"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(failed_paths(&json(&output)), ["old.txt"]);
+    assert_eq!(failed_paths(&stdout_json(&output)), ["old.txt"]);
     assert_eq!(
         fs::read(fixture.remote().join("old.txt")).unwrap(),
         REWRITTEN
@@ -74,7 +75,7 @@ async fn ex_compare_017_a_destination_rewritten_after_the_comparison_is_not_writ
     let output = fixture.run(&["merge", "a.txt", "--hunks", "0"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(failed_paths(&json(&output)), ["a.txt"]);
+    assert_eq!(failed_paths(&stdout_json(&output)), ["a.txt"]);
     assert_eq!(fs::read(fixture.remote().join("a.txt")).unwrap(), REWRITTEN);
 }
 
@@ -96,7 +97,7 @@ async fn ex_compare_018_a_destination_only_file_rewritten_after_the_comparison_i
     let output = fixture.run(&["sync", ".", "--delete", "--force"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(failed_paths(&result["targets"][0]), ["gone.txt"]);
     assert_eq!(fs::read(fixture.remote().join("gone.txt")).unwrap(), b"y\n");
     assert!(!fixture.remote().join("old.txt").exists());

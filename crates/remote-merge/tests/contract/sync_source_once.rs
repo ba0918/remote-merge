@@ -5,7 +5,8 @@
 
 use std::fs;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 // @kotowari[REQ-compare-011]
@@ -24,7 +25,7 @@ async fn the_source_is_listed_and_read_once_for_every_target() {
     );
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let result = json(&output);
+    let result = stdout_json(&output);
     assert_eq!(
         result["targets"].as_array().map(Vec::len),
         Some(2),

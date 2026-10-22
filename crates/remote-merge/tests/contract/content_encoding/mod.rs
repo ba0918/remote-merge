@@ -1,5 +1,6 @@
 use super::args_support::{diff_args, merge_args, sync_args};
-use super::diff_support::{DiffFixture, entry, json, lines_of, sha256};
+use super::common::file_entry;
+use super::diff_support::{DiffFixture, json, lines_of, sha256};
 use super::merge_support::fixture;
 use remote_merge::cli::diff::execute_diff;
 use remote_merge_core::content::{Encoding, Interpretation};
@@ -39,7 +40,7 @@ fn req_content_001_euc_jp_diff_uses_strict_decoded_lines() {
     let (output, code) = fixture.run(args);
     assert_eq!(code, 1);
     let json = json(&output);
-    let file = entry(&json, "a");
+    let file = file_entry(&json, "a");
     assert_eq!(file["encodings"]["left"], "euc-jp");
     assert_eq!(
         lines_of(file),
@@ -124,8 +125,8 @@ fn ex_content_002_unspecified_non_utf8_keeps_raw_hashes() {
     let (output, code) = fixture.run(diff_args(&["a"]));
     assert_eq!(code, 1);
     let value = json(&output);
-    assert_eq!(entry(&value, "a")["binary"], true);
-    assert_eq!(entry(&value, "a")["left_hash"], sha256(b"\xa4\xa2\n"));
+    assert_eq!(file_entry(&value, "a")["binary"], true);
+    assert_eq!(file_entry(&value, "a")["left_hash"], sha256(b"\xa4\xa2\n"));
 }
 
 // @kotowari[REQ-content-006, EX-content-003]
@@ -183,10 +184,10 @@ fn ex_content_005_bom_only_difference_has_no_hunks_and_writes_nothing() {
     fixture.write_bytes("develop", "a", b"\xef\xbb\xbfA\n");
     let (value, code) = diff(&fixture, &["a"], Overrides::default(), false);
     assert_eq!(code, 1);
-    assert_eq!(entry(&value, "a")["byte_only_difference"], true);
-    assert_eq!(entry(&value, "a")["hunks"], serde_json::json!([]));
+    assert_eq!(file_entry(&value, "a")["byte_only_difference"], true);
+    assert_eq!(file_entry(&value, "a")["hunks"], serde_json::json!([]));
     assert!(
-        entry(&value, "a")["note"]
+        file_entry(&value, "a")["note"]
             .as_str()
             .unwrap()
             .contains("representation")
@@ -213,7 +214,7 @@ fn ex_content_008_equal_japanese_in_different_codecs_reports_raw_difference() {
         false,
     );
     assert_eq!(code, 1);
-    let file = entry(&value, "a");
+    let file = file_entry(&value, "a");
     assert_eq!(
         file["encodings"],
         serde_json::json!({"left":"utf-8", "right":"euc-jp"})
@@ -235,7 +236,7 @@ fn ex_content_004_reference_codec_can_differ_and_conflicts_agree() {
     overrides.reference = Some(Interpretation::Text(Encoding::Utf8));
     let (value, code) = diff(&fixture, &["a"], overrides, true);
     assert_eq!(code, 1);
-    let file = entry(&value, "a");
+    let file = file_entry(&value, "a");
     assert_eq!(file["conflict_count"], 1);
     assert!(
         file["ref_hunks"][0]["lines"]
@@ -274,7 +275,7 @@ fn ex_content_013_invalid_reference_keeps_left_right_diff_and_blocks_hunks() {
     let (value, code) = diff(&fixture, &["a"], overrides, true);
     assert_eq!(code, 2);
     assert_eq!(value["summary"]["files_with_changes"], 1);
-    let file = entry(&value, "a");
+    let file = file_entry(&value, "a");
     assert!(!file["hunks"].as_array().unwrap().is_empty());
     assert!(file.get("ref_hunks").is_none() && file.get("conflict_count").is_none());
     assert_eq!(value["errors"][0]["path"], "a");
@@ -308,7 +309,7 @@ fn ex_content_011_newline_only_and_body_changes_conflict() {
     fixture.write("develop", "a", "B\r\n");
     fixture.write("staging", "a", "A\r\n");
     let (value, _) = diff(&fixture, &["a"], Overrides::default(), true);
-    assert_eq!(entry(&value, "a")["conflict_count"], 1);
+    assert_eq!(file_entry(&value, "a")["conflict_count"], 1);
 }
 
 // @kotowari[REQ-content-002, REQ-cli-016, REQ-cli-099, EX-content-012]
@@ -319,7 +320,7 @@ fn ex_content_012_binary_reference_uses_whole_file_conflict_in_diff_and_dry_run(
     fixture.write("develop", "a", "right\n");
     fixture.write_bytes("staging", "a", b"base\0");
     let (value, _) = diff(&fixture, &["a"], Overrides::default(), true);
-    let file = entry(&value, "a");
+    let file = file_entry(&value, "a");
     assert_eq!(file["conflict_count"], 1);
     assert_eq!(
         file["conflict_regions"],
@@ -350,8 +351,13 @@ fn ex_merge_069_euc_jp_display_numbers_select_only_the_second_change() {
     fixture.write_bytes("develop", "a", new);
     let overrides = encodings(Encoding::EucJp, Encoding::EucJp);
     let (value, _) = diff(&fixture, &["a"], overrides, false);
-    assert_eq!(entry(&value, "a")["hunks"].as_array().unwrap().len(), 2);
-    let index = entry(&value, "a")["hunks"][1]["index"].as_u64().unwrap() as usize;
+    assert_eq!(
+        file_entry(&value, "a")["hunks"].as_array().unwrap().len(),
+        2
+    );
+    let index = file_entry(&value, "a")["hunks"][1]["index"]
+        .as_u64()
+        .unwrap() as usize;
     let mut args = merge_args(&["a"]);
     args.encodings = overrides;
     args.hunks = Some(vec![index]);
@@ -456,7 +462,10 @@ fn req_merge_046_carriage_returns_keep_display_selection_aligned_with_source_byt
             let overrides = encodings(codec, codec);
             let (value, code) = diff(&fixture, &["a"], overrides, false);
             assert_eq!(code, 1);
-            assert_eq!(entry(&value, "a")["hunks"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                file_entry(&value, "a")["hunks"].as_array().unwrap().len(),
+                1
+            );
             let mut args = merge_args(&["a"]);
             args.encodings = overrides;
             args.hunks = Some(vec![0]);

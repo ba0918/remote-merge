@@ -6,7 +6,8 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 /// 書き込み先の inode・所有者と、ハードリンクの別の名前から読んだ中身
@@ -44,7 +45,7 @@ fn merge_onto_linked(
 
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
-        json(&output)["merged"].as_array().map(Vec::len),
+        stdout_json(&output)["merged"].as_array().map(Vec::len),
         Some(1),
         "{output:?}"
     );

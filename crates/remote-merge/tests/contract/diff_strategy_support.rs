@@ -13,7 +13,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::time::SystemTime;
 
 use remote_merge::cli::diff::{DiffArgs, execute_diff};
 use remote_merge::config::load_config_from_paths;
@@ -132,14 +131,4 @@ impl Fixture {
 
 pub(super) fn strings(paths: &[&str]) -> Vec<String> {
     paths.iter().map(|path| path.to_string()).collect()
-}
-
-/// `path` の更新時刻を `time` にそろえる
-pub(super) fn set_mtime(path: &Path, time: SystemTime) {
-    fs::File::options()
-        .write(true)
-        .open(path)
-        .unwrap()
-        .set_modified(time)
-        .unwrap();
 }

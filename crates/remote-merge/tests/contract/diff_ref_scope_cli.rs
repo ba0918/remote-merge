@@ -8,8 +8,8 @@
 
 use serde_json::Value;
 
-use super::common::CliEnv;
-use super::diff_ref_cli::{diff, json, stdout};
+use super::common::{CliEnv, stdout_json};
+use super::diff_ref_cli::{diff, stdout};
 
 const WITH_STAGING_REF: [&str; 6] = ["--left", "local", "--right", "develop", "--ref", "staging"];
 
@@ -20,7 +20,7 @@ fn diff_json(env: &CliEnv, with_ref: bool) -> Value {
         WITH_STAGING_REF[..4].to_vec()
     };
     args.extend(["--format", "json"]);
-    json(&diff(env, &args))
+    stdout_json(&diff(env, &args))
 }
 
 fn paths(json: &Value) -> Vec<&str> {

@@ -3,13 +3,14 @@
 
 use remote_merge::agent::protocol::PROTOCOL_VERSION;
 
-use super::agent_support::{AgentFixture, Setup, json};
+use super::agent_support::{AgentFixture, Setup};
+use super::common::stdout_json;
 use super::server_faults::Faults;
 
 /// 止まったとき、何も読み書きしていないことを確かめる
 fn assert_stopped_before_any_file_operation(fixture: &AgentFixture, output: &std::process::Output) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = json(output);
+    let result = stdout_json(output);
     assert!(result.get("error").is_some(), "{result}");
     assert!(result.get("merged").is_none(), "{result}");
     let requests = fixture.server.faults().agent_requests();
@@ -66,7 +67,7 @@ async fn a_server_without_sudo_whose_agent_answers_another_protocol_version_stop
     let output = fixture.run(&["merge", "example.txt"]);
 
     assert_stopped_before_any_file_operation(&fixture, &output);
-    let error = json(&output)["error"].to_string();
+    let error = stdout_json(&output)["error"].to_string();
     assert!(error.to_lowercase().contains("protocol"), "{error}");
     assert!(
         error.contains(&other.to_string()) && error.contains(&PROTOCOL_VERSION.to_string()),

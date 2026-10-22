@@ -4,7 +4,7 @@ use std::fs;
 
 use serde_json::Value;
 
-pub use super::agent_support::{AgentFixture, Setup, json};
+pub use super::agent_support::{AgentFixture, Setup};
 use super::server_faults::Faults;
 use super::server_removal::Removal;
 pub use super::server_removal::When;

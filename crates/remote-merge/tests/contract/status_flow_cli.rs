@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
 
-use super::common::CliEnv;
+use super::common::{CliEnv, stdout_json};
 use super::scan_other_kinds::make_fifo;
 
 fn status(env: &CliEnv, args: &[&str]) -> Output {
@@ -21,18 +21,13 @@ fn status(env: &CliEnv, args: &[&str]) -> Output {
         .expect("failed to execute status")
 }
 
-fn json(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
-}
-
 fn three_way_json(env: &CliEnv, extra: &[&str]) -> (Output, Value) {
     let mut args = vec![
         "--left", "develop", "--right", "staging", "--ref", "local", "--format", "json",
     ];
     args.extend(extra);
     let output = status(env, &args);
-    let json = json(&output);
+    let json = stdout_json(&output);
     (output, json)
 }
 
@@ -122,7 +117,7 @@ fn ex_compare_020_status_names_the_unreadable_side_by_its_role() {
     }
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let json = json(&output);
+    let json = stdout_json(&output);
     let reason = error_reason(&json, "a.txt");
     assert!(reason.starts_with("read failed: right: "), "{reason}");
     assert!(!reason.contains("develop"), "{reason}");
@@ -146,7 +141,7 @@ fn ex_compare_010_status_reports_fifos_on_both_sides_with_both_side_names() {
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert_eq!(
-        error_reason(&json(&output), "pipe"),
+        error_reason(&stdout_json(&output), "pipe"),
         "not a regular file: left; right"
     );
 }
