@@ -6,9 +6,11 @@
 //! ことは中身を読まないので軽い。上限を当てずに実際に読むテストは重いので、`.config/nextest.toml` の
 //! 一つずつ走らせる組に入れ、同じプロセスの中でも一つずつ走らせる。
 //!
-//! 読む前に大きさで決めたことは、上限を超える疎なファイルのモードを 000 にして示す。大きさは
-//! 調べられるが、読めば権限のエラーになる。理由が権限でなく上限であることで、読む前に大きさで決めた
-//! ことを確かめる。
+//! ローカルの経路で読む前に大きさで決めたことは、上限を超える疎なファイルのモードを 000 にして示す。
+//! 大きさは調べられるが、読めば権限のエラーになる。理由が権限でなく上限であることで、読む前に大きさで
+//! 決めたことを確かめる。エージェントの経路では、読む要求に上限を添えて渡したことと、上限を超える
+//! 失敗が返ったことを確かめる（エージェントが上限を超えるファイルを読まないことは、エージェントの
+//! crate の単体テストが確かめる）。
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -16,8 +18,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
 
+use super::agent_support::{self, Setup};
 use super::common::{CliEnv, restrict_permissions};
 use super::scan_listing_cli::AgentFixture;
+use super::server_faults::Faults;
 
 /// 100MB を超える中身を実際に読むテストを、同じプロセスの中で一つずつ走らせる。nextest は
 /// `.config/nextest.toml` の組で別のプロセスを一つずつにするが、cargo test はそれを読まない
@@ -46,10 +50,6 @@ fn set_mode(path: &Path, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
 }
 
-fn mode_of(path: &Path) -> u32 {
-    fs::metadata(path).unwrap().permissions().mode() & 0o777
-}
-
 fn json_of(output: &Output) -> serde_json::Value {
     serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("output is not JSON ({error}): {output:?}"))
@@ -68,16 +68,6 @@ fn paths_in(json: &serde_json::Value, key: &str) -> Vec<String> {
 /// よらないよう大小を区別せずに見る
 fn names_permission(error: &str) -> bool {
     error.to_lowercase().contains("permission denied")
-}
-
-/// `merge big.bin` の失敗の項目を確かめる。右の理由が上限で、権限の理由でないこと
-fn assert_merge_refused_without_reading(output: &Output) {
-    let json = json_of(output);
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(paths_in(&json, "failed"), vec!["big.bin"], "{json}");
-    let error = json["failed"][0]["error"].as_str().unwrap();
-    assert!(error.contains("right:"), "{json}");
-    assert!(!error.contains("Permission denied"), "{json}");
 }
 
 fn diff_against_develop(env: &CliEnv, args: &[&str]) -> Output {
@@ -154,32 +144,50 @@ async fn req_cli_079_the_agent_does_not_read_a_remote_file_over_the_limit() {
     assert_oversized_file_is_an_error(&output);
 }
 
+// 中身が同じかはハッシュで決めるので、比べるところでは止まらない。書き込み先のバックアップのために
+// 読むところで、エージェントに上限を渡し、上限を超える失敗にして書き込まない
 // @kotowari[REQ-cli-079]
 #[tokio::test(flavor = "multi_thread")]
-async fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_it_via_the_agent() {
-    let fixture = AgentFixture::new().await;
-    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
-    fs::create_dir_all(&local_root).unwrap();
-    fs::write(local_root.join("big.bin"), b"small\n").unwrap();
-    let remote = remote_root.join("big.bin");
+async fn req_cli_079_merge_hands_the_limit_to_the_agent_and_fails_the_backup_of_a_remote_file_over_it()
+ {
+    let fixture = agent_support::AgentFixture::new(Setup::default(), Faults::default()).await;
+    fixture.put("big.bin", Some("small\n"), None);
+    let remote = fixture.remote().join("big.bin");
     place_sparse(&remote, LIMIT + 1, b'r');
-    if !restrict_permissions(&remote, 0o000) {
-        return;
-    }
 
-    let output = fixture.run_with_agent(
-        &local_root,
-        &remote_root,
-        &[
-            "merge", "big.bin", "--left", "local", "--right", "develop", "--format", "json",
-        ],
+    let output = fixture.run(&["merge", "big.bin"]);
+
+    let json = json_of(&output);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(paths_in(&json, "failed"), vec!["big.bin"], "{json}");
+    let error = json["failed"][0]["error"].as_str().unwrap();
+    assert!(
+        error.starts_with(&format!(
+            "backup failed: file too large ({} bytes, the limit is {LIMIT} bytes",
+            LIMIT + 1
+        )),
+        "{json}"
     );
-
-    let mode = mode_of(&remote);
-    set_mode(&remote, 0o644);
-    assert_merge_refused_without_reading(&output);
-    assert_eq!(mode, 0o000);
-    assert_eq!(fs::metadata(&remote).unwrap().len(), LIMIT + 1);
+    let reads: Vec<String> = fixture
+        .server
+        .faults()
+        .agent_request_details()
+        .into_iter()
+        .filter(|request| request.starts_with("ReadFiles "))
+        .collect();
+    assert!(!reads.is_empty(), "the agent was not asked to read");
+    for read in &reads {
+        assert!(
+            read.contains(&format!("size_limit: Some({LIMIT})")),
+            "{reads:?}"
+        );
+    }
+    let mut kept = fs::File::open(&remote).unwrap();
+    assert_eq!(kept.metadata().unwrap().len(), LIMIT + 1);
+    kept.seek(SeekFrom::Start(LIMIT)).unwrap();
+    let mut last = [0u8; 1];
+    std::io::Read::read_exact(&mut kept, &mut last).unwrap();
+    assert_eq!(&last, b"r");
 }
 
 // ── REQ-cli-074: --force の merge は上限を当てない ──
