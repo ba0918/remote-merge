@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::ssh::quote::shell_escape;
+use super::quote::shell_escape;
 
 /// 検査を通ったときだけ出力する印
 const SAFE_MARKER: &str = "DEPLOY_DIR_SAFE";

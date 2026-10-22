@@ -6,7 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-remote-merge-ssh = { path = "../remote-merge-ssh" }
 dirs = "7"
 remote-merge-core = { path = "../remote-merge-core" }
 remote-merge-protocol = { path = "../remote-merge-protocol" }

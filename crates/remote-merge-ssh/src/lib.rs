@@ -4,7 +4,6 @@ pub mod client;
 pub(crate) mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;
-pub mod quote;
 
 pub(crate) mod known_hosts;
 #[cfg(all(unix, any(test, feature = "test-utils")))]

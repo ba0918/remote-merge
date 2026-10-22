@@ -1,7 +1,7 @@
 //! リモートのシェルに渡す引数の引用（エージェントを置いて起動するコマンドに使う）
 
 /// 単一引用符で囲み、中の単一引用符を引用の外に出す
-pub fn shell_escape(s: &str) -> String {
+pub(super) fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 

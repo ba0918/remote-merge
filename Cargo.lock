@@ -1668,7 +1668,6 @@ dependencies = [
  "libc",
  "remote-merge-core",
  "remote-merge-protocol",
- "remote-merge-ssh",
  "russh",
  "tempfile",
  "tokio",

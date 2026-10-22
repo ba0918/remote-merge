@@ -1,4 +1,4 @@
-use crate::ssh::quote::shell_escape;
+use super::quote::shell_escape;
 
 /// sudo が NOPASSWD で利用可能かチェックするコマンドを生成する。
 ///

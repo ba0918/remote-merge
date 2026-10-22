@@ -1,4 +1,5 @@
 mod deploy_dir;
+mod quote;
 pub mod remote_target;
 mod resolve;
 mod sudo;

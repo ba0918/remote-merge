@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::ssh::quote::shell_escape;
+use super::quote::shell_escape;
 
 /// デプロイ先のリモートパスを計算する。
 /// Format: `{deploy_dir}/remote-merge-{user}/remote-merge`
