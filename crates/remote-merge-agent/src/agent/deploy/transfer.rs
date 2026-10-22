@@ -62,6 +62,17 @@ pub fn build_pre_write_command(remote_path: &Path, sudo: bool) -> String {
     )
 }
 
+/// 書き込み途中のファイル `tmp_path` に、標準入力の base64 を openssl で復号して書くコマンドを生成する。
+///
+/// `sudo` が true の場合、root だけが入れる配置先に書けるよう sudo で実行する。
+pub fn build_upload_command(tmp_path: &str, sudo: bool) -> String {
+    format!(
+        "{}openssl base64 -d -A -out {}",
+        sudo_prefix(sudo),
+        shell_escape(tmp_path)
+    )
+}
+
 /// `.tmp` 書き込み後に実行する1つの複合スクリプトを生成する。
 ///
 /// chmod 700 + checksum 検証 + version 検証 + atomic mv を1スクリプトに結合する。
@@ -169,6 +180,22 @@ mod tests {
         assert_eq!(
             installed_checksum_command(Path::new(REMOTE), false),
             "sha256sum '/d/remote-merge' 2>/dev/null || shasum -a 256 '/d/remote-merge' 2>/dev/null || echo __UNSUPPORTED__"
+        );
+    }
+
+    #[test]
+    fn with_sudo_the_upload_writes_the_temporary_file_with_sudo() {
+        assert_eq!(
+            build_upload_command("/d/my dir/remote-merge.tmp", true),
+            "sudo openssl base64 -d -A -out '/d/my dir/remote-merge.tmp'"
+        );
+    }
+
+    #[test]
+    fn without_sudo_the_upload_writes_the_temporary_file_directly() {
+        assert_eq!(
+            build_upload_command("/d/my dir/remote-merge.tmp", false),
+            "openssl base64 -d -A -out '/d/my dir/remote-merge.tmp'"
         );
     }
 

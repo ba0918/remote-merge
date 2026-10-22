@@ -168,11 +168,7 @@ impl CoreRuntime {
         }
 
         // Step 2: .tmp パスに書き込み（標準入力の base64 を openssl で復号する）
-        let upload = format!(
-            "{}openssl base64 -d -A -out {}",
-            if sudo { "sudo " } else { "" },
-            remote_merge_ssh::quote::shell_escape(tmp_path.as_str())
-        );
+        let upload = deploy::build_upload_command(&tmp_path, sudo);
         let input = base64_input(&binary_bytes);
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let (_, stderr, exit) = self

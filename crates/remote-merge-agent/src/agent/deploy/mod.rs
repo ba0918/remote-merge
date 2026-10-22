@@ -29,8 +29,8 @@ pub use resolve::{
 };
 pub use sudo::{build_id_command, build_sudo_check_command, parse_id_output};
 pub use transfer::{
-    build_agent_command, build_post_write_script, build_pre_write_command, check_version_command,
-    expected_version_line, installed_checksum_command, remote_binary_path,
+    build_agent_command, build_post_write_script, build_pre_write_command, build_upload_command,
+    check_version_command, expected_version_line, installed_checksum_command, remote_binary_path,
 };
 pub use verify::{
     InstalledBinary, is_debug_binary, judge_installed_binary, parse_checksum_output,
