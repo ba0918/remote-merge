@@ -2,13 +2,13 @@
 //! エージェントを置いた（または置かない）偽サーバに対して CLI を動かす契約テストの道具。
 
 use std::fs;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Output;
 
 use tempfile::TempDir;
 
-use super::common::isolated_command;
+use super::common::{deploy_agent_for, isolated_command};
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 
@@ -49,13 +49,7 @@ impl AgentFixture {
             fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
             Some(stub)
         } else {
-            let deployed = agent_dir.join("remote-merge-testuser/remote-merge");
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(deployed.parent().unwrap())
-                .unwrap();
-            std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
+            deploy_agent_for(home.path(), "testuser");
             None
         };
         let server =

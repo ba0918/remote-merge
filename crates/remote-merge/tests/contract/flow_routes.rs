@@ -4,11 +4,11 @@
 //! を動かして答えを受ける
 
 use std::fs;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use super::common::deploy_agent_for;
 use super::flow_support::{CONFIG, HOME, REQUEST, RESULT, ROUTE, ROUTES, Roots, Route};
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
@@ -33,17 +33,8 @@ impl FlowRoutes {
 
     /// 経路ごとに左右と参照先の root_dir を作り、`state` で同じ状態にする
     pub(super) fn with_roots(state: impl Fn(&Roots)) -> Self {
-        let home = tempfile::Builder::new()
-            .permissions(fs::Permissions::from_mode(0o700))
-            .tempdir()
-            .unwrap();
-        let deployed = home.path().join("agent/remote-merge-testuser/remote-merge");
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(deployed.parent().unwrap())
-            .unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
+        let home = tempfile::TempDir::new().unwrap();
+        deploy_agent_for(home.path(), "testuser");
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let server = runtime.block_on(TestServer::filesystem_with_faults(
             home.path(),
