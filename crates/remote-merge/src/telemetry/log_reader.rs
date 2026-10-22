@@ -49,12 +49,6 @@ pub fn read_logs(path: &std::path::Path, filter: &LogFilter) -> std::io::Result<
     read_filtered_logs(BufReader::new(std::fs::File::open(path)?), filter)
 }
 
-/// ログ文字列をパース + フィルタリングする（純粋関数、I/O なし）
-pub fn filter_log_lines(content: &str, filter: &LogFilter) -> Vec<LogEntry> {
-    read_filtered_logs(content.as_bytes(), filter)
-        .expect("Reading a valid UTF-8 string through a byte slice cannot fail")
-}
-
 fn read_filtered_logs(reader: impl BufRead, filter: &LogFilter) -> std::io::Result<Vec<LogEntry>> {
     let mut reader = reader;
     let mut entries = VecDeque::new();
@@ -152,6 +146,12 @@ fn split_duration_parts(s: &str) -> anyhow::Result<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ログ文字列をパース + フィルタリングする（I/O なし）
+    fn filter_log_lines(content: &str, filter: &LogFilter) -> Vec<LogEntry> {
+        read_filtered_logs(content.as_bytes(), filter)
+            .expect("Reading a valid UTF-8 string through a byte slice cannot fail")
+    }
 
     // --- parse_duration_shorthand ---
 
