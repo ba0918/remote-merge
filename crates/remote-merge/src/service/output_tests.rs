@@ -272,6 +272,7 @@ fn test_format_status_text_with_ref_badges() {
         errors: Vec::new(),
     };
     let text = format_status_text(&output, false);
+    assert!(text.contains("M a.rs [ref≠]"));
     assert!(text.contains("= b.rs [ref-]"));
     // all_equal badge should NOT be displayed
     assert!(!text.contains("c.rs [ref"));
