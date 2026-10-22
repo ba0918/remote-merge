@@ -1,7 +1,7 @@
 //! 変更の最中の `接続断` の後に、書き込み先を読んで確かめた結果の判定
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022）。読み書きはしない。
 
-use crate::operations::resulting_mode;
+use crate::machine_ops::PermissionMode;
 use crate::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
 use crate::sha256::hex_of_bytes;
 
@@ -32,6 +32,7 @@ pub enum Change<'a> {
         target: &'a str,
     },
     Remove,
+    /// 権限の変更。0o777 を超える値はどの経路も変えずに拒むので、変えたことにはならない
     Chmod {
         mode: u32,
     },
@@ -99,7 +100,11 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
             Observed::Mode {
                 mode: now,
                 directory,
-            } if resulting_mode(*now, *mode, *directory) == *now => Outcome::Done,
+            } if PermissionMode::new(*mode)
+                .is_ok_and(|mode| mode.resulting(*now, *directory) == *now) =>
+            {
+                Outcome::Done
+            }
             Observed::Absent | Observed::File(_) | Observed::Link(_) | Observed::Mode { .. } => {
                 Outcome::NotDone
             }

@@ -31,3 +31,28 @@ impl PermissionMode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_directory_keeps_setuid_and_setgid_and_a_file_gets_the_mode_itself() {
+        let cases = [
+            (0o2775, 0o775, true, 0o2775),
+            (0o4755, 0o700, true, 0o4700),
+            (0o3775, 0o775, true, 0o2775),
+            (0o1777, 0o755, true, 0o755),
+            (0o2775, 0o775, false, 0o775),
+            (0o4755, 0o644, false, 0o644),
+        ];
+        for (current, requested, directory, expected) in cases {
+            let mode = PermissionMode::new(requested).expect("the requested mode is within 0o777");
+            assert_eq!(
+                mode.resulting(current, directory),
+                expected,
+                "{current:o} {requested:o} {directory}"
+            );
+        }
+    }
+}
