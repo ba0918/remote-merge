@@ -43,16 +43,8 @@ pub struct DiffArgs {
 
 /// diff サブコマンドを実行する
 pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
-    run_diff_with_targets(args, config, RuntimeTargets::production())
-}
-
-pub fn run_diff_with_targets(
-    args: DiffArgs,
-    config: AppConfig,
-    targets: RuntimeTargets,
-) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
-    let (multi_output, code) = execute_diff(args, config, targets)?;
+    let (multi_output, code) = execute_diff(args, config, RuntimeTargets::production())?;
     let text = match format {
         OutputFormat::Text => {
             for error in &multi_output.errors {
