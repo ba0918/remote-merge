@@ -9,7 +9,7 @@ use crate::agent::client::AgentClient;
 #[cfg(unix)]
 use crate::agent::deploy::{self, VersionCheck};
 #[cfg(unix)]
-use crate::agent::protocol::CLI_VERSION;
+use crate::agent::protocol::{CLI_VERSION, PROTOCOL_VERSION};
 #[cfg(unix)]
 use crate::agent::ssh_transport;
 
@@ -179,7 +179,7 @@ impl CoreRuntime {
         tracing::info!(
             "Agent client connected: server={}, protocol_version={}",
             server_name,
-            client.protocol_version()
+            PROTOCOL_VERSION
         );
 
         // TransportGuard を保持してブリッジスレッドのライフサイクルを管理

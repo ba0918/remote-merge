@@ -29,7 +29,7 @@ pub struct AgentClient<R: Read, W: Write> {
 impl<R: Read, W: Write> std::fmt::Debug for AgentClient<R, W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentClient")
-            .field("protocol_version", &self.protocol_version())
+            .field("protocol_version", &protocol::PROTOCOL_VERSION)
             .finish_non_exhaustive()
     }
 }
@@ -157,11 +157,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     pub fn shutdown(&mut self) -> Result<()> {
         self.send(&AgentRequest::Shutdown)
-    }
-
-    /// つないだエージェントと話す通信の版。手元と同じ版のエージェントにだけつなぐので、手元の版
-    pub fn protocol_version(&self) -> u32 {
-        protocol::PROTOCOL_VERSION
     }
 }
 

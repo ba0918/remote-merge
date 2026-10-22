@@ -388,13 +388,7 @@ async fn agent_ssh_exec_handshake() {
         ssh_transport::start(handle, channel, std::time::Duration::from_secs(120))
             .expect("transport start failed");
 
-    let client = AgentClient::connect(reader, writer).expect("AgentClient handshake failed");
-
-    assert_eq!(
-        client.protocol_version(),
-        remote_merge::agent::protocol::PROTOCOL_VERSION,
-        "protocol version mismatch"
-    );
+    AgentClient::connect(reader, writer).expect("AgentClient handshake failed");
 
     ssh.disconnect().await.expect("disconnect failed");
 }

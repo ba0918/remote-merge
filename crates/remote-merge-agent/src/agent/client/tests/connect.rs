@@ -106,8 +106,7 @@ fn an_error_answer_fails_every_request_as_refused_by_the_agent_with_its_text() {
 #[test]
 fn connect_valid_handshake() {
     let tmp = TempDir::new().unwrap();
-    let client = create_pair(&tmp);
-    assert_eq!(client.protocol_version(), protocol::PROTOCOL_VERSION);
+    create_pair(&tmp);
 }
 
 #[test]
