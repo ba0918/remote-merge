@@ -16,7 +16,7 @@ use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult, MergeSides
 use super::plan_apply::{apply_plan, change_counts, skip_reasons};
 use crate::runtime::{
     ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
-    ExternalLinks, LostDestination, UnfollowableLinks,
+    ExternalLinks, LostDestination, NamedFiles, UnfollowableLinks,
 };
 use crate::service::path_resolver::paths_not_found;
 use crate::service::types::{MergeOutcome, MergeOutput};
@@ -203,7 +203,10 @@ pub(super) fn merge_request(
         entry_limit: EntryLimit::PerDirectory,
         counted_before: Default::default(),
         method: choose_method(Command::Merge, checksum, Selection::BelowDirectory),
-        content_paths: targets.named.iter().cloned().collect(),
+        named_files: Some(NamedFiles {
+            paths: targets.named.iter().cloned().collect(),
+            method: choose_method(Command::Merge, checksum, Selection::NamedFile),
+        }),
         follow: Follow::No,
         // root_dir の外へ解決される symlink は、merge では辿る（REQ-merge-004・REQ-cli-026）
         external_links: ExternalLinks::Follow,

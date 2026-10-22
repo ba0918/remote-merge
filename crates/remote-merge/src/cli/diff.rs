@@ -130,7 +130,7 @@ fn compare_and_show(
         entry_limit: EntryLimit::Whole,
         counted_before: Default::default(),
         method: choose_method(Command::Diff, false, Selection::BelowDirectory),
-        content_paths: Default::default(),
+        named_files: None,
         follow: Follow::Yes,
         external_links: if args.follow_external_links {
             ExternalLinks::Follow

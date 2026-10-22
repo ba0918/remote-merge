@@ -13,7 +13,8 @@ use remote_merge_core::scan::outcome::{ScanScope, Start};
 use remote_merge_core::scan::starts::scope_for;
 
 pub use super::compare_request::{
-    CompareRequest, CompareScope, EntryLimit, ExternalLinks, LostDestination, UnfollowableLinks,
+    CompareRequest, CompareScope, EntryLimit, ExternalLinks, LostDestination, NamedFiles,
+    UnfollowableLinks,
 };
 pub use super::compare_reused::Reused;
 pub use super::compare_sides::CompareSides;

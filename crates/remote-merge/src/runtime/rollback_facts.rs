@@ -3,7 +3,7 @@
 //! （docs/ir/backup/rollback-path.md の REQ-backup-003・027、docs/ir/compare/flow.md の
 //! REQ-compare-003）
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{Follow, Method, Role, SideState, state_table};
 use remote_merge_core::op_failure::SizeLimit;
@@ -99,7 +99,7 @@ impl CoreRuntime {
             entry_limit: EntryLimit::PerDirectory,
             counted_before: Default::default(),
             method: Method::Metadata,
-            content_paths: BTreeSet::new(),
+            named_files: None,
             follow: Follow::No,
             external_links: ExternalLinks::Follow,
             content_limit: SizeLimit::from_force(false),

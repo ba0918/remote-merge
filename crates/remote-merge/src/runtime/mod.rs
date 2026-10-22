@@ -59,7 +59,7 @@ use chrono::{DateTime, Utc};
 
 pub use self::compare_flow::{
     Asked, CollectedStates, CompareRequest, CompareScope, CompareSides, Comparison, EntryLimit,
-    ExternalLinks, LostDestination, Reused, UnfollowableLinks,
+    ExternalLinks, LostDestination, NamedFiles, Reused, UnfollowableLinks,
 };
 pub use self::core::CoreRuntime;
 pub use self::merge_apply::{Applied, ApplyOptions, ChangeKind, PlannedChange};

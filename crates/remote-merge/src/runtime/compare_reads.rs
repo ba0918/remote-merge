@@ -5,8 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use remote_merge_core::compare::{
-    Method, PathComparison, PathStates, Role, SideFailure, Uses, apply_reads, has_content,
-    hash_roles, judge_pairs, lose_pairs, settle_or_lost,
+    PathComparison, PathStates, Role, SideFailure, Uses, apply_reads, has_content, hash_roles,
+    judge_pairs, lose_pairs, settle_or_lost,
 };
 
 use super::compare_answers::{disconnected, take};
@@ -28,12 +28,7 @@ impl CoreRuntime {
         let judged: BTreeMap<String, _> = table
             .iter()
             .map(|(path, states)| {
-                let method = if request.content_paths.contains(path) {
-                    Method::Content
-                } else {
-                    request.method
-                };
-                let mut judged = judge_pairs(states, method, request.follow);
+                let mut judged = judge_pairs(states, request.method_for(path), request.follow);
                 // コマンドが参照先との組を使わないパスでは、それを判定せずハッシュも取らない
                 if !uses.judges_reference(states) {
                     judged.retain(|pair| pair.pair.second != Role::Ref);

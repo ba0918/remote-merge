@@ -104,7 +104,7 @@ fn compare_and_list(
         entry_limit: EntryLimit::Whole,
         counted_before: Default::default(),
         method: choose_method(Command::Status, args.checksum, Selection::BelowDirectory),
-        content_paths: Default::default(),
+        named_files: None,
         follow: Follow::No,
         external_links: ExternalLinks::Follow,
         content_limit: SizeLimit::Unlimited,

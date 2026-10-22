@@ -69,7 +69,7 @@ pub(super) fn request(scope: CompareScope, method: Method, follow: Follow) -> Co
         entry_limit: EntryLimit::PerDirectory,
         counted_before: Default::default(),
         method,
-        content_paths: BTreeSet::new(),
+        named_files: None,
         follow,
         external_links: ExternalLinks::Follow,
         content_limit: SizeLimit::Unlimited,

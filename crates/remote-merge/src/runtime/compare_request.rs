@@ -1,4 +1,5 @@
-//! 比べ方の求め（範囲・件数の上限・比べ方・中身で比べるパス・辿り方・中身の読み込みの上限）
+//! 比べ方の求め（範囲・件数の上限・比べ方・名前で指定したファイルの比べ方・辿り方・中身の読み込みの
+//! 上限）
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -99,6 +100,14 @@ pub enum LostDestination {
     FailPaths,
 }
 
+/// 名前で指定したファイルと、その比べ方（merge・sync。docs/ir/compare/judgement.md の
+/// TBL-compare-003）
+#[derive(Debug, Clone)]
+pub struct NamedFiles {
+    pub paths: BTreeSet<String>,
+    pub method: Method,
+}
+
 /// 比べ方の求め
 #[derive(Debug, Clone)]
 pub struct CompareRequest {
@@ -108,10 +117,9 @@ pub struct CompareRequest {
     /// 同じ比較の前の走査が、側ごとに件数の上限に当てて数えた数（`EntryLimit::Whole` で、root_dir
     /// 全体の diff に名前で比べ足すとき。docs/ir/cli/symlink-diff.md の REQ-cli-021）
     pub counted_before: BTreeMap<Role, usize>,
+    /// 名前で指定したファイル（`named_files`）でないパスの比べ方
     pub method: Method,
-    /// `method` によらず中身で比べるパス（merge・sync が名前で指定したファイル。docs/ir/compare/
-    /// judgement.md の TBL-compare-003）
-    pub content_paths: BTreeSet<String>,
+    pub named_files: Option<NamedFiles>,
     /// 二つの symlink を辿った先の組も判定するか（diff）
     pub follow: Follow,
     pub external_links: ExternalLinks,
@@ -119,4 +127,14 @@ pub struct CompareRequest {
     pub content_limit: SizeLimit,
     pub unfollowable_links: UnfollowableLinks,
     pub lost_destination: LostDestination,
+}
+
+impl CompareRequest {
+    /// `path` の比べ方。名前で指定したファイルは、その比べ方にする
+    pub(super) fn method_for(&self, path: &str) -> Method {
+        match &self.named_files {
+            Some(named) if named.paths.contains(path) => named.method,
+            Some(_) | None => self.method,
+        }
+    }
 }
