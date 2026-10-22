@@ -1,7 +1,6 @@
-//! CoreRuntime: CLI の非同期操作基盤。
-//!
-//! SSH接続管理、ファイルI/O、ツリー取得など、
-//! インターフェースに依存しない共通機能を提供する。
+//! CoreRuntime: コマンドの実行時の状態。SSH の非同期の処理を待つ tokio のランタイム、サーバごとの
+//! SSH の接続とつないだエージェント、つなぐときに決めた経路、止めた書き込み先、確かめた include の値、
+//! バックアップの置き場を持つ。操作は runtime のほかのモジュールが `impl CoreRuntime` で足す。
 
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -24,9 +23,7 @@ pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Curso
 #[cfg(feature = "test-utils")]
 pub type PathHook = Box<dyn Fn(&str)>;
 
-/// CLI のランタイム基盤。
-///
-/// SSH接続管理、ファイルI/O、ツリー取得を担当する。
+/// コマンドの実行時の状態
 pub struct CoreRuntime {
     pub(crate) rt: tokio::runtime::Runtime,
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
