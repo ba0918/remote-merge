@@ -80,32 +80,6 @@ impl RelPath {
         let stripped = self.typed.trim_end_matches('/');
         stripped.is_empty() || stripped == "."
     }
-
-    /// 末尾の "/" を除いた値で入力されたものとみなした RelPath。"/" だけからなる値と空の値は
-    /// そのまま残す
-    pub fn without_trailing_slash(&self) -> RelPath {
-        let stripped = self.typed.trim_end_matches('/');
-        if stripped.is_empty() {
-            self.clone()
-        } else {
-            RelPath {
-                typed: stripped.to_string(),
-            }
-        }
-    }
-
-    /// root_dir 全体を指す値を除き、末尾に "/" を付けて入力されたか
-    pub fn has_trailing_slash(&self) -> bool {
-        !self.is_root() && self.typed.ends_with('/')
-    }
-}
-
-/// RelPath の並びを、入力されたままの値の並びにする（通信で送る値や結果のキー）
-pub fn as_typed_all(paths: &[RelPath]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|path| path.as_typed().to_string())
-        .collect()
 }
 
 mod entry;

@@ -14,7 +14,6 @@ fn a_plain_path_is_kept_as_it_was_typed() {
     assert_eq!(path.as_str(), "src/app.rs");
     assert_eq!(path.as_typed(), "src/app.rs");
     assert!(!path.is_root());
-    assert!(!path.has_trailing_slash());
 }
 
 #[test]
@@ -67,7 +66,6 @@ fn slash_dot_dot_slash_and_empty_name_the_whole_root_dir() {
         assert!(path.is_root(), "{input}");
         assert_eq!(path.as_str(), "", "{input}");
         assert_eq!(path.as_typed(), input, "{input}");
-        assert!(!path.has_trailing_slash(), "{input}");
     }
 }
 
@@ -76,20 +74,8 @@ fn a_trailing_slash_names_the_same_path_and_is_remembered() {
     let plain = parsed("src");
     let slash = parsed("src/");
     assert_eq!(slash.as_str(), plain.as_str());
-    assert!(slash.has_trailing_slash());
-    assert!(!plain.has_trailing_slash());
     assert_eq!(slash.as_typed(), "src/");
     assert_eq!(parsed("a/b//").as_str(), "a/b");
-}
-
-#[test]
-fn dropping_the_trailing_slash_keeps_the_whole_root_dir_as_typed() {
-    assert_eq!(parsed("src/").without_trailing_slash().as_typed(), "src");
-    assert_eq!(parsed("src").without_trailing_slash().as_typed(), "src");
-    assert_eq!(parsed("./").without_trailing_slash().as_typed(), ".");
-    for input in ["/", "//", ".", ""] {
-        assert_eq!(parsed(input).without_trailing_slash().as_typed(), input);
-    }
 }
 
 #[test]
@@ -131,10 +117,4 @@ fn dot_elements_inside_a_path_are_left_for_path_resolution() {
 fn a_checked_path_is_checked_again_with_the_same_result() {
     let path = parsed("src/");
     assert_eq!(RelPath::parse(path.as_str()).unwrap().as_str(), "src");
-}
-
-#[test]
-fn paths_are_listed_as_they_were_typed_in_order() {
-    let paths = [parsed("b/"), parsed("./a.txt"), parsed("/")];
-    assert_eq!(as_typed_all(&paths), ["b/", "./a.txt", "/"]);
 }
