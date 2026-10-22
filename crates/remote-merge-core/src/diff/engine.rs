@@ -127,23 +127,32 @@ impl<'a, 'b> PairScript<'a, 'b> {
         &self.full
     }
 
+    /// 選んだ表示用ハンクの番号 `selected` に入る操作用ハンクだけを当てた中身
     pub fn apply(&self, selected: &HashSet<usize>, direction: HunkDirection) -> Vec<u8> {
+        let chosen = match &self.full {
+            DiffResult::Modified {
+                hunks, merge_hunks, ..
+            } => merge_hunks_in_display_hunks(hunks, merge_hunks, selected),
+            DiffResult::Equal => HashSet::new(),
+        };
+        self.apply_merge_hunks(&chosen, direction)
+    }
+
+    /// 選んだ操作用ハンクの番号 `chosen` の行は取り込む側から、ほかの行は書き込み先から取った中身。
+    /// 書き込み先の BOM と、どちらの行も元のバイト列（行の終わりを含む）のまま使う
+    fn apply_merge_hunks(&self, chosen: &HashSet<usize>, direction: HunkDirection) -> Vec<u8> {
         let target = match direction {
             HunkDirection::LeftToRight => self.new,
             HunkDirection::RightToLeft => self.old,
         };
         let DiffResult::Modified {
-            lines,
-            hunks,
-            merge_hunks,
-            ..
+            lines, merge_hunks, ..
         } = &self.full
         else {
             return target.raw().to_vec();
         };
-        let chosen = merge_hunks_in_display_hunks(hunks, merge_hunks, selected);
         let mut result = target.bom().to_vec();
-        for (line, old) in selected_lines(lines, merge_hunks, &chosen, direction) {
+        for (line, old) in selected_lines(lines, merge_hunks, chosen, direction) {
             let (text, index) = if old {
                 (
                     self.old,
@@ -224,49 +233,6 @@ fn build_script(old: &str, new: &str) -> DiffResult {
         lines,
         stats,
     }
-}
-
-/// 行リストを改行で結合し、trailing newline を制御する。
-fn join_lines<S: AsRef<str>>(lines: &[S], trailing_newline: bool) -> String {
-    let mut text = lines
-        .iter()
-        .map(|s| s.as_ref())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if trailing_newline && !lines.is_empty() {
-        text.push('\n');
-    }
-    text
-}
-
-/// all_lines を1回走査して、選択された hunk のみを適用した最終テキストを構築する。
-///
-/// - `all_lines`: `PairScript::display()` で得た全行リスト
-/// - `merge_hunks`: `PairScript::display()` で得た操作用ハンク一覧（コンテキスト0行）
-/// - `selected`: 適用する hunk インデックスの集合（0-based）
-/// - `direction`: マージ方向
-/// - `target_trailing_newline`: ターゲットテキストの末尾改行の有無
-///
-/// **純粋関数** — 副作用なし。O(n) single-pass。
-///
-/// # アルゴリズム
-///
-/// 選択された hunk に含まれる行は「変更を適用」し、
-/// 選択されなかった hunk に含まれる行は「元テキストを維持」する。
-///
-/// - LeftToRight: ソース=left、ターゲット=right。keep_tag=Delete（left の行を採用）、replace_tag=Insert（right の行をスキップ）
-/// - RightToLeft: ソース=right、ターゲット=left。keep_tag=Insert（right の行を採用）、replace_tag=Delete（left の行をスキップ）
-pub fn apply_selected_hunks_single_pass(
-    all_lines: &[DiffLine],
-    merge_hunks: &[DiffHunk],
-    selected: &HashSet<usize>,
-    direction: HunkDirection,
-    target_trailing_newline: bool,
-) -> String {
-    let result: Vec<&str> = selected_lines(all_lines, merge_hunks, selected, direction)
-        .map(|(line, _)| line.value.as_str())
-        .collect();
-    join_lines(&result, target_trailing_newline)
 }
 
 fn selected_lines<'a>(
@@ -457,20 +423,8 @@ mod tests {
             (HunkDirection::LeftToRight, &old, &new),
             (HunkDirection::RightToLeft, &new, &old),
         ] {
-            assert_eq!(
-                apply_selected_hunks_single_pass(&lines, &merge_hunks, &all, direction, true),
-                *source
-            );
-            assert_eq!(
-                apply_selected_hunks_single_pass(
-                    &lines,
-                    &merge_hunks,
-                    &HashSet::new(),
-                    direction,
-                    true
-                ),
-                *target
-            );
+            assert_eq!(merged(&old, &new, &all, direction), *source);
+            assert_eq!(merged(&old, &new, &HashSet::new(), direction), *target);
         }
     }
 
@@ -478,7 +432,7 @@ mod tests {
     fn selected_blank_lines_and_unselected_blank_lines_are_preserved_in_both_directions() {
         for (old, new) in [("\n", ""), ("", "\n"), ("\n\n", "\n"), ("\n", "x\n")] {
             let diff = display_diff(old, new);
-            let (hunks, lines) = unwrap_modified(&diff);
+            let hunks = merge_hunks_of(&diff);
             for (direction, source, target) in [
                 (HunkDirection::LeftToRight, old, new),
                 (HunkDirection::RightToLeft, new, old),
@@ -488,13 +442,7 @@ mod tests {
                     (HashSet::new(), target),
                 ] {
                     assert_eq!(
-                        apply_selected_hunks_single_pass(
-                            lines,
-                            hunks,
-                            &selected,
-                            direction,
-                            expected.ends_with('\n'),
-                        ),
+                        merged(old, new, &selected, direction),
                         expected,
                         "{old:?} -> {new:?}, {direction:?}, {selected:?}",
                     );
@@ -837,33 +785,30 @@ mod tests {
         assert!(!empty.contains_line(0));
     }
 
-    // ── apply_selected_hunks_single_pass tests ──
+    // ── apply_merge_hunks tests ──
 
-    /// display_diff の結果から Modified の merge_hunks と lines を取り出すヘルパー。
+    /// display_diff の結果から Modified の操作用ハンクを取り出すヘルパー。
     /// Modified でなければ panic する。
-    fn unwrap_modified(diff: &DiffResult) -> (&[DiffHunk], &[DiffLine]) {
+    fn merge_hunks_of(diff: &DiffResult) -> &[DiffHunk] {
         match diff {
-            DiffResult::Modified {
-                merge_hunks, lines, ..
-            } => (merge_hunks, lines),
-            _ => panic!("Modified を期待"),
+            DiffResult::Modified { merge_hunks, .. } => merge_hunks,
+            DiffResult::Equal => panic!("Modified を期待"),
         }
+    }
+
+    /// `old` から `new` への差分の操作用ハンクのうち `chosen` だけを当てた中身
+    fn merged(old: &str, new: &str, chosen: &HashSet<usize>, direction: HunkDirection) -> String {
+        let (old, new) = (text(old), text(new));
+        let content = PairScript::new(&old, &new).apply_merge_hunks(chosen, direction);
+        String::from_utf8(content).expect("the merged text is UTF-8")
     }
 
     #[test]
     fn test_single_pass_empty_selected_returns_target() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &HashSet::new(),
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &HashSet::new(), HunkDirection::LeftToRight);
         assert_eq!(result, new);
     }
 
@@ -872,17 +817,11 @@ mod tests {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
         let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         assert_eq!(merge_hunks.len(), 2);
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, "a\nb\nc\nd\ne\nf\ng\nh\nY\nj\n");
     }
 
@@ -891,16 +830,10 @@ mod tests {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
         let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         let selected: HashSet<usize> = (0..merge_hunks.len()).collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -910,19 +843,13 @@ mod tests {
         let source = "header\nalpha\nmiddle1\nmiddle2\nmiddle3\nbeta\nfooter\n";
         let target = "header\nALPHA_NEW\nmiddle1\nmiddle2\nmiddle3\nBETA_NEW\nfooter\n";
         let diff = display_diff(source, target);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         assert_eq!(merge_hunks.len(), 2, "2つの変更ブロックがあるはず");
 
         // Step A: hunk 0 のみ適用
         let selected_a: HashSet<usize> = [0].into_iter().collect();
-        let partial = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected_a,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let partial = merged(source, target, &selected_a, HunkDirection::LeftToRight);
         assert_eq!(
             partial,
             "header\nalpha\nmiddle1\nmiddle2\nmiddle3\nBETA_NEW\nfooter\n",
@@ -933,15 +860,9 @@ mod tests {
         match &diff2 {
             DiffResult::Equal => assert_eq!(partial, source),
             DiffResult::Modified { .. } => {
-                let (hunks2, lines2) = unwrap_modified(&diff2);
+                let hunks2 = merge_hunks_of(&diff2);
                 let all_hunks: HashSet<usize> = (0..hunks2.len()).collect();
-                let final_text = apply_selected_hunks_single_pass(
-                    lines2,
-                    hunks2,
-                    &all_hunks,
-                    HunkDirection::LeftToRight,
-                    true,
-                );
+                let final_text = merged(source, &partial, &all_hunks, HunkDirection::LeftToRight);
                 assert_eq!(final_text, source, "全 hunk 適用後は source と一致すべき");
             }
         }
@@ -952,17 +873,11 @@ mod tests {
         let old = "a\nb\nc\n";
         let new = "a\nX\nY\nZ\nb\nc\n";
         let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         assert!(!merge_hunks.is_empty());
         let selected: HashSet<usize> = (0..merge_hunks.len()).collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -971,16 +886,10 @@ mod tests {
         let old = "a\nb\nc\nd\ne\n";
         let new = "a\ne\n";
         let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         let selected: HashSet<usize> = (0..merge_hunks.len()).collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -989,17 +898,11 @@ mod tests {
         let old = "a\nb\nc\nX\ne\n";
         let new = "a\nB\nc\nD\ne\n";
         let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         assert_eq!(merge_hunks.len(), 2);
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, "a\nb\nc\nD\ne\n");
     }
 
@@ -1007,17 +910,9 @@ mod tests {
     fn test_single_pass_hunk_at_file_start() {
         let old = "FIRST\nsecond\nthird\n";
         let new = "NEW_FIRST\nsecond\nthird\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -1025,17 +920,9 @@ mod tests {
     fn test_single_pass_hunk_at_file_end() {
         let old = "first\nsecond\nLAST\n";
         let new = "first\nsecond\nNEW_LAST\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -1043,17 +930,9 @@ mod tests {
     fn test_single_pass_duplicate_in_selected_ignored() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nc\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0, 0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -1061,17 +940,9 @@ mod tests {
     fn test_single_pass_out_of_range_index_ignored() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nc\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0, 99].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
 
@@ -1079,17 +950,9 @@ mod tests {
     fn test_single_pass_right_to_left_direction() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [1].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::RightToLeft,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::RightToLeft);
         assert_eq!(result, "a\nb\nc\nd\ne\nf\ng\nh\nY\nj\n");
     }
 
@@ -1097,17 +960,9 @@ mod tests {
     fn test_single_pass_trailing_newline_preserved() {
         let old = "a\nb\n";
         let new = "a\nX\n";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert!(result.ends_with('\n'));
         assert_eq!(result, "a\nb\n");
     }
@@ -1116,17 +971,9 @@ mod tests {
     fn test_single_pass_trailing_newline_absent() {
         let old = "a\nb";
         let new = "a\nX";
-        let diff = display_diff(old, new);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected,
-            HunkDirection::LeftToRight,
-            false,
-        );
+        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert!(!result.ends_with('\n'));
         assert_eq!(result, "a\nb");
     }
@@ -1136,34 +983,22 @@ mod tests {
         let source = "line1\nline2\nline3\nline4\nline5\n";
         let target = "line1\nNEW_A\nNEW_B\nNEW_C\nline2\nline3\nCHANGED4\nline5\n";
         let diff = display_diff(source, target);
-        let (merge_hunks, lines) = unwrap_modified(&diff);
+        let merge_hunks = merge_hunks_of(&diff);
 
         assert!(!merge_hunks.is_empty());
 
         // Step A: 最初の hunk だけ適用
         let selected_a: HashSet<usize> = [0].into_iter().collect();
-        let partial = apply_selected_hunks_single_pass(
-            lines,
-            merge_hunks,
-            &selected_a,
-            HunkDirection::LeftToRight,
-            true,
-        );
+        let partial = merged(source, target, &selected_a, HunkDirection::LeftToRight);
 
         // Step B: partial から再 diff → 残りを全適用
         let diff2 = display_diff(source, &partial);
         match &diff2 {
             DiffResult::Equal => {} // 既に収束
             DiffResult::Modified { .. } => {
-                let (h2, l2) = unwrap_modified(&diff2);
+                let h2 = merge_hunks_of(&diff2);
                 let all: HashSet<usize> = (0..h2.len()).collect();
-                let final_text = apply_selected_hunks_single_pass(
-                    l2,
-                    h2,
-                    &all,
-                    HunkDirection::LeftToRight,
-                    true,
-                );
+                let final_text = merged(source, &partial, &all, HunkDirection::LeftToRight);
                 assert_eq!(final_text, source);
             }
         }
