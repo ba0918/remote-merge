@@ -1,7 +1,7 @@
 //! 二つのテキストの行の差分を出力の hunk にし、--max-lines で打ち切る（docs/ir/cli/diff-output.md の
 //! REQ-cli-054・058）。行の差分は core の diff の関数で求め、行番号はその関数の数え方のまま渡す
 
-use remote_merge_core::diff::engine::{DiffResult, DiffTag, compute_diff};
+use remote_merge_core::diff::engine::{DiffResult, DiffTag};
 
 use crate::service::types::{DiffHunk, DiffLine, DiffLineType};
 
@@ -12,11 +12,7 @@ pub struct ShownHunks {
     pub truncated: bool,
 }
 
-/// `old` から `new` への差分の hunk。`max_lines` は追加と削除の行の数の上限（0 と None は無制限）
-pub fn shown_hunks(old: &str, new: &str, max_lines: Option<usize>) -> ShownHunks {
-    shown_script(compute_diff(old, new), max_lines)
-}
-
+/// 行の差分 `script` の hunk。`max_lines` は追加と削除の行の数の上限（0 と None は無制限）
 pub fn shown_script(script: DiffResult, max_lines: Option<usize>) -> ShownHunks {
     let mut shown = ShownHunks {
         hunks: Vec::new(),

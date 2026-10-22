@@ -1,6 +1,20 @@
 //! 行の差分を出力の hunk にして --max-lines で打ち切る規則（REQ-cli-054・058）の単体テスト
+use remote_merge_core::content::{Content, Interpretation, interpret};
+use remote_merge_core::diff::engine::PairScript;
+
 use super::*;
 use crate::service::types::DiffLineType;
+
+/// `old` から `new` への差分を、diff の出力と同じく表示用の行の差分から hunk にする
+fn shown_hunks(old: &str, new: &str, max_lines: Option<usize>) -> ShownHunks {
+    let (Ok(Content::Text(old)), Ok(Content::Text(new))) = (
+        interpret(old.as_bytes(), Interpretation::Unspecified),
+        interpret(new.as_bytes(), Interpretation::Unspecified),
+    ) else {
+        panic!("the texts of a test are text");
+    };
+    shown_script(PairScript::new(&old, &new).display(), max_lines)
+}
 
 fn kinds(shown: &ShownHunks) -> Vec<(DiffLineType, String)> {
     shown
