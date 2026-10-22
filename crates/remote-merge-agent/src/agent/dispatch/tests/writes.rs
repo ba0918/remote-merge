@@ -122,5 +122,3 @@ fn a_symlink_to_a_parent_target_is_created() {
         std::path::Path::new("../etc/passwd")
     );
 }
-
-// ── WriteFile with MetadataConfig ──

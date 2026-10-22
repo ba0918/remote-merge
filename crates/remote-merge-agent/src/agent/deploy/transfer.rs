@@ -135,7 +135,6 @@ fi
 ///
 /// `sudo` が true の場合、コマンド全体に `sudo` prefix を付与する。
 /// `default_uid`, `default_gid` が指定されている場合、対応する引数を追加する。
-/// `file_permissions`, `dir_permissions` は10進数でコマンドライン引数として渡す。
 pub fn build_agent_command(
     remote_path: &Path,
     root_dir: &str,

@@ -1,4 +1,4 @@
-//! ReadFiles・StatFiles・InspectPath
+//! ReadFiles・InspectPath・InspectPaths
 
 use super::support::*;
 
@@ -98,8 +98,6 @@ fn inspect_path_answers_with_the_cause_when_the_path_cannot_be_resolved() {
         }
     );
 }
-
-// ── Path traversal protection ──
 
 // ── ReadFiles ストリーミング ──
 

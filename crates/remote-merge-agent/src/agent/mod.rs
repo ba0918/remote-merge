@@ -6,7 +6,6 @@ pub mod dispatch;
 mod file_io;
 pub mod inspection;
 #[cfg(unix)]
-#[cfg(unix)]
 mod receipt;
 use remote_merge_protocol as protocol;
 use remote_merge_protocol::framing;

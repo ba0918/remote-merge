@@ -33,7 +33,7 @@ pub fn run_agent_server(root_dir: PathBuf, metadata_config: MetadataConfig) -> R
 // Testable loop
 // ---------------------------------------------------------------------------
 
-/// テスト用: 任意の Read/Write で agent サーバーループを実行する。
+/// 任意の Read/Write で agent サーバーループを実行する（`run_agent_server` は標準入出力で呼ぶ）。
 pub(crate) fn run_agent_loop(
     mut reader: impl Read,
     mut writer: impl Write,
