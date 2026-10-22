@@ -3,6 +3,7 @@
 //! 契約テスト。
 
 use super::agent_support::{AgentFixture, Setup, json};
+use super::diff_support::lines_of;
 use super::server_faults::Faults;
 
 // @kotowari[REQ-ssh-010]
@@ -17,8 +18,17 @@ async fn the_three_operations_go_to_the_agent_on_a_server_without_sudo() {
     assert!(merge.status.success(), "{merge:?}");
     let sync = fixture.run(&["sync", "old.txt", "--delete", "--force"]);
     assert!(sync.status.success(), "{sync:?}");
-    let diff = fixture.run(&["diff", "dir"]);
-    assert!(json(&diff).to_string().contains("right"), "{diff:?}");
+    let diff = json(&fixture.run(&["diff", "dir"]));
+    assert_eq!(diff["files"].as_array().map(Vec::len), Some(1), "{diff}");
+    assert_eq!(diff["files"][0]["path"], "dir/a.txt", "{diff}");
+    assert_eq!(
+        lines_of(&diff["files"][0]),
+        [
+            ("removed".to_string(), "left".to_string()),
+            ("added".to_string(), "right".to_string())
+        ],
+        "{diff}"
+    );
 
     assert_eq!(fixture.read_remote("new.txt"), "new\n");
     assert!(!fixture.remote().join("old.txt").exists());

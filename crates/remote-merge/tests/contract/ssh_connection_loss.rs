@@ -150,6 +150,13 @@ async fn an_agent_read_cut_every_time_on_a_sudo_server_stops_without_an_unprivil
     let output = fixture.run(&["diff", "example.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
+    // remote の root_dir に触れたコマンド（エージェントの起動）はどれも sudo を通した
+    let on_remote = fixture.remote_commands();
+    assert!(!on_remote.is_empty(), "{output:?}");
+    assert!(
+        on_remote.iter().all(|command| command.starts_with("sudo ")),
+        "{on_remote:#?}"
+    );
 }
 
 // @kotowari[REQ-ssh-003, REQ-ssh-009]
