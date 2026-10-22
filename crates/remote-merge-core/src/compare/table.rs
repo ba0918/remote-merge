@@ -44,12 +44,14 @@ pub fn state_table(
                     .map(|name| (name.clone(), SideState::UnreadableName, None)),
             );
         for (path, state, permissions) in found {
-            let states = table.entry(path.clone()).or_default();
-            if links.iter().any(|link| is_below(&path, link)) {
+            let below_link = links.iter().any(|link| is_below(&path, link));
+            let is_link = links.contains(&path);
+            let states = table.entry(path).or_default();
+            if below_link {
                 states.not_collected.insert(*role);
                 continue;
             }
-            if links.contains(&path) {
+            if is_link {
                 states.outside.insert(*role);
             }
             if let Some(permissions) = permissions {
