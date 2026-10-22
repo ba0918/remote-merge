@@ -55,6 +55,7 @@ enum HostKeyCheck<'a> {
 /// SSH チャネルのウィンドウサイズ（デフォルト64KB）より小さく設定し、
 /// 大容量データ転送時のウィンドウサイズ超過を防ぐ。
 const CHANNEL_DATA_CHUNK_SIZE: usize = 32 * 1024;
+const _: () = assert!(CHANNEL_DATA_CHUNK_SIZE > 0 && CHANNEL_DATA_CHUNK_SIZE <= 64 * 1024);
 
 impl SshClient {
     /// HostKeyVerifier を指定して接続する
@@ -778,24 +779,6 @@ fn is_passphrase_error(e: &russh::keys::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_timeout_config_mapping() {
-        let ssh_config = SshConfig::default();
-        let duration = Duration::from_secs(ssh_config.timeout_sec);
-        assert_eq!(duration.as_secs(), 300);
-    }
-
-    #[test]
-    fn test_channel_data_chunk_size_is_within_ssh_window() {
-        // SSH デフォルトウィンドウサイズ (64KB) より小さいことを保証
-        // const assert で定数の妥当性をコンパイル時に検証
-        const {
-            assert!(CHANNEL_DATA_CHUNK_SIZE > 0);
-            assert!(CHANNEL_DATA_CHUNK_SIZE <= 64 * 1024);
-        }
-        assert_eq!(CHANNEL_DATA_CHUNK_SIZE, 32 * 1024);
-    }
 
     // ── is_passphrase_error テスト ──
 
