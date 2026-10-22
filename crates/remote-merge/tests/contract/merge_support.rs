@@ -149,6 +149,7 @@ impl Fixture {
         super::common::restrict_permissions(&self.root(side).join(path), 0o200)
     }
 
+    #[cfg(feature = "test-utils")]
     pub(super) fn append_config(&self, text: &str) {
         let mut config = fs::read_to_string(&self.config_path).unwrap();
         config.push_str(text);
