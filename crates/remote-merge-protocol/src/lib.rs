@@ -11,40 +11,11 @@ pub use failure::WireFailure;
 
 macro_rules! define_protocol_version {
     ($version:literal) => {
-        /// プロトコルバージョン（破壊的変更時にインクリメント）
+        /// 通信の版。要求と応答の形（wire_shape_tests などが固定するバイト列）を変えたら上げる。
         ///
-        /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
-        /// v3 → v4: PathInspection の Symlink に real_path フィールド追加
-        /// v4 → v5: PathInspection を "/" から要素ごとに辿る確認の結果の種類に変更
-        /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした。
-        ///          Remove・Chmod・ListDir を追加
-        /// v6 → v7: ListTree の応答に、循環で走査を止めたことを示す TreeIncomplete を追加
-        /// v7 → v8: 一つの項目を辿らずに読む ReadEntryLink を追加
-        /// v8 → v9: TreeChunk に UTF-8 として読めない名前のファイルの unreadable_names を追加
-        /// v9 → v10: 受け取ったパスを入力の形の検査で拒んだことを型で返す。一つのパスの要求は
-        ///           PathRefused、複数のパスの要求は FileContents・FileHashes・Stats の refused。
-        ///           項目の操作の要求で root_dir 全体を項目として拒んだ理由も同じ型で運ぶ
-        /// v10 → v11: ListTree を走査の規則の求め（起点の範囲と件数の上限）にし、TreeChunk で
-        ///           規則が載せた一覧の項目を、TreeFailed で走査を止めた誤りの種類を運ぶ。
-        ///           TreeIncomplete をなくした
-        /// v11 → v12: 操作の失敗を種類（WireFailure）で運ぶ。読み込みの要求は大きさの上限を運ぶ。
-        ///           使われなくなった StatFiles をなくした。書き込み・symlink の作成・削除・権限の変更の
-        ///           結果を Changed にまとめた。ListDir をなくし、子の一覧は ListTree の
-        ///           ScanScope::Children で求める
-        /// v12 → v13: 走査の一覧の項目の種類に、FIFO・ソケット・デバイスのその他の種類（Other）を
-        ///           足した。一覧の symlink に、リンク先がディレクトリか・ディレクトリでないか・ないか
-        ///           （points_to。辿った先がその他の種類かも）を持たせ、リンク文字列を UTF-8 でなくても
-        ///           そのままのバイト列で運ぶ。symlink も辿った先の中身のハッシュを取る HashContents を
-        ///           足した。起点を読めない走査の誤り（StartUnreadable）に、権限がないかどうか（cause）を
-        ///           持たせた。root_dir を読めない走査の誤り（RootUnreadable）にも cause を持たせ、
-        ///           root_dir がディレクトリでない（RootNotDirectory）を分けた。いくつものパスを
-        ///           まとめて確かめる InspectPaths を足した。変更の途中で
-        ///           root_dir がなくなっていたことを WireFailure::RootGone で運ぶ。パスの確認の Exists に
-        ///           種類を、Symlink に辿った先の種類を足した
-        /// v13 → v14: 一覧の symlink のリンク先の種類に、ループしているか途中がディレクトリでない
-        ///           ために辿れない（Unresolvable）を足した。走査はそれで止まらずに載せる
-        /// v14 → v15: TreeChunk に、読めない名前のうちリンク先を辿れない symlink（unresolvable_names）と、
-        ///           件数の上限に当てて数えた項目の数（counted）を足した
+        /// 手元と同じ版のエージェントだけを使う（docs/ir/ssh/fallback.md の REQ-ssh-021）。古い版の
+        /// ための既定値は持たないので、版ごとの違いの経緯はここに書かず、git の履歴と docs/decision に
+        /// 残す。
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
