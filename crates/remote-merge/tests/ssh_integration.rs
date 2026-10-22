@@ -68,6 +68,8 @@ impl CommandRegistry {
 /// テストサーバーの起動結果をまとめる構造体
 struct TestServerHandle {
     port: u16,
+    /// サーバのホスト鍵の公開鍵（OpenSSH の形の "種類 base64"）
+    host_key: String,
     registry: CommandRegistry,
     received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
     #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
@@ -281,9 +283,9 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
         inactivity_timeout: Some(Duration::from_secs(10)),
         ..Default::default()
     };
-    config
-        .keys
-        .push(russh::keys::PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap());
+    let key = russh::keys::PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+    let host_key = key.public_key().to_openssh().unwrap();
+    config.keys.push(key);
     let config = Arc::new(config);
 
     let mut server = TestServer {
@@ -309,6 +311,7 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
 
     TestServerHandle {
         port,
+        host_key,
         registry,
         received_data,
         exec_commands,
@@ -786,10 +789,8 @@ impl HostKeyVerifier for MockVerifier {
 }
 
 #[tokio::test]
-async fn test_connect_with_verifier_accept_succeeds() {
-    // 未知ホスト → verifier が true を返す → 接続成功
+async fn accepting_an_unknown_host_asks_once_and_records_its_key_for_the_next_connection() {
     let handle = start_test_server().await;
-    handle.registry.register("echo ok", "ok\n", 0);
 
     // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
     let known_hosts = tempfile::TempDir::new().unwrap();
@@ -803,18 +804,25 @@ async fn test_connect_with_verifier_accept_succeeds() {
     let ssh_config = isolated_ssh_config(&known_hosts);
 
     let verifier = MockVerifier::new(true);
-    let result =
+    let client =
         SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
-            .await;
-
-    // 未知ホスト（テストの known_hosts には登録されていない）なので verifier が呼ばれる。
-    assert!(
-        result.is_ok(),
-        "connect_with_verifier should succeed when verifier accepts"
-    );
-
-    let client = result.unwrap();
+            .await
+            .expect("connect_with_verifier should succeed when verifier accepts");
     client.disconnect().await.expect("切断に失敗");
+
+    assert_eq!(verifier.call_count(), 1, "the unknown host is asked once");
+    let recorded = std::fs::read_to_string(known_hosts.path().join("known_hosts")).unwrap();
+    let entry = format!("[127.0.0.1]:{} {}", handle.port, handle.host_key);
+    assert!(recorded.lines().any(|line| line == entry), "{recorded}");
+
+    // 記録した鍵のホストは、次の接続では尋ねずにつなぐ
+    let second = MockVerifier::new(false);
+    let client =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &second, None)
+            .await
+            .expect("a recorded host connects without asking");
+    client.disconnect().await.expect("切断に失敗");
+    assert_eq!(second.call_count(), 0, "the recorded host was asked again");
 }
 
 #[tokio::test]
@@ -875,39 +883,5 @@ async fn test_known_host_skips_verifier() {
     let output = client.exec("echo ok").await.expect("exec should succeed");
     assert_eq!(output, "ok\n");
 
-    client.disconnect().await.expect("切断に失敗");
-}
-
-#[tokio::test]
-async fn test_verifier_called_at_most_once_per_connection() {
-    // verifier は1回の接続で最大1回だけ呼ばれる
-    let handle = start_test_server().await;
-    handle.registry.register("echo ok", "ok\n", 0);
-
-    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
-    let known_hosts = tempfile::TempDir::new().unwrap();
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = isolated_ssh_config(&known_hosts);
-
-    let verifier = MockVerifier::new(true);
-    let result =
-        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
-            .await;
-
-    assert!(result.is_ok());
-    // verifier が呼ばれた場合、1回だけ呼ばれることを検証
-    assert!(
-        verifier.call_count() <= 1,
-        "verifier should be called at most once, got {}",
-        verifier.call_count()
-    );
-
-    let client = result.unwrap();
     client.disconnect().await.expect("切断に失敗");
 }
