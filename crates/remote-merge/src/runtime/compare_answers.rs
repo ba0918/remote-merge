@@ -3,9 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{
-    PairJudgement, PairVerdict, Role, SideFailure, Undecidable, Verdict, settle_pairs,
-};
+use remote_merge_core::compare::{Role, SideFailure};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation, PathResult};
 use remote_merge_core::relative_path::EntryPath;
 
@@ -122,50 +120,6 @@ impl CoreRuntime {
                 OpFailure::Disconnected(Disconnection::NoAnswer(format!("{error:#}")))
             });
         Some(SideFailure { role, failure })
-    }
-}
-
-/// 組の判定を読んだハッシュで決め直す。答えを失った側 `lost` を含む組は、その読み込みの失敗で判定
-/// できないとする（ほかの組はそのまま決め直す）
-pub(super) fn settle_or_lost(
-    judged: &[PairJudgement],
-    hashes: &BTreeMap<Role, Result<String, OpFailure>>,
-    lost: Option<&SideFailure>,
-) -> Result<Vec<PairVerdict>, SideFailure> {
-    let Some(lost) = lost else {
-        return settle_pairs(judged, hashes);
-    };
-    judged
-        .iter()
-        .map(|judged| {
-            if judged.pair.first == lost.role || judged.pair.second == lost.role {
-                return Ok(lost_verdict(judged.pair, lost));
-            }
-            Ok(settle_pairs(std::slice::from_ref(judged), hashes)?.remove(0))
-        })
-        .collect()
-}
-
-/// 読んだ後の組の判定のうち、答えを失った側 `lost` を含む組を、その読み込みの失敗で判定できないと
-/// する
-pub(super) fn lose_pairs(pairs: Vec<PairVerdict>, lost: &SideFailure) -> Vec<PairVerdict> {
-    pairs
-        .into_iter()
-        .map(|pair| {
-            if pair.pair.first == lost.role || pair.pair.second == lost.role {
-                lost_verdict(pair.pair, lost)
-            } else {
-                pair
-            }
-        })
-        .collect()
-}
-
-fn lost_verdict(pair: remote_merge_core::compare::Pair, lost: &SideFailure) -> PairVerdict {
-    PairVerdict {
-        pair,
-        verdict: Verdict::Undecidable(Undecidable::ReadFailed(vec![lost.clone()])),
-        followed: None,
     }
 }
 

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use super::contents::{ContentJudgement, ReadOutcome, judge_hashes, read_outcome};
 use super::method::combine_link_pair;
 use super::pairs::{Pair, PairJudgement};
-use super::verdict::{Judgement, Role, SideFailure, Verdict};
+use super::verdict::{Judgement, Role, SideFailure, Undecidable, Verdict};
 use crate::op_failure::{Disconnection, OpFailure};
 
 /// 一つの組の判定
@@ -27,23 +27,72 @@ pub fn settle_pairs(
 ) -> Result<Vec<PairVerdict>, SideFailure> {
     judged
         .iter()
+        .map(|judged| settle_pair(judged, hashes))
+        .collect()
+}
+
+/// 組の判定を読んだハッシュで決め直す。答えを失った側 `lost` を含む組は、その読み込みの失敗で判定
+/// できないとする（ほかの組はそのまま決め直す）
+pub fn settle_or_lost(
+    judged: &[PairJudgement],
+    hashes: &BTreeMap<Role, Result<String, OpFailure>>,
+    lost: Option<&SideFailure>,
+) -> Result<Vec<PairVerdict>, SideFailure> {
+    let Some(lost) = lost else {
+        return settle_pairs(judged, hashes);
+    };
+    judged
+        .iter()
         .map(|judged| {
-            let verdict = settle(&judged.judgement, judged.pair, hashes)?;
-            let followed = match &judged.followed {
-                Some(followed) => Some(settle(followed, judged.pair, hashes)?),
-                None => None,
-            };
-            let combined = match &followed {
-                Some(followed) => combine_link_pair(&verdict, followed),
-                None => verdict,
-            };
-            Ok(PairVerdict {
-                pair: judged.pair,
-                verdict: combined,
-                followed,
-            })
+            if judged.pair.first == lost.role || judged.pair.second == lost.role {
+                return Ok(lost_verdict(judged.pair, lost));
+            }
+            settle_pair(judged, hashes)
         })
         .collect()
+}
+
+/// 読んだ後の組の判定のうち、答えを失った側 `lost` を含む組を、その読み込みの失敗で判定できないと
+/// する
+pub fn lose_pairs(pairs: Vec<PairVerdict>, lost: &SideFailure) -> Vec<PairVerdict> {
+    pairs
+        .into_iter()
+        .map(|pair| {
+            if pair.pair.first == lost.role || pair.pair.second == lost.role {
+                lost_verdict(pair.pair, lost)
+            } else {
+                pair
+            }
+        })
+        .collect()
+}
+
+fn lost_verdict(pair: Pair, lost: &SideFailure) -> PairVerdict {
+    PairVerdict {
+        pair,
+        verdict: Verdict::Undecidable(Undecidable::ReadFailed(vec![lost.clone()])),
+        followed: None,
+    }
+}
+
+fn settle_pair(
+    judged: &PairJudgement,
+    hashes: &BTreeMap<Role, Result<String, OpFailure>>,
+) -> Result<PairVerdict, SideFailure> {
+    let verdict = settle(&judged.judgement, judged.pair, hashes)?;
+    let followed = match &judged.followed {
+        Some(followed) => Some(settle(followed, judged.pair, hashes)?),
+        None => None,
+    };
+    let combined = match &followed {
+        Some(followed) => combine_link_pair(&verdict, followed),
+        None => verdict,
+    };
+    Ok(PairVerdict {
+        pair: judged.pair,
+        verdict: combined,
+        followed,
+    })
 }
 
 fn settle(

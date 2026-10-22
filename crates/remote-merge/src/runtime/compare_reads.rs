@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use remote_merge_core::compare::{
     Method, PathComparison, PathStates, Role, SideFailure, Uses, apply_reads, has_content,
-    hash_roles, judge_pairs,
+    hash_roles, judge_pairs, lose_pairs, settle_or_lost,
 };
 
-use super::compare_answers::{disconnected, lose_pairs, settle_or_lost, take};
+use super::compare_answers::{disconnected, take};
 use super::compare_flow::{Asked, CompareRequest, CompareSides, Reused};
 use super::core::CoreRuntime;
 
