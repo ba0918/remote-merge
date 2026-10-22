@@ -307,6 +307,14 @@ fn config_option_naming_a_missing_file_stops_with_its_absolute_path() {
         &output,
         &format!("Config file not found: {}", absolute.display()),
     );
+    // テキストの出力では、エラーは "Error: " を付けて標準エラーに出る
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(&format!(
+            "Error: Config file not found: {}",
+            absolute.display()
+        )),
+        "{output:?}"
+    );
 }
 
 // @kotowari[REQ-config-007]
