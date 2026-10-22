@@ -81,7 +81,7 @@ impl RuntimeTargets {
         let xdg_data_home = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
         Self {
             local_overrides: HashMap::new(),
-            backup_store: crate::backup::backup_store_path(
+            backup_store: remote_merge_engine::backup::backup_store_path(
                 xdg_data_home.as_deref(),
                 dirs::home_dir().as_deref(),
             ),

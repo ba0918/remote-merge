@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use remote_merge::backup::backup_store_path;
+use remote_merge_engine::backup::backup_store_path;
 
 // @kotowari[EX-backup-007]
 #[test]
