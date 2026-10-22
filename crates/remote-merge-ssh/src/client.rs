@@ -124,7 +124,57 @@ impl SshClient {
             }
         };
 
-        let connect_result = tokio::time::timeout(
+        let session =
+            match Self::try_connect(&config, addr, handler, server_config, ssh_config).await? {
+                Ok(session) => session,
+                Err(e) => {
+                    // 接続失敗 → 未知ホストが原因かチェック
+                    if let Some((mut rx, verifier)) = unknown_host
+                        && let Ok(info) = rx.try_recv()
+                    {
+                        return Self::handle_unknown_host_verification(
+                            &info,
+                            verifier,
+                            server_name,
+                            server_config,
+                            ssh_config,
+                            &config,
+                            addr,
+                            passphrase_provider,
+                        )
+                        .await;
+                    }
+                    return Err(connection_error(&server_config.host, &e).into());
+                }
+            };
+
+        let client = Self::authenticated(
+            session,
+            server_name,
+            server_config,
+            ssh_config,
+            passphrase_provider,
+        )
+        .await?;
+        tracing::info!(
+            target: "remote_merge::ssh::client",
+            "SSH connection established: {}@{}",
+            server_config.user,
+            server_config.host
+        );
+        Ok(client)
+    }
+
+    /// `handler` で接続を試みる。時間切れは誤りにし、それ以外の接続の失敗はそのまま返す
+    /// （呼び手は未知の鍵の知らせを確かめてから接続の誤りにする）
+    async fn try_connect(
+        config: &Arc<client::Config>,
+        addr: (&str, u16),
+        handler: SshHandler,
+        server_config: &ServerConfig,
+        ssh_config: &SshConfig,
+    ) -> crate::error::Result<Result<client::Handle<SshHandler>, anyhow::Error>> {
+        let connected = tokio::time::timeout(
             Duration::from_secs(ssh_config.timeout_sec),
             client::connect(config.clone(), addr, handler),
         )
@@ -133,61 +183,29 @@ impl SshClient {
             host: server_config.host.clone(),
             timeout_sec: ssh_config.timeout_sec,
         })?;
+        Ok(connected)
+    }
 
-        match connect_result {
-            Ok(mut session) => {
-                Self::authenticate_or_disconnect(
-                    &mut session,
-                    server_name,
-                    server_config,
-                    passphrase_provider,
-                )
-                .await?;
-
-                tracing::info!(
-                    target: "remote_merge::ssh::client",
-                    "SSH connection established: {}@{}",
-                    server_config.user,
-                    server_config.host
-                );
-
-                Ok(Self {
-                    session,
-                    server_name: server_name.to_string(),
-                    channel_timeout_sec: ssh_config.timeout_sec,
-                })
-            }
-            Err(e) => {
-                // 接続失敗 → 未知ホストが原因かチェック
-                if let Some((mut rx, verifier)) = unknown_host
-                    && let Ok(info) = rx.try_recv()
-                {
-                    return Self::handle_unknown_host_verification(
-                        &info,
-                        verifier,
-                        server_name,
-                        server_config,
-                        ssh_config,
-                        &config,
-                        addr,
-                        passphrase_provider,
-                    )
-                    .await;
-                }
-
-                // 通常のエラー処理
-                let msg = e.to_string();
-                let message = match super::hint::ssh_algorithm_hint(&e) {
-                    Some(hint) => format!("{}\n\n{}", msg, hint),
-                    None => msg,
-                };
-                Err(AppError::SshConnection {
-                    host: server_config.host.clone(),
-                    message,
-                }
-                .into())
-            }
-        }
+    /// つながったセッションで認証し、操作に使うクライアントにする
+    async fn authenticated(
+        mut session: client::Handle<SshHandler>,
+        server_name: &str,
+        server_config: &ServerConfig,
+        ssh_config: &SshConfig,
+        passphrase_provider: Option<&dyn PassphraseProvider>,
+    ) -> crate::error::Result<Self> {
+        Self::authenticate_or_disconnect(
+            &mut session,
+            server_name,
+            server_config,
+            passphrase_provider,
+        )
+        .await?;
+        Ok(Self {
+            session,
+            server_name: server_name.to_string(),
+            channel_timeout_sec: ssh_config.timeout_sec,
+        })
     }
 
     /// russh のクライアント設定を構築する
@@ -254,47 +272,25 @@ impl SshClient {
             &info.key_base64,
         );
 
-        let mut session = tokio::time::timeout(
-            Duration::from_secs(ssh_config.timeout_sec),
-            client::connect(config.clone(), addr, retry_handler),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: server_config.host.clone(),
-            timeout_sec: ssh_config.timeout_sec,
-        })?
-        .map_err(|e2| {
-            let msg = e2.to_string();
-            let message = match super::hint::ssh_algorithm_hint(&e2) {
-                Some(hint) => format!("{}\n\n{}", msg, hint),
-                None => msg,
-            };
-            AppError::SshConnection {
-                host: server_config.host.clone(),
-                message,
-            }
-        })?;
+        let session = Self::try_connect(config, addr, retry_handler, server_config, ssh_config)
+            .await?
+            .map_err(|e2| connection_error(&server_config.host, &e2))?;
 
-        Self::authenticate_or_disconnect(
-            &mut session,
+        let client = Self::authenticated(
+            session,
             server_name,
             server_config,
+            ssh_config,
             passphrase_provider,
         )
         .await?;
-
         tracing::info!(
             target: "remote_merge::ssh::client",
             "SSH connection established (after TOFU): {}@{}",
             server_config.user,
             server_config.host
         );
-
-        Ok(Self {
-            session,
-            server_name: server_name.to_string(),
-            channel_timeout_sec: ssh_config.timeout_sec,
-        })
+        Ok(client)
     }
 
     /// 認証を実行し、失敗時はセッションを切断する
@@ -640,6 +636,19 @@ impl SshClient {
             .await
             .context("Failed to disconnect SSH")?;
         Ok(())
+    }
+}
+
+/// 接続の失敗を接続の誤りにする。サーバと共通の方式がないことによるなら、設定の手がかりを添える
+fn connection_error(host: &str, error: &anyhow::Error) -> AppError {
+    let msg = error.to_string();
+    let message = match super::hint::ssh_algorithm_hint(error) {
+        Some(hint) => format!("{}\n\n{}", msg, hint),
+        None => msg,
+    };
+    AppError::SshConnection {
+        host: host.to_string(),
+        message,
     }
 }
 
