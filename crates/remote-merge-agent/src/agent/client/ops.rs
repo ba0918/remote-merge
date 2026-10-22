@@ -8,7 +8,7 @@ use anyhow::Result;
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::{EntryPath, RelPath, entries_as_typed};
 
-use super::{AgentClient, AgentRefused, WRITE_CHUNK_SIZE, mismatch, unexpected};
+use super::{AgentClient, WRITE_CHUNK_SIZE, mismatch, unexpected};
 use crate::agent::protocol::{
     AgentEntryLink, AgentPathCheck, AgentPathInspection, AgentRequest, AgentResponse, RelPathError,
     WireFailure,
@@ -57,8 +57,6 @@ fn changed(operation: Operation, path: &EntryPath, response: AgentResponse) -> R
         AgentResponse::Changed {
             failure: Some(failure),
         } => Err(OpError::new(operation, path.as_typed(), OpFailure::from(failure)).into()),
-        AgentResponse::PathRefused { refusal } => Err(refusal.into()),
-        AgentResponse::Error { message } => Err(AgentRefused(message).into()),
         other => Err(unexpected(&format!("{operation:?}"), &other)),
     }
 }
@@ -92,8 +90,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             path: path.as_typed().to_string(),
         })? {
             AgentResponse::PathInspection { result } => Ok(result),
-            AgentResponse::PathRefused { refusal } => Err(refusal.into()),
-            AgentResponse::Error { message } => Err(AgentRefused(message).into()),
             other => Err(unexpected("InspectPath", &other)),
         }
     }
@@ -117,7 +113,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                     .collect())
             }
             AgentResponse::PathInspections { .. } => Err(mismatch("InspectPaths")),
-            AgentResponse::Error { message } => Err(AgentRefused(message).into()),
             other => Err(unexpected("InspectPaths", &other)),
         }
     }
@@ -155,8 +150,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 AgentEntryLink::NotSymlink => Ok(None),
                 AgentEntryLink::Failed { failure } => Err(failed(path, failure)),
             },
-            AgentResponse::PathRefused { refusal } => Err(refusal.into()),
-            AgentResponse::Error { message } => Err(AgentRefused(message).into()),
             other => Err(unexpected("ReadEntryLink", &other)),
         }
     }
