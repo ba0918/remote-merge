@@ -2,8 +2,8 @@
 //! 走査する側にない include の値と root_dir の外へ解決される値を飛ばすこと
 //! （docs/ir/config/include.md の REQ-config-032・033）の契約テスト。
 //!
-//! SSH の経路は `TestDirs` の試験サーバ（エージェントなし）、エージェントの経路は
-//! `AgentFixture` に対して、実行ファイルを `status --left local --right develop` で起動する。
+//! `AgentFixture`（祖先がディレクトリでない値のテストは `TestDirs`）の試験サーバに対して、実行ファイルを
+//! `status --left local --right develop` で起動する。どちらも右はエージェントの経路を通る。
 //! 警告は利用者の見る標準エラーで確かめる。左のローカルの経路の警告も同じ標準エラーに出る。
 
 use std::collections::BTreeMap;
@@ -80,23 +80,7 @@ fn outside_dir(temp: &Path) -> std::path::PathBuf {
     outside
 }
 
-// @kotowari[EX-config-010]
-#[test]
-fn include_value_missing_on_the_ssh_side_is_warned_and_the_rest_is_compared() {
-    let mut dirs = TestDirs::new_2way(
-        &[("src/a.txt", "local\n"), ("docs/d.txt", "doc\n")],
-        &[("src/a.txt", "remote\n")],
-    );
-    let output = status_on_the_remote_server(&mut dirs, &["src", "docs"]);
-    assert_eq!(missing_warnings(&output, "docs"), 1, "{output:?}");
-    assert_eq!(
-        statuses_by_path(&output),
-        statuses(&[("docs/d.txt", "left_only"), ("src/a.txt", "modified")]),
-        "{output:?}"
-    );
-}
-
-// @kotowari[REQ-config-032]
+// @kotowari[REQ-config-032, EX-config-010]
 #[tokio::test(flavor = "multi_thread")]
 async fn include_values_missing_on_the_local_or_agent_side_are_warned_the_same_way() {
     let fixture = AgentFixture::new().await;
@@ -130,26 +114,7 @@ async fn include_values_missing_on_the_local_or_agent_side_are_warned_the_same_w
     assert_eq!(statuses_by_path(&output), BTreeMap::new(), "{output:?}");
 }
 
-// @kotowari[EX-config-013, REQ-config-034]
-#[test]
-fn include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[("src/a.txt", "same\n")], &[("src/a.txt", "same\n")]);
-    let outside = outside_dir(dirs.temp.path());
-    for root in [&dirs.local_dir, &dirs.remote_dir] {
-        place_outside_links(root, &outside);
-    }
-    let output = status_on_the_remote_server(&mut dirs, &["src", "ext", "gone"]);
-    // 左のローカルの側と右の SSH の側がそれぞれ警告する。リンク切れでもリンク先が外なら同じ
-    assert_eq!(other_warnings_with(&output, "ext"), 2, "{output:?}");
-    assert_eq!(other_warnings_with(&output, "gone"), 2, "{output:?}");
-    assert_eq!(
-        statuses_by_path(&output),
-        statuses(&[("src/a.txt", "equal")]),
-        "{output:?}"
-    );
-}
-
-// @kotowari[REQ-config-033, REQ-config-034]
+// @kotowari[REQ-config-033, REQ-config-034, EX-config-013]
 #[tokio::test(flavor = "multi_thread")]
 async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed_via_the_agent() {
     let fixture = AgentFixture::new().await;
