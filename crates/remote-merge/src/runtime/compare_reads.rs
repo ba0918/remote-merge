@@ -111,8 +111,7 @@ impl CoreRuntime {
                 None => apply_reads(pairs, &failures).map_err(|lost| disconnected(path, lost))?,
             };
         }
-        let asked = asked(&to_hash, &to_read);
-        Ok((paths, asked))
+        Ok((paths, asked(to_hash, to_read)))
     }
 }
 
@@ -132,15 +131,15 @@ fn wanted<'a>(
 }
 
 fn asked(
-    hashed: &BTreeMap<Role, Vec<String>>,
-    read: &BTreeMap<Role, Vec<String>>,
+    hashed: BTreeMap<Role, Vec<String>>,
+    read: BTreeMap<Role, Vec<String>>,
 ) -> BTreeMap<Role, Asked> {
     let mut asked: BTreeMap<Role, Asked> = BTreeMap::new();
     for (role, paths) in hashed {
-        asked.entry(*role).or_default().hashed = paths.clone();
+        asked.entry(role).or_default().hashed = paths;
     }
     for (role, paths) in read {
-        asked.entry(*role).or_default().read = paths.clone();
+        asked.entry(role).or_default().read = paths;
     }
     asked
 }
