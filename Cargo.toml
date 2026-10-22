@@ -21,3 +21,8 @@ dbg_macro = "warn"
 
 [profile.release]
 strip = true
+
+# 依存だけを最適化する。テストは上限を超える 100 MB 級の中身を SSH の暗号と SHA-256 に通すので、
+# 最適化しない依存では遅い。ワークスペースのクレートは最適化せず、デバッグのしやすさを保つ。
+[profile.dev.package."*"]
+opt-level = 2
