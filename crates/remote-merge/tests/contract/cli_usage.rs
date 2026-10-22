@@ -65,7 +65,8 @@ fn help_and_version_are_exempt_and_answer_on_stdout_with_success() {
         assert!(output.stderr.is_empty(), "{flag}: {output:?}");
         assert!(!output.stdout.is_empty(), "{flag}: nothing was shown");
     }
-    let version = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+    let home = TempDir::new().unwrap();
+    let version = super::common::isolated_command(home.path())
         .arg("--version")
         .output()
         .unwrap();

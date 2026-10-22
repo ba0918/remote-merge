@@ -4,10 +4,11 @@
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
+use super::common::isolated_command;
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 
@@ -135,12 +136,8 @@ impl AgentFixture {
 
     /// `sides`（--left・--right の指定）を付けてコマンドを JSON の出力で動かす
     pub fn run_with_sides(&self, args: &[&str], sides: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        let mut command = isolated_command(self.home.path());
         command
-            .env("HOME", self.home.path())
-            .env("XDG_CACHE_HOME", self.home.path().join("cache"))
-            .env("XDG_CONFIG_HOME", self.home.path().join("config"))
-            .env("XDG_DATA_HOME", self.home.path().join("data"))
             .args(args)
             .arg("--config")
             .arg(&self.config)

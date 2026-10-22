@@ -1,13 +1,14 @@
 use std::fs;
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use tempfile::TempDir;
 
+use super::common::isolated_command;
+
 fn run_init(dir: &TempDir, input: &[u8]) -> std::process::Output {
-    let cache = TempDir::new().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("XDG_CACHE_HOME", cache.path())
+    let home = TempDir::new().unwrap();
+    let mut child = isolated_command(home.path())
         .arg("init")
         .current_dir(dir.path())
         .stdin(Stdio::piped())

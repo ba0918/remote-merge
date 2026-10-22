@@ -102,8 +102,9 @@ fn req_content_008_whole_file_previews_explain_no_encoding_conversion() {
             .unwrap()
             .contains("without encoding conversion")
     );
+    let home = tempfile::TempDir::new().unwrap();
     for command in ["merge", "sync"] {
-        let help = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        let help = super::common::isolated_command(home.path())
             .args([command, "--help"])
             .output()
             .unwrap();

@@ -1,5 +1,4 @@
 use std::fs;
-use std::process::Command;
 
 use remote_merge::cli::diff::{DiffArgs, execute_diff};
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
@@ -664,8 +663,7 @@ fn json_diff_returns_a_parseable_error_when_configuration_is_invalid() {
     let dir = TempDir::new().unwrap();
     let invalid_config = dir.path().join("invalid.toml");
     fs::write(&invalid_config, "[local\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let output = super::common::isolated_command(dir.path())
         .arg("--config")
         .arg(&invalid_config)
         .args(["diff", "example.txt", "--format", "json"])

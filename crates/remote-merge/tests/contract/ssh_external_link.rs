@@ -2,10 +2,10 @@
 
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
-use std::process::Command;
 
 use tempfile::TempDir;
 
+use super::common::isolated_command;
 use super::ssh_server::TestServer;
 
 fn verify_local_external_link() {
@@ -117,11 +117,7 @@ async fn external_parent_links_are_backed_up_and_updated_locally_and_through_the
             "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
             local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
         )).unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .env("HOME", home.path())
-            .env("XDG_CACHE_HOME", home.path().join("cache"))
-            .env("XDG_CONFIG_HOME", home.path().join("config"))
-            .env("XDG_DATA_HOME", home.path().join("data"))
+        let output = isolated_command(home.path())
             .env("REMOTE_MERGE_AGENT_BINARY", agent_binary)
             .args([
                 "merge", requested, "--left", "local", "--right", "fixture", "--format", "json",

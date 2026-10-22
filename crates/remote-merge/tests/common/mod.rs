@@ -10,7 +10,7 @@
 use std::fs;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
@@ -500,18 +500,15 @@ impl CliEnv {
 
     /// CLI コマンドを生成（--config 付き）
     ///
-    /// 環境変数はクリアされ、RUST_LOG 等の影響を排除する。
+    /// [`isolated_command`] の環境で、XDG の場所は一時ディレクトリの直下の "xdg-config"・
+    /// "xdg-data"・"xdg-cache" にする（バックアップと診断ログをそこから読むテストがある）。
     pub fn cmd(&self) -> Command {
         self._dirs.assert_isolated_config();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env_clear();
-        cmd.env("HOME", self._dirs.temp.path().join("home"));
-        cmd.env("XDG_CONFIG_HOME", self._dirs.temp.path().join("xdg-config"));
-        if let Ok(path) = std::env::var("PATH") {
-            cmd.env("PATH", path);
-        }
-        cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
-        cmd.env("XDG_CACHE_HOME", self._dirs.temp.path().join("xdg-cache"));
+        let temp = self._dirs.temp.path();
+        let mut cmd = isolated_command(&temp.join("home"));
+        cmd.env("XDG_CONFIG_HOME", temp.join("xdg-config"));
+        cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
+        cmd.env("XDG_CACHE_HOME", temp.join("xdg-cache"));
         cmd.arg("--config").arg(&self.config_path);
         cmd
     }
@@ -545,6 +542,32 @@ impl CliEnv {
 
 // ─── CLI コマンド生成（config なし） ─────────────────────
 
+/// 開発者の環境から隔離して remote-merge の実行ファイルを起動する Command。
+///
+/// 環境変数を全て消し（RUST_LOG・REMOTE_MERGE_AGENT_BINARY・パスワードの変数などを引き継がない）、
+/// HOME を `home`、XDG_CONFIG_HOME・XDG_DATA_HOME・XDG_CACHE_HOME を `home` の下の "config"・
+/// "data"・"cache" にする。作業ディレクトリは `home`（なければ作る）、標準入力は空。引き継ぐのは
+/// PATH と、カバレッジの計測中の計測データの書き出し先（LLVM_PROFILE_FILE。消すと子の計測が
+/// 作業ディレクトリに書かれて数えられない）だけ。場所の違うテストは、返した Command の `env`・
+/// `env_remove`・`current_dir`・`stdin` で上書きする
+pub fn isolated_command(home: &Path) -> Command {
+    fs::create_dir_all(home).expect("Failed to create an isolated home");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+    cmd.env_clear();
+    for inherited in ["PATH", "LLVM_PROFILE_FILE"] {
+        if let Some(value) = std::env::var_os(inherited) {
+            cmd.env(inherited, value);
+        }
+    }
+    cmd.env("HOME", home);
+    cmd.env("XDG_CONFIG_HOME", home.join("config"));
+    cmd.env("XDG_DATA_HOME", home.join("data"));
+    cmd.env("XDG_CACHE_HOME", home.join("cache"));
+    cmd.current_dir(home);
+    cmd.stdin(Stdio::null());
+    cmd
+}
+
 /// 一時ディレクトリの XDG_DATA_HOME と XDG_CACHE_HOME を持つ Command。一時ディレクトリは Command と
 /// 一緒に消え、消せなければ知らせる
 pub struct IsolatedCommand {
@@ -568,28 +591,15 @@ impl std::ops::DerefMut for IsolatedCommand {
 
 /// remote-merge バイナリの Command を生成する（config 指定なし）。
 ///
-/// 環境変数をクリアして RUST_LOG 等の影響を排除する。HOME と XDG の場所は一時ディレクトリの下に
-/// 向け、開発者の設定・known_hosts・キャッシュに触れない。exit code テスト等、config 不要なケースで
-/// 使う。起動したプロセスが終わるまで、返したものを持っておく
+/// [`isolated_command`] の環境を、Command と一緒に消える一時ディレクトリに作る。XDG の場所は
+/// 先に作っておく。exit code テスト等、config 不要なケースで使う。起動したプロセスが終わるまで、
+/// 返したものを持っておく
 pub fn remote_merge_cmd() -> IsolatedCommand {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-    cmd.env_clear();
-    // 最低限必要な環境変数を復元
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
     let homes = remote_merge_core::test_tree::TestTree::new();
-    let home = homes.path().join("home");
-    let config_home = homes.path().join("config");
-    let data_home = homes.path().join("data");
-    let cache_home = homes.path().join("cache");
-    for dir in [&home, &config_home, &data_home, &cache_home] {
-        fs::create_dir(dir).expect("Failed to create an isolated home");
+    let cmd = isolated_command(homes.path());
+    for dir in ["config", "data", "cache"] {
+        fs::create_dir(homes.path().join(dir)).expect("Failed to create an isolated home");
     }
-    cmd.env("HOME", home);
-    cmd.env("XDG_CONFIG_HOME", config_home);
-    cmd.env("XDG_DATA_HOME", data_home);
-    cmd.env("XDG_CACHE_HOME", cache_home);
     IsolatedCommand {
         command: cmd,
         _homes: homes,

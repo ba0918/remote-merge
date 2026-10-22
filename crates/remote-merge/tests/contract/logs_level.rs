@@ -4,9 +4,10 @@
 //! 置き場を一時ディレクトリに向ける。
 
 use std::fs;
-use std::process::Command;
 
 use tempfile::TempDir;
+
+use super::common::isolated_command;
 
 const LOG: &str = r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"remote_merge::app","message":"info entry","fields":{}}
 {"timestamp":"2026-01-01T00:00:01Z","level":"WARN","target":"remote_merge::app","message":"warn entry","fields":{}}
@@ -19,9 +20,7 @@ fn logs(args: &[&str]) -> std::process::Output {
     let cache = home.path().join("cache");
     fs::create_dir_all(cache.join("remote-merge")).unwrap();
     fs::write(cache.join("remote-merge/debug.log"), LOG).unwrap();
-    Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
+    isolated_command(home.path())
         .arg("logs")
         .args(args)
         .args(["--format", "json"])

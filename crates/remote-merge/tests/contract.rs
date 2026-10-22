@@ -576,7 +576,6 @@ fn unsafe_ssh_configuration_is_rejected_before_a_cli_process_can_start() {
     .unwrap();
     assert!(std::panic::catch_unwind(|| env.cmd()).is_err());
 }
-#[cfg(feature = "test-utils")]
 mod common;
 #[cfg(feature = "test-utils")]
 #[path = "contract/content_encoding/mod.rs"]

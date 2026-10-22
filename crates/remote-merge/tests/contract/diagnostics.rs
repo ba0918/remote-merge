@@ -3,6 +3,8 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+use super::common::isolated_command;
+
 // @kotowari[EX-cli-027]
 #[test]
 fn logs_command_reads_a_saved_diagnostic_entry() {
@@ -13,9 +15,7 @@ fn logs_command_reads_a_saved_diagnostic_entry() {
     fs::write(log_dir.join("debug.log"),
         r#"{"timestamp":"2026-01-01T00:00:00Z","level":"ERROR","target":"remote_merge::ssh","message":"Connection lost during read","fields":{}}
 "#).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
+    let output = isolated_command(home.path())
         .args(["logs", "--format", "json"])
         .output()
         .unwrap();
@@ -44,9 +44,7 @@ fn logs_does_not_panic_when_the_reader_closes_the_pipe() {
     // パイプの緩衝より長くして、読み手が閉じた後に書き込みが続くようにする
     fs::write(log_dir.join("debug.log"), entry.repeat(2000)).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
+    let mut child = isolated_command(home.path())
         .args(["logs"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -71,11 +69,8 @@ fn logs_does_not_panic_when_the_reader_closes_the_pipe() {
 #[test]
 fn logs_rejects_the_diff_format() {
     let home = TempDir::new().unwrap();
-    let cache = home.path().join("cache");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
+    let output = isolated_command(home.path())
         .args(["logs", "--format", "diff"])
         .output()
         .unwrap();

@@ -2,8 +2,8 @@
 
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::process::Command;
 
+use super::common::isolated_command;
 use super::ssh_server::TestServer;
 
 // @kotowari[EX-ssh-010]
@@ -36,11 +36,7 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
         local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
     )).unwrap();
     let run = |subcommand: &str| {
-        Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .env("HOME", home.path())
-            .env("XDG_CACHE_HOME", home.path().join("cache"))
-            .env("XDG_CONFIG_HOME", home.path().join("config"))
-            .env("XDG_DATA_HOME", home.path().join("data"))
+        isolated_command(home.path())
             .arg(subcommand)
             .arg("example.txt")
             .arg("--config")
