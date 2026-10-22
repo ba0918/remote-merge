@@ -1,7 +1,7 @@
 use super::content::{Prepared, View, empty_text};
 use remote_merge_core::{
     content::{Content, Interpretation, interpret},
-    diff::engine::{DiffResult, HunkDirection, PairScript},
+    diff::engine::{HunkDirection, PairScript},
 };
 use std::collections::HashSet;
 
@@ -64,13 +64,13 @@ pub fn merge_prepared(
         return Err(HunkError::Conflict);
     }
     let script = PairScript::new(left_text, right_text);
-    let DiffResult::Modified { hunks, .. } = script.display() else {
+    let Some(total) = script.hunk_count() else {
         return Ok(None);
     };
-    if let Some(index) = selected.iter().find(|index| **index >= hunks.len()) {
+    if let Some(index) = selected.iter().find(|index| **index >= total) {
         return Err(HunkError::OutOfRange {
             index: *index,
-            total: hunks.len(),
+            total,
         });
     }
     let mut content = script.apply(
@@ -82,7 +82,7 @@ pub fn merge_prepared(
         with_bom.append(&mut content);
         content = with_bom;
     }
-    Ok(Some((content, hunks.len())))
+    Ok(Some((content, total)))
 }
 
 pub fn merge_selected_hunks(

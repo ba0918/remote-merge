@@ -112,6 +112,14 @@ impl<'a, 'b> PairScript<'a, 'b> {
         result
     }
 
+    /// 表示用ハンクの数。二つの中身が同じなら None
+    pub fn hunk_count(&self) -> Option<usize> {
+        match &self.full {
+            DiffResult::Modified { hunks, .. } => Some(hunks.len()),
+            DiffResult::Equal => None,
+        }
+    }
+
     pub(super) fn full(&self) -> &DiffResult {
         &self.full
     }
