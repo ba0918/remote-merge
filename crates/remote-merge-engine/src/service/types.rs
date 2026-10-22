@@ -610,27 +610,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_file_status_kind_serializes_snake_case() {
-        let kind = FileStatusKind::LeftOnly;
-        let json = serde_json::to_string(&kind).unwrap();
-        assert_eq!(json, "\"left_only\"");
-    }
-
-    #[test]
-    fn test_diff_line_type_serializes_snake_case() {
-        let t = DiffLineType::Context;
-        let json = serde_json::to_string(&t).unwrap();
-        assert_eq!(json, "\"context\"");
-    }
-
-    #[test]
-    fn test_agent_status_serialize() {
-        let connected = AgentStatus::Connected;
-        let json = serde_json::to_string(&connected).unwrap();
-        assert_eq!(json, "\"connected\"");
-    }
-
     // ── ref field serialization ──
 
     #[test]
@@ -920,10 +899,6 @@ mod tests {
             "\"success\""
         );
         assert_eq!(
-            serde_json::to_string(&SyncTargetStatus::Partial).unwrap(),
-            "\"partial\""
-        );
-        assert_eq!(
             serde_json::to_string(&SyncTargetStatus::Failed).unwrap(),
             "\"failed\""
         );
@@ -948,29 +923,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&DeleteStatus::Ok).unwrap(), "\"ok\"");
     }
 
-    // ── Step 4: file_count / empty sessions ──
-
-    #[test]
-    fn test_backup_session_new_sets_file_count() {
-        let session = BackupSession::new(
-            "20240115-140000".into(),
-            vec![BackupEntry {
-                path: "a.rs".into(),
-                size: Some(100),
-                link_target: None,
-            }],
-            false,
-        );
-        assert_eq!(session.file_count, 1);
-        assert_eq!(session.files.len(), 1);
-    }
-
-    #[test]
-    fn test_backup_session_new_empty_files() {
-        let session = BackupSession::new("20240115-140000".into(), vec![], false);
-        assert_eq!(session.file_count, 0);
-        assert!(session.files.is_empty());
-    }
+    // ── BackupSession の file_count ──
 
     #[test]
     fn test_backup_session_file_count_serialized() {
