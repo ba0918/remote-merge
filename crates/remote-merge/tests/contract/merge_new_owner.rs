@@ -5,7 +5,8 @@
 #![cfg(unix)]
 //! merge が新しく作るファイルとディレクトリが、どの経路でも書いた利用者の持ち物になること
 //! （docs/ir/merge/permissions.md の REQ-merge-042）の契約テスト。sudo=true のサーバの場合は
-//! tests/container-e2e/tests/sudo.rs で確かめる
+//! tests/container-e2e/tests/sudo.rs で確かめる。root でない利用者が作ったものは、所有者を決める規則に
+//! よらず書いた利用者の持ち物になるので、root でなく動くこのテストは規則が壊れても気づけない
 
 use std::fs;
 use std::os::unix::fs::MetadataExt;
