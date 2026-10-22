@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{PathComparison, Role, SideState};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{RelPath, is_within, normalized};
 use remote_merge_core::scan::outcome::ScanFailure;
 
 /// diff が比べる範囲
@@ -102,23 +102,7 @@ pub fn unlistable_name(named: &[String], failure: &ScanFailure) -> Option<String
         | ScanFailure::InconsistentAnswer { .. }
         | ScanFailure::CollectFailed { .. } => return None,
     };
-    named
-        .iter()
-        .find(|name| {
-            path == *name
-                || path
-                    .strip_prefix(name.as_str())
-                    .is_some_and(|rest| rest.starts_with('/'))
-        })
-        .cloned()
-}
-
-/// "." の要素と空の要素を除いたパス
-fn normalized(path: &str) -> String {
-    path.split('/')
-        .filter(|element| !element.is_empty() && *element != ".")
-        .collect::<Vec<_>>()
-        .join("/")
+    named.iter().find(|name| is_within(path, name)).cloned()
 }
 
 #[cfg(test)]

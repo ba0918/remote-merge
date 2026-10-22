@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use remote_merge_core::compare::{
     PathComparison, ReadOutcome, Role, SideFailure, SideState, Undecidable, Verdict, read_outcome,
 };
+use remote_merge_core::relative_path::is_below;
 use remote_merge_core::scan::outcome::LinkPoint;
 
 use super::merge::{MergeEntry, MergeOptions, SkipReason, merge_entry, without_skipped_subtrees};
@@ -221,12 +222,10 @@ fn source_link_is_utf8(comparison: &PathComparison) -> bool {
 
 /// `path` が、どちらかの側にある名前の祖先か
 fn is_ancestor_of_a_name(path: &str, targets: &MergeTargets, missing: &[&String]) -> bool {
-    targets.named.iter().any(|name| {
-        !missing.contains(&name)
-            && name
-                .strip_prefix(path)
-                .is_some_and(|rest| rest.starts_with('/'))
-    })
+    targets
+        .named
+        .iter()
+        .any(|name| !missing.contains(&name) && is_below(name, path))
 }
 
 /// 書き込み先がディレクトリかディレクトリへの symlink で、種類の違いでスキップする祖先か

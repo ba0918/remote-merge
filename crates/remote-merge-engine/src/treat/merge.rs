@@ -3,6 +3,7 @@
 //! 左（`Role::Left`）、書き込み先を右（`Role::Right`）とする
 
 use remote_merge_core::compare::{PathComparison, Present, Role, SideState, Verdict};
+use remote_merge_core::relative_path::is_below;
 use remote_merge_core::scan::outcome::LinkPoint;
 
 use crate::service::types::exit_code as codes;
@@ -169,11 +170,6 @@ pub(crate) fn without_skipped_subtrees(
         kept.push((path, entry));
     }
     kept
-}
-
-fn is_below(path: &str, root: &str) -> bool {
-    path.strip_prefix(root)
-        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// merge の終了コード（REQ-cli-047）。失敗か種類の違いのスキップがあれば 2、なければ 0

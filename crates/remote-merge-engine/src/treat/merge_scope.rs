@@ -1,7 +1,7 @@
 //! merge と sync の走査の範囲（docs/ir/scan/limits.md の TBL-scan-001）と、名前で指定したパスのうち
 //! 扱うもの（docs/ir/merge/basic.md の REQ-merge-021・022）
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{RelPath, is_within, normalized};
 
 /// 指定したパスの数がこれ以上なら root_dir 全体を走査する
 const MANY_PATHS: usize = 21;
@@ -27,7 +27,7 @@ pub struct MergeTargets {
 impl MergeTargets {
     /// `path` を扱うか（名前で指定したパスそのものか、その下）
     pub fn selects(&self, path: &str) -> bool {
-        self.named.is_empty() || self.named.iter().any(|name| within(path, name))
+        self.named.is_empty() || self.named.iter().any(|name| is_within(path, name))
     }
 }
 
@@ -87,25 +87,9 @@ pub fn merge_targets(paths: &[RelPath], delete: bool) -> MergeTargets {
     }
 }
 
-/// `path` が `name` そのものか、その下にあるか（"/" の区切りの単位で）
-fn within(path: &str, name: &str) -> bool {
-    path == name
-        || path
-            .strip_prefix(name)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
 /// 親ディレクトリ（root_dir の直下なら空）
 fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(parent, _)| parent)
-}
-
-/// "." の要素と空の要素を除いたパス
-fn normalized(path: &str) -> String {
-    path.split('/')
-        .filter(|element| !element.is_empty() && *element != ".")
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 #[cfg(test)]
