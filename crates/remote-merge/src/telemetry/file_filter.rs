@@ -22,24 +22,12 @@ pub fn own_records() -> Targets {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::test_support::SharedBuf;
     use crate::telemetry::{JsonLogLayer, LogEntry};
-    use std::io::Write;
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::Layer;
     use tracing_subscriber::filter::FilterExt;
     use tracing_subscriber::layer::SubscriberExt;
-
-    struct SharedBuf(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for SharedBuf {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().write(buf)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     /// 最も細かい指定で各 target に記録したとき、ファイルに残る target を返す
     fn saved_targets_at_trace(emit: impl FnOnce()) -> Vec<String> {

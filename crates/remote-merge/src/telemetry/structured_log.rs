@@ -112,6 +112,7 @@ impl Visit for FieldCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::test_support::SharedBuf;
     use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
@@ -120,7 +121,7 @@ mod tests {
         let buf_clone = buf.clone();
 
         // tracing subscriber をスコープ内で設定
-        let layer = JsonLogLayer::new(BufWriter(buf_clone));
+        let layer = JsonLogLayer::new(SharedBuf(buf_clone));
         let subscriber = tracing_subscriber::registry().with(layer);
 
         tracing::subscriber::with_default(subscriber, || {
@@ -141,7 +142,7 @@ mod tests {
         let buf = std::sync::Arc::new(Mutex::new(Vec::<u8>::new()));
         let buf_clone = buf.clone();
 
-        let layer = JsonLogLayer::new(BufWriter(buf_clone));
+        let layer = JsonLogLayer::new(SharedBuf(buf_clone));
         let subscriber = tracing_subscriber::registry().with(layer);
 
         tracing::subscriber::with_default(subscriber, || {
@@ -162,7 +163,7 @@ mod tests {
         let buf = std::sync::Arc::new(Mutex::new(Vec::<u8>::new()));
         let buf_clone = buf.clone();
 
-        let layer = JsonLogLayer::new(BufWriter(buf_clone));
+        let layer = JsonLogLayer::new(SharedBuf(buf_clone));
         let subscriber = tracing_subscriber::registry().with(layer);
 
         tracing::subscriber::with_default(subscriber, || {
@@ -178,18 +179,5 @@ mod tests {
         let entry2: LogEntry = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(entry1.message, "first");
         assert_eq!(entry2.level, "ERROR");
-    }
-
-    /// Arc<Mutex<Vec<u8>>> のラッパー（Write trait 実装用）
-    struct BufWriter(std::sync::Arc<Mutex<Vec<u8>>>);
-
-    impl Write for BufWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().write(buf)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.0.lock().unwrap().flush()
-        }
     }
 }
