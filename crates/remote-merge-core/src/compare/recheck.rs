@@ -3,6 +3,7 @@
 use super::contents::{ReadOutcome, read_outcome};
 use super::verdict::{SideFailure, Undecidable};
 use crate::op_failure::OpFailure;
+use crate::scan::outcome::ListedKind;
 
 /// 書き込み先のパスの、比べたときと変更の直前の状態。通常ファイルはハッシュで表す
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +18,29 @@ pub enum Observed {
         target: Vec<u8>,
     },
     Other,
+}
+
+/// 変更の直前にそのパスそのものを集め直した一覧から決めた状態
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Relisted {
+    /// 一覧の項目の種類だけで決まった状態
+    Decided(Observed),
+    /// 通常ファイル。ハッシュを取って [`Observed::File`] にする
+    File,
+}
+
+/// 集め直した一覧のそのパスの項目の種類 `kind`（載らなければ None）から決めた状態。一覧に載らない
+/// パスはない
+pub fn relisted(kind: Option<&ListedKind>) -> Relisted {
+    match kind {
+        None => Relisted::Decided(Observed::Absent),
+        Some(ListedKind::Other) => Relisted::Decided(Observed::Other),
+        Some(ListedKind::Directory) => Relisted::Decided(Observed::Directory),
+        Some(ListedKind::Symlink { target, .. }) => Relisted::Decided(Observed::Symlink {
+            target: target.clone(),
+        }),
+        Some(ListedKind::File) => Relisted::File,
+    }
 }
 
 /// 変更してよいか

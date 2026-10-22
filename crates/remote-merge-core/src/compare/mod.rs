@@ -21,7 +21,7 @@ pub use contents::{ContentJudgement, ReadOutcome, judge_hashes, read_outcome};
 pub use judge::judge_states;
 pub use method::{Command, Method, Selection, choose_method};
 pub use pairs::{Follow, Pair, PairJudgement, hash_roles, judge_pairs};
-pub use recheck::{ChangeCheck, Observed, check_before_change};
+pub use recheck::{ChangeCheck, Observed, Relisted, check_before_change, relisted};
 pub use settle::{PairVerdict, apply_reads, lose_pairs, settle_or_lost, settle_pairs};
 pub use starts::{blocked_starts, links_outside, outside_on_the_way, paths_to_check};
 pub use state::{Mtime, SideState};

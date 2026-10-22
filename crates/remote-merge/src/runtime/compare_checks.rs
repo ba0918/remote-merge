@@ -2,13 +2,13 @@
 //! symlink（docs/ir/compare/flow.md の REQ-compare-004）と、書き込み先の今の状態
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
-use remote_merge_core::compare::{ChangeCheck, Observed, Role, SideFailure, check_before_change};
+use remote_merge_core::compare::{
+    ChangeCheck, Observed, Relisted, Role, SideFailure, check_before_change, relisted,
+};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::failure_kind::failure_of_scan_error;
-use remote_merge_core::scan::outcome::{
-    ListedKind, Listing, ScanFailure, ScanRequest, ScanScope, Start,
-};
+use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest, ScanScope, Start};
 
 use super::connection::classify;
 use super::core::CoreRuntime;
@@ -65,14 +65,9 @@ impl CoreRuntime {
             .entries
             .iter()
             .find(|entry| entry.path == path.as_str());
-        Ok(Ok(match entry.map(|entry| &entry.kind) {
-            None => Observed::Absent,
-            Some(ListedKind::Other) => Observed::Other,
-            Some(ListedKind::Directory) => Observed::Directory,
-            Some(ListedKind::Symlink { target, .. }) => Observed::Symlink {
-                target: target.clone(),
-            },
-            Some(ListedKind::File) => {
+        Ok(Ok(match relisted(entry.map(|entry| &entry.kind)) {
+            Relisted::Decided(observed) => observed,
+            Relisted::File => {
                 let hashed = self.hash_contents(side, std::slice::from_ref(path))?;
                 match hashed.into_iter().find(|(key, _)| key == path.as_typed()) {
                     Some((_, Ok(hash))) => Observed::File { hash },
