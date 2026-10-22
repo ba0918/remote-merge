@@ -26,13 +26,6 @@ struct CommandOutput {
     exit_code: u32,
 }
 
-/// リモートコマンドの実行結果（バイト列版）
-struct CommandOutputBytes {
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    exit_code: u32,
-}
-
 /// 非ゼロで終わったコマンドのエラー
 fn exec_failure(command: &str, exit_code: u32, stderr: &str) -> AppError {
     AppError::SshExec {
@@ -529,43 +522,20 @@ impl SshClient {
         Ok(result.stdout)
     }
 
-    /// コマンドを実行し、stdout と stderr を文字列にして返す
-    async fn run_command(&mut self, command: &str) -> crate::error::Result<CommandOutput> {
-        let output = self.run_command_bytes(command).await?;
-        Ok(CommandOutput {
-            stdout: bytes_to_string(output.stdout),
-            stderr: bytes_to_string(output.stderr),
-            exit_code: output.exit_code,
-        })
-    }
-
-    /// コマンドを実行してチャネルの開閉を管理する共通関数。stdout はバイト列のまま返す。
+    /// コマンドを実行し、stdout と stderr を文字列にして返す。
     ///
     /// 終了ステータスを受け取らずにチャネルが終わったときは、出力が途中で切れたかもしれないので
-    /// 接続エラーにする。
-    async fn run_command_bytes(
-        &mut self,
-        command: &str,
-    ) -> crate::error::Result<CommandOutputBytes> {
+    /// 接続断の誤りにする。
+    async fn run_command(&mut self, command: &str) -> crate::error::Result<CommandOutput> {
         let mut stdout = Vec::new();
         let (stderr, exit_code) = self
-            .run_streaming(command, &mut |data| stdout.extend_from_slice(data))
+            .stream(command, None, &mut |data| stdout.extend_from_slice(data))
             .await?;
-        Ok(CommandOutputBytes {
-            stdout,
-            stderr,
+        Ok(CommandOutput {
+            stdout: bytes_to_string(stdout),
+            stderr: bytes_to_string(stderr),
             exit_code,
         })
-    }
-
-    /// コマンドを実行し、標準出力を受けた順に `on_stdout` へ渡す。返す値は標準エラーと終了コード。
-    /// 終了ステータスを受け取らずにチャネルが終わったときは接続断の誤りにする
-    pub async fn run_streaming(
-        &mut self,
-        command: &str,
-        on_stdout: &mut (dyn FnMut(&[u8]) + Send),
-    ) -> crate::error::Result<(Vec<u8>, u32)> {
-        self.stream(command, None, on_stdout).await
     }
 
     /// コマンドを実行し、`input` を標準入力に送って閉じ、標準出力・標準エラー・終了コードを返す。
