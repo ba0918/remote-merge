@@ -1,10 +1,8 @@
 //! sync の書き込み先ごとの手順。比べた扱いの並びを書き込み先ごとに当てて、結果と status にする
 //! （docs/ir/cli/sync.md の REQ-cli-041・045、TBL-cli-007）
 
-use remote_merge_engine::treat::merge::SkipReason;
-use remote_merge_engine::treat::merge_plan::skip_reasons;
 use remote_merge_engine::treat::merge_result::target_lists;
-use remote_merge_engine::treat::sync::target_status;
+use remote_merge_engine::treat::sync::status_of_target;
 
 use super::plan_apply::{apply_plan, start_backup_session};
 use super::sync::SyncArgs;
@@ -51,24 +49,17 @@ pub(super) fn sync_targets(
             } => {
                 let outcomes = apply_plan(core, &plan.side, &paths, &entries, &options, false);
                 let lists = target_lists(outcomes);
-                // 変えた後で失敗したファイルも、書き込み先を変えたものに数える（TBL-cli-007）
-                let changed = !lists.merged.is_empty()
-                    || !lists.deleted.is_empty()
-                    || lists.changed_but_failed;
-                let skipped: Vec<SkipReason> = skip_reasons(&entries);
                 // 変更の最中の `接続断` か root_dir がなくなったことで止めた書き込み先は、失敗に数える
                 // （REQ-ssh-022・REQ-merge-044）
                 let stopped = core.stopped_error_for(&plan.side).is_some();
-                let failed = !lists.failed.is_empty()
-                    || stopped
-                    || skipped.iter().any(SkipReason::counts_as_failure);
+                let status = status_of_target(&lists, &entries, stopped);
                 SyncTargetResult {
                     target: plan.target,
                     merged: lists.merged,
                     skipped: lists.skipped,
                     deleted: lists.deleted,
                     failed: lists.failed,
-                    status: target_status(changed, failed),
+                    status,
                 }
             }
         })

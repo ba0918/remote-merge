@@ -1,7 +1,7 @@
 //! sync の書き込み先の状態（TBL-cli-007）と終了コード（REQ-cli-044）の単体テスト
-use super::super::merge::{Kind, SkipReason};
+use super::super::merge::Kind;
 use super::*;
-use crate::service::types::SyncTargetStatus;
+use crate::service::types::{MergeFailure, MergeFileResult, SyncTargetStatus};
 
 // @kotowari[REQ-cli-041, TBL-cli-007]
 #[test]
@@ -48,4 +48,73 @@ fn only_a_plan_without_changes_failures_or_kind_mismatches_has_nothing_to_sync()
     ] {
         assert!(!nothing_to_sync(&only(busy.clone())), "{busy:?}");
     }
+}
+
+fn lists(merged: bool, failed: bool, changed_but_failed: bool) -> TargetLists {
+    TargetLists {
+        merged: merged
+            .then(|| MergeFileResult {
+                path: "a".to_string(),
+                status: "ok".to_string(),
+                ..MergeFileResult::default()
+            })
+            .into_iter()
+            .collect(),
+        failed: failed
+            .then(|| MergeFailure {
+                path: "b".to_string(),
+                error: "broken".to_string(),
+            })
+            .into_iter()
+            .collect(),
+        changed_but_failed,
+        ..TargetLists::default()
+    }
+}
+
+// 変えた後で失敗したファイルは変えたものに、種類の違いのスキップと止めた書き込み先は失敗に数える
+// @kotowari[REQ-cli-041, TBL-cli-007]
+#[test]
+fn a_target_status_counts_late_failures_as_changes_and_kind_mismatches_and_stops_as_failures() {
+    use SyncTargetStatus::*;
+    let mismatch = vec![(
+        "k".to_string(),
+        MergeEntry::Skip(SkipReason::KindMismatch {
+            source: Kind::File,
+            destination: Kind::Directory,
+        }),
+    )];
+    let destination_only = vec![(
+        "d".to_string(),
+        MergeEntry::Skip(SkipReason::DestinationOnly),
+    )];
+
+    assert_eq!(
+        status_of_target(&lists(true, false, false), &[], false),
+        Success
+    );
+    assert_eq!(
+        status_of_target(&lists(true, true, false), &[], false),
+        Partial
+    );
+    assert_eq!(
+        status_of_target(&lists(false, true, true), &[], false),
+        Partial
+    );
+    assert_eq!(
+        status_of_target(&lists(false, true, false), &[], false),
+        Failed
+    );
+    assert_eq!(
+        status_of_target(&lists(true, false, false), &[], true),
+        Partial
+    );
+    assert_eq!(
+        status_of_target(&lists(false, false, false), &mismatch, false),
+        Failed
+    );
+    assert_eq!(
+        status_of_target(&lists(false, false, false), &destination_only, false),
+        Success
+    );
 }

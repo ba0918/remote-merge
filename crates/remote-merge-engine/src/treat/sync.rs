@@ -1,7 +1,9 @@
 //! sync の書き込み先ごとの状態（docs/ir/cli/sync.md の TBL-cli-007）と終了コード（REQ-cli-044）、
 //! 同期するファイルがないこと（REQ-cli-072）
 
-use super::merge::MergeEntry;
+use super::merge::{MergeEntry, SkipReason};
+use super::merge_plan::skip_reasons;
+use super::merge_result::TargetLists;
 use crate::service::types::{SyncTargetStatus, exit_code as codes};
 
 /// 扱いの並びに、書く予定も消す予定も失敗もないか（REQ-cli-072 の "No files to sync."）。種類の違いの
@@ -26,6 +28,21 @@ pub fn target_status(changed: bool, failed: bool) -> SyncTargetStatus {
         (true, true) => SyncTargetStatus::Partial,
         (false, true) => SyncTargetStatus::Failed,
     }
+}
+
+/// 扱いの並び `plan` を当てた一つの書き込み先の結果 `lists` の状態。書き込み先を変えた後で失敗した
+/// ファイルも変えたものに数え、種類の違いのスキップと、変更の最中に止めた書き込み先（`stopped`）は
+/// 失敗に数える
+pub fn status_of_target(
+    lists: &TargetLists,
+    plan: &[(String, MergeEntry)],
+    stopped: bool,
+) -> SyncTargetStatus {
+    let changed = !lists.merged.is_empty() || !lists.deleted.is_empty() || lists.changed_but_failed;
+    let failed = !lists.failed.is_empty()
+        || stopped
+        || skip_reasons(plan).iter().any(SkipReason::counts_as_failure);
+    target_status(changed, failed)
 }
 
 /// すべての書き込み先が "success" なら 0、そうでなければ 2
