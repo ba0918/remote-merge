@@ -81,6 +81,23 @@ pub fn set_mtime(path: &Path, time: std::time::SystemTime) {
         .unwrap();
 }
 
+/// `base` の下に、実パスがちょうど `total` バイトになるディレクトリを作り、`base` からの相対パスを
+/// 返す。相対パスは `first` があればその名前で始め、残りを 200 バイトまでの "d" の並びの名前で埋める
+pub fn dir_of_length(base: &Path, first: Option<&str>, total: usize) -> String {
+    let used = base.as_os_str().len() + 1 + first.map_or(0, |name| name.len() + 1);
+    let mut remaining = total - used;
+    let mut names: Vec<String> = first.map(str::to_string).into_iter().collect();
+    while remaining > 201 {
+        names.push("d".repeat(200));
+        remaining -= 201;
+    }
+    names.push("d".repeat(remaining));
+    let rel = names.join("/");
+    fs::create_dir_all(base.join(&rel)).unwrap();
+    assert_eq!(format!("{}/{rel}", base.display()).len(), total);
+    rel
+}
+
 // ─── ANSI エスケープ除去 ─────────────────────────────────
 
 /// ANSI エスケープシーケンスを除去してプレーンテキストにする

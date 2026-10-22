@@ -8,21 +8,33 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
 use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
+use remote_merge_core::test_tree::PermissionLocks;
+
+use super::common::dir_of_length;
 
 /// 確認の root にする一時ディレクトリ。パスは symlink を含まない実パスにそろえる
 struct Root {
+    /// 一時ディレクトリを消す前に権限を戻すため、先に落とす
+    locks: PermissionLocks,
     _directory: tempfile::TempDir,
     path: PathBuf,
 }
 
 impl Root {
     fn new() -> Self {
+        let locks = PermissionLocks::new();
         let directory = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(directory.path()).unwrap();
         Self {
+            locks,
             _directory: directory,
             path,
         }
+    }
+
+    /// `rel` の権限を `mode` にする。fixture を落とすときに元へ戻す
+    fn lock(&self, rel: &str, mode: u32) {
+        self.locks.lock(self.path.join(rel), mode);
     }
 
     fn real(&self, rel: &str) -> String {
@@ -46,18 +58,7 @@ impl Root {
 
     /// 実パスがちょうど `total` バイトになるディレクトリを root の下に作り、root からの相対パスを返す
     fn dir_of_length(&self, total: usize) -> String {
-        // root の後の "/" と名前を足していき、残りが一つの名前に収まれば最後の名前にする
-        let mut remaining = total - self.path.as_os_str().len() - 1;
-        let mut names = Vec::new();
-        while remaining > 201 {
-            names.push("d".repeat(200));
-            remaining -= 201;
-        }
-        names.push("d".repeat(remaining));
-        let rel = names.join("/");
-        self.dir(&rel);
-        assert_eq!(self.real(&rel).len(), total);
-        rel
+        dir_of_length(&self.path, None, total)
     }
 
     fn inspect(&self, rel: &str) -> anyhow::Result<ResolvedPath> {
@@ -194,6 +195,7 @@ fn ex_paths_005_a_root_dir_that_is_a_regular_file_stops_the_inspection() {
     let base = Root::new();
     base.file("root");
     let root = Root {
+        locks: PermissionLocks::new(),
         _directory: tempfile::tempdir().unwrap(),
         path: base.path.join("root"),
     };
@@ -330,17 +332,14 @@ fn ex_paths_014_a_trailing_slash_on_a_missing_link_target_does_not_require_a_dir
 // @kotowari[REQ-paths-006, EX-paths-015]
 #[test]
 fn ex_paths_015_a_directory_without_search_permission_is_not_looked_into() {
-    use std::os::unix::fs::PermissionsExt;
-
     let root = Root::new();
     root.dir("locked").file("locked/a.txt");
-    fs::set_permissions(root.path.join("locked"), fs::Permissions::from_mode(0o600)).unwrap();
+    root.lock("locked", 0o600);
     // 権限を無視できる利用者（root）では検索できない状態を作れない
     let privileged = fs::symlink_metadata(root.path.join("locked/a.txt")).is_ok();
 
     let result = root.inspect("locked/a.txt");
 
-    fs::set_permissions(root.path.join("locked"), fs::Permissions::from_mode(0o700)).unwrap();
     if privileged {
         return;
     }

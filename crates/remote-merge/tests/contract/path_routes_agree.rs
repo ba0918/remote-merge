@@ -20,6 +20,9 @@ use remote_merge::agent::protocol::{
     AgentRequest, AgentResponse, deserialize_response, serialize_response,
 };
 use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
+use remote_merge_core::test_tree::PermissionLocks;
+
+use super::common::dir_of_length;
 
 /// 経路の答え。エラーは文言で比べる
 type Outcome = Result<ResolvedPath, String>;
@@ -89,34 +92,33 @@ fn relative_root_disagreement(cwd: &Path, root: &str, rel: &str) -> Option<Strin
 }
 
 struct Base {
+    /// 一時ディレクトリを消す前に権限を戻すため、先に落とす
+    locks: PermissionLocks,
     _directory: tempfile::TempDir,
     path: PathBuf,
 }
 
 impl Base {
     fn new() -> Self {
+        let locks = PermissionLocks::new();
         let directory = tempfile::tempdir().unwrap();
         let path = fs::canonicalize(directory.path()).unwrap();
         Self {
+            locks,
             _directory: directory,
             path,
         }
     }
 
-    /// 実パスがちょうど `total` バイトになるディレクトリを作り、その実パスを返す
+    /// 実パスがちょうど `total` バイトになる、`name` で始まるディレクトリを作り、その実パスを返す
     fn dir_of_length(&self, name: &str, total: usize) -> String {
-        let mut remaining = total - self.path.as_os_str().len() - 1 - name.len() - 1;
-        let mut names = vec![name.to_string()];
-        while remaining > 201 {
-            names.push("d".repeat(200));
-            remaining -= 201;
-        }
-        names.push("d".repeat(remaining));
-        let rel = names.join("/");
-        fs::create_dir_all(self.path.join(&rel)).unwrap();
-        let real = format!("{}/{rel}", self.path.display());
-        assert_eq!(real.len(), total);
-        real
+        let rel = dir_of_length(&self.path, Some(name), total);
+        format!("{}/{rel}", self.path.display())
+    }
+
+    /// `rel` の権限を `mode` にする。fixture を落とすときに元へ戻す
+    fn lock(&self, rel: &str, mode: u32) {
+        self.locks.lock(self.path.join(rel), mode);
     }
 }
 
@@ -187,8 +189,7 @@ fn example_states(base: &Base) -> Vec<(PathBuf, String)> {
     symlink(&root, base.path.join("root_link")).unwrap();
     fs::write(base.path.join("root_file"), "content\n").unwrap();
 
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(at("locked"), fs::Permissions::from_mode(0o600)).unwrap();
+    base.lock("root/locked", 0o600);
 
     let mut cases: Vec<(PathBuf, String)> = [
         "link1",
@@ -234,12 +235,6 @@ fn ex_paths_019_every_example_state_gives_the_same_answer_on_both_routes() {
         .filter_map(|(root, rel)| disagreement(root, rel))
         .collect();
 
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(
-        base.path.join("root/locked"),
-        fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
     assert!(disagreements.is_empty(), "{disagreements:#?}");
     // findings 15〜17 の形（EX-paths-008・009・013・018）が比べた中にあり、例のとおりの答えになる
     let root = base.path.join("root");
@@ -413,14 +408,12 @@ fn ex_paths_043_below_a_directory_without_search_permission_every_route_answers_
     let root = base.path.join("root");
     fs::create_dir_all(root.join("locked")).unwrap();
     fs::write(root.join("locked/a.txt"), "content\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o600)).unwrap();
+    base.lock("root/locked", 0o600);
 
     let answers: Vec<(Outcome, Outcome)> = ["locked/a.txt", "locked"]
         .iter()
         .map(|rel| (local(&root, rel), agent(&root, rel)))
         .collect();
-    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o700)).unwrap();
 
     let denied = Err("cannot resolve path: permission denied".to_string());
     assert_eq!(answers[0], (denied.clone(), denied));
