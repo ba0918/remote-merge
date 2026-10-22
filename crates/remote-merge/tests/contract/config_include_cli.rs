@@ -7,14 +7,14 @@
 
 use std::collections::BTreeMap;
 
-use super::common::{CliEnv, gen_config};
-use super::config_filters_cli::{combined, status, with_include};
+use super::common::{CliEnv, gen_config, with_filter};
+use super::config_filters_cli::{combined, status};
 use super::scan_listing_cli::statuses_by_path;
 
 /// include を `include_line` にした設定で `status --all --format json` を起動する
 fn status_with_include(dirs: &CliEnv, include_line: &str) -> std::process::Output {
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
-    let config = with_include(&base, include_line);
+    let config = with_filter(&base, include_line);
     status(dirs, &config, &["--all", "--format", "json"])
 }
 

@@ -160,7 +160,7 @@ enabled = true
 deploy_dir = "{agent}"
 
 [filter]
-exclude = [".git", "target"]
+{DEFAULT_FILTER}
 
 [ssh]
 timeout_sec = 10
@@ -170,6 +170,16 @@ strict_host_key_checking = "no"
     ));
 
     config
+}
+
+/// [`gen_config`] の設定の [filter] の中身
+pub const DEFAULT_FILTER: &str = "exclude = [\".git\", \"target\"]";
+
+/// [`gen_config`] の設定の [filter] の中身を `filter` に置き換えた設定
+pub fn with_filter(config: &str, filter: &str) -> String {
+    let replaced = config.replace(DEFAULT_FILTER, filter);
+    assert_ne!(replaced, config, "fixture filter line missing");
+    replaced
 }
 
 /// [`deploy_agent_for`] で `base` の下に置いたエージェントを使う設定の [agent] の節
@@ -418,6 +428,12 @@ impl CliEnv {
     /// このテスト自身が起動した SSH の試験サーバのポート
     pub fn server_port(&self) -> u16 {
         self.server.port()
+    }
+
+    /// 設定の [filter] の中身を `filter` に置き換える
+    pub fn replace_filter(&self, filter: &str) {
+        let config = fs::read_to_string(&self.config_path).unwrap();
+        fs::write(&self.config_path, with_filter(&config, filter)).unwrap();
     }
 
     /// CLI コマンドを生成（--config 付き）

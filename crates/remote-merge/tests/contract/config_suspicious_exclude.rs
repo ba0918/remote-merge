@@ -6,8 +6,6 @@
 //! `status --left local --right develop` で起動する。左右の走査がどちらも多くの項目を通るように
 //! ファイルを置き、走査のたびに警告が出れば数が増えるようにする。
 
-use std::fs;
-
 use super::common::CliEnv;
 
 const PATTERN: &str = "../outside";
@@ -22,13 +20,7 @@ const FILES: [(&str, &str); 4] = [
 #[test]
 fn req_config_038_a_suspicious_exclude_pattern_is_warned_once_and_not_applied() {
     let env = CliEnv::new(&FILES, &FILES);
-    let config = fs::read_to_string(&env.config_path).unwrap();
-    let replaced = config.replace(
-        "exclude = [\".git\", \"target\"]",
-        &format!("exclude = [{PATTERN:?}, \"*.log\"]"),
-    );
-    assert_ne!(replaced, config, "fixture exclude line missing");
-    fs::write(&env.config_path, replaced).unwrap();
+    env.replace_filter(&format!("exclude = [{PATTERN:?}, \"*.log\"]"));
 
     let output = env
         .cmd_with("status")
@@ -56,13 +48,7 @@ fn req_config_038_a_suspicious_exclude_pattern_is_warned_once_and_not_applied() 
 #[test]
 fn req_config_038_the_warning_reaches_standard_error_at_any_log_level() {
     let env = CliEnv::new(&FILES, &FILES);
-    let config = fs::read_to_string(&env.config_path).unwrap();
-    let replaced = config.replace(
-        "exclude = [\".git\", \"target\"]",
-        &format!("exclude = [{PATTERN:?}]"),
-    );
-    assert_ne!(replaced, config, "fixture exclude line missing");
-    fs::write(&env.config_path, replaced).unwrap();
+    env.replace_filter(&format!("exclude = [{PATTERN:?}]"));
     let warning = format!("Skipping suspicious exclude pattern containing '../': {PATTERN}");
 
     for (flags, rust_log) in [

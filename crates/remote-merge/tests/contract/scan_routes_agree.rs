@@ -13,16 +13,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{deploy_agent, gen_config, place_files};
+use super::common::{deploy_agent, gen_config, place_files, with_filter};
 use super::scan_listing_cli::{AgentFixture, launch_status, statuses_by_path};
 use super::ssh_server::TestServer;
-
-/// `gen_config` の [filter] の exclude の行を `exclude_line` に置き換えた設定
-pub(super) fn with_exclude(config: &str, exclude_line: &str) -> String {
-    let replaced = config.replace("exclude = [\".git\", \"target\"]", exclude_line);
-    assert_ne!(replaced, config, "fixture filter exclude line missing");
-    replaced
-}
 
 /// 全ての項目が "equal" の一覧
 pub(super) fn all_equal(paths: &[&str]) -> BTreeMap<String, String> {
@@ -147,7 +140,7 @@ impl RemoteFixture {
         remote_root: &Path,
         exclude_line: &str,
     ) -> Output {
-        let config = with_exclude(
+        let config = with_filter(
             &gen_config(local_root, remote_root, None, self.server.port()),
             exclude_line,
         );

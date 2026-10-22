@@ -12,14 +12,14 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{CliEnv, gen_config, place_files, strip_ansi};
-use super::config_filters_cli::{combined, status, with_include};
+use super::common::{CliEnv, gen_config, place_files, strip_ansi, with_filter};
+use super::config_filters_cli::{combined, status};
 use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
 fn status_on_the_remote_server(dirs: &CliEnv, include: &[&str]) -> Output {
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
-    let config = with_include(&base, &format!("include = {include:?}"));
+    let config = with_filter(&base, &format!("include = {include:?}"));
     status(dirs, &config, &["--all", "--format", "json"])
 }
 

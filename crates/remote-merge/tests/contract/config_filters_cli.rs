@@ -3,21 +3,14 @@
 //!
 //! 警告は設定の読み込み時に標準エラーに出るため、実行ファイルを SSH の試験サーバに対して起動して確かめる。
 //! 先頭の "./" の取り除きは、設定を読むときに整えるので remote-merge-core の単体テストで確かめる。
-//! 設定は `gen_config` の [filter] の exclude の行を include の行に置き換えるだけで、
+//! 設定は `gen_config` の [filter] の exclude の行を include の行に置き換える（`with_filter`）だけで、
 //! 既存の隔離の確認（`CliEnv::assert_isolated_config_at`）を通してから起動する。
 
 use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
-
-/// `gen_config` の [filter] の exclude の行を `include_line` に置き換えた設定
-pub(super) fn with_include(config: &str, include_line: &str) -> String {
-    let replaced = config.replace("exclude = [\".git\", \"target\"]", include_line);
-    assert_ne!(replaced, config, "fixture filter exclude line missing");
-    replaced
-}
+use super::common::{CliEnv, gen_config, isolated_command, strip_ansi, with_filter};
 
 /// `config` を書き、隔離を確かめてから `status --left local --right develop` を `extra_args` を足して
 /// [`isolated_command`] で起動する
@@ -58,7 +51,7 @@ fn absolute_traversal_and_glob_include_values_each_warn_with_the_value() {
     let traversal = "src/../src";
     let globs = ["lib[1]", "lib*", "lib?"];
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
-    let config = with_include(
+    let config = with_filter(
         &base,
         &format!(
             "include = [{}, {traversal:?}, {}, \"src\"]",

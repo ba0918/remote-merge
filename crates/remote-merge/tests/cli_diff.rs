@@ -803,13 +803,7 @@ fn directory_outside_include_has_no_diff_on_local_and_ssh_routes() {
         &[("src/app.rs", "same\n"), ("vendor/lib.txt", "develop\n")],
         &[("src/app.rs", "same\n"), ("vendor/lib.txt", "staging\n")],
     );
-    let config = std::fs::read_to_string(&env.config_path).unwrap();
-    let with_include = config.replace("exclude = [\".git\", \"target\"]", "include = [\"src\"]");
-    assert_ne!(
-        with_include, config,
-        "fixture has no exclude line to replace"
-    );
-    std::fs::write(&env.config_path, with_include).unwrap();
+    env.replace_filter("include = [\"src\"]");
     for (left, right) in [("local", "develop"), ("develop", "staging")] {
         for path in ["vendor", "vendor/"] {
             let output = env
@@ -844,13 +838,7 @@ fn many_directories_outside_include_have_no_diff() {
         .map(|(path, body)| (path.as_str(), *body))
         .collect();
     let env = CliEnv::new(&files, &files);
-    let config = std::fs::read_to_string(&env.config_path).unwrap();
-    let with_include = config.replace("exclude = [\".git\", \"target\"]", "include = [\"src\"]");
-    assert_ne!(
-        with_include, config,
-        "fixture has no exclude line to replace"
-    );
-    std::fs::write(&env.config_path, with_include).unwrap();
+    env.replace_filter("include = [\"src\"]");
 
     let output = env.cmd_with("diff").args(&names).output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
