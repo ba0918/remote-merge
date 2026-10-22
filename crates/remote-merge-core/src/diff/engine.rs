@@ -66,11 +66,6 @@ impl DiffHunk {
     pub fn is_empty(&self) -> bool {
         self.line_range.is_empty()
     }
-
-    /// 行インデックスがこのハンクの範囲内にあるかを O(1) で判定
-    pub fn contains_line(&self, line_index: usize) -> bool {
-        self.line_range.contains(&line_index)
-    }
 }
 
 /// diff 計算の結果
@@ -251,7 +246,7 @@ fn selected_lines<'a>(
 /// 表示用ハンクに含まれる。範囲外の表示用ハンクの番号は無視する。
 ///
 /// **純粋関数** — 副作用なし。
-pub fn merge_hunks_in_display_hunks(
+fn merge_hunks_in_display_hunks(
     display_hunks: &[DiffHunk],
     merge_hunks: &[DiffHunk],
     selected: &HashSet<usize>,
@@ -711,32 +706,6 @@ mod tests {
             new_start: 0,
         };
         assert!(hunk.lines(&all_lines).is_empty());
-    }
-
-    #[test]
-    fn test_diff_hunk_contains_line_boundary() {
-        let hunk = DiffHunk {
-            line_range: 3..7,
-            old_start: 0,
-            new_start: 0,
-        };
-        // 範囲外
-        assert!(!hunk.contains_line(2));
-        // 範囲内（開始）
-        assert!(hunk.contains_line(3));
-        // 範囲内（中央）
-        assert!(hunk.contains_line(5));
-        // 範囲内（末尾 -1）
-        assert!(hunk.contains_line(6));
-        // 範囲外（末尾、exclusive）
-        assert!(!hunk.contains_line(7));
-        // 空ハンク
-        let empty = DiffHunk {
-            line_range: 0..0,
-            old_start: 0,
-            new_start: 0,
-        };
-        assert!(!empty.contains_line(0));
     }
 
     // ── apply_merge_hunks tests ──
