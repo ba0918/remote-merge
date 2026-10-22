@@ -88,6 +88,12 @@ pub fn is_below(path: &str, base: &str) -> bool {
         .is_some_and(|rest| rest.starts_with('/'))
 }
 
+/// `path` の祖先（"/" の区切りの単位で、近いものから。`path` そのものは含まない）。`is_below(path, base)`
+/// は `base` がこの中にあることと同じ
+pub fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    path.rmatch_indices('/').map(move |(end, _)| &path[..end])
+}
+
 /// `path` が `base` そのものか、その下にあるか（"/" の区切りの単位で比べる）
 pub fn is_within(path: &str, base: &str) -> bool {
     path == base || is_below(path, base)

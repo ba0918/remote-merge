@@ -79,7 +79,10 @@ pub fn plan_merge(
         reference_check,
     };
     let plan = merge_plan(&comparison.paths, &targets, options);
-    report_missing_names(&missing_names([Some(plan.as_slice())], targets.named.len()))?;
+    report_missing_names(&missing_names(
+        [Some(plan.as_slice())],
+        targets.named().len(),
+    ))?;
     Ok(PlannedMerge {
         paths: comparison.paths,
         plan,
@@ -147,7 +150,7 @@ pub(super) fn compare_named_files(
 ) -> anyhow::Result<Comparison> {
     let unseen: Vec<String> = uses
         .targets
-        .named
+        .named()
         .iter()
         .filter(|name| !comparison.paths.contains_key(*name))
         .cloned()
@@ -185,7 +188,7 @@ pub(super) fn merge_request(
         counted_before: Default::default(),
         method: choose_method(Command::Merge, checksum, Selection::BelowDirectory),
         named_files: Some(NamedFiles {
-            paths: targets.named.iter().cloned().collect(),
+            paths: targets.named().iter().cloned().collect(),
             method: choose_method(Command::Merge, checksum, Selection::NamedFile),
         }),
         follow: Follow::No,

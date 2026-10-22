@@ -33,7 +33,7 @@ pub(super) fn merge_hunks(
 ) -> anyhow::Result<MergeCommandResult> {
     connect_sides(core, sides)?;
     let targets = merge_targets(paths, false);
-    let Some(path) = targets.named.first().cloned() else {
+    let Some(path) = targets.named().first().cloned() else {
         anyhow::bail!("--hunks requires a file path, not the whole root_dir");
     };
     let reference_check = sides.reference.is_some() && !args.force;

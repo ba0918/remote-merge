@@ -104,7 +104,7 @@ pub(super) fn plan_targets(
         TargetState::Failed(_) => None,
     });
     // 比べられたすべての書き込み先で名前がすべてないときだけ止める（REQ-merge-035）
-    report_missing_names(&missing_names(planned, targets.named.len()))?;
+    report_missing_names(&missing_names(planned, targets.named().len()))?;
     Ok(plans)
 }
 

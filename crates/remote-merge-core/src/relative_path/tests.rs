@@ -141,3 +141,19 @@ fn normalized_drops_dot_and_empty_elements() {
     assert_eq!(normalized("./"), "");
     assert_eq!(normalized(""), "");
 }
+
+// 祖先は近いものから並び、ある値の祖先にあることは、その値の下にあることと同じ
+#[test]
+fn ancestors_are_exactly_the_paths_a_path_is_below() {
+    assert_eq!(ancestors("x/a/b").collect::<Vec<_>>(), ["x/a", "x"]);
+    assert_eq!(ancestors("x").count(), 0);
+    for path in ["x", "x/a", "x/a/b", "xy.txt", "xy/a"] {
+        for base in ["x", "x/a", "xy", "y"] {
+            assert_eq!(
+                ancestors(path).any(|ancestor| ancestor == base),
+                is_below(path, base),
+                "{path} {base}"
+            );
+        }
+    }
+}

@@ -30,10 +30,7 @@ fn judged(judgement: Judgement) -> Vec<PairJudgement> {
 
 fn plain() -> MergeUses {
     MergeUses {
-        targets: MergeTargets {
-            scope: super::super::merge_scope::MergeScope::Whole,
-            named: Vec::new(),
-        },
+        targets: MergeTargets::new(super::super::merge_scope::MergeScope::Whole, Vec::new()),
         delete: false,
         dry_run: false,
         reference_check: false,
@@ -149,10 +146,10 @@ fn paths_outside_the_named_ones_are_not_read() {
     let both = states(&[(Role::Left, file()), (Role::Right, file())]);
     let differs = [pair(Role::Left, Role::Right, Verdict::Differs)];
     let uses = MergeUses {
-        targets: MergeTargets {
-            scope: super::super::merge_scope::MergeScope::Below(vec!["d".into()]),
-            named: vec!["d/a.txt".into()],
-        },
+        targets: MergeTargets::new(
+            super::super::merge_scope::MergeScope::Below(vec!["d".into()]),
+            vec!["d/a.txt".into()],
+        ),
         ..plain()
     };
     assert!(uses.contents("d/b.txt", &both, &differs).is_empty());

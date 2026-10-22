@@ -45,13 +45,13 @@ fn each_row_of_the_table_chooses_the_scan_range() {
 fn the_named_paths_and_what_is_below_them_are_selected() {
     let chosen = targets(&["src/", "./a.txt", "a.txt"], false);
 
-    assert_eq!(chosen.named, names(&["src", "a.txt"]));
+    assert_eq!(chosen.named(), names(&["src", "a.txt"]));
     assert!(chosen.selects("a.txt"));
     assert!(chosen.selects("src"));
     assert!(chosen.selects("src/x/y.txt"));
     assert!(!chosen.selects("srcx/y.txt"));
     assert!(!chosen.selects("b.txt"));
     let all = targets(&["."], false);
-    assert!(all.named.is_empty());
+    assert!(all.named().is_empty());
     assert!(all.selects("anything/at/all"));
 }

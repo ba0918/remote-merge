@@ -2,12 +2,12 @@
 //! 035、symlink.md の REQ-merge-001、docs/ir/cli/merge.md の REQ-cli-051・092）。扱うのは名前で
 //! 指定したパスとその下で、何もしないパスは並べない
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use remote_merge_core::compare::{
     PathComparison, ReadOutcome, Role, SideFailure, SideState, Undecidable, Verdict, read_outcome,
 };
-use remote_merge_core::relative_path::is_below;
+use remote_merge_core::relative_path::ancestors;
 use remote_merge_core::scan::outcome::LinkPoint;
 
 use super::merge::{MergeEntry, MergeOptions, SkipReason, merge_entry, without_skipped_subtrees};
@@ -109,7 +109,7 @@ pub fn merge_plan(
     };
     // 左右のどちらにもない名前は、祖先の種類の違いによらず failed に出す（REQ-merge-035）
     let missing: Vec<&String> = targets
-        .named
+        .named()
         .iter()
         .filter(|name| {
             paths.get(*name).is_none_or(|comparison| {
@@ -117,15 +117,23 @@ pub fn merge_plan(
             })
         })
         .collect();
+    let missing_set: BTreeSet<&str> = missing.iter().map(|name| name.as_str()).collect();
+    // どちらかの側にある名前の祖先
+    let ancestors_of_found: BTreeSet<&str> = targets
+        .named()
+        .iter()
+        .filter(|name| !missing_set.contains(name.as_str()))
+        .flat_map(|name| ancestors(name))
+        .collect();
     let mut entries: Vec<(String, MergeEntry)> = Vec::new();
     for (path, comparison) in paths {
-        if missing.contains(&path) {
+        if missing_set.contains(path.as_str()) {
             continue;
         }
         let entry = merge_entry(comparison, merge_options);
         let considered = targets.selects(path)
             || (targets.scope == MergeScope::Whole
-                && is_ancestor_of_a_name(path, targets, &missing)
+                && ancestors_of_found.contains(path.as_str())
                 && skipped_over_a_directory(&entry, comparison));
         if !considered {
             continue;
@@ -218,14 +226,6 @@ fn source_link_is_utf8(comparison: &PathComparison) -> bool {
         Some(SideState::Symlink { target, .. }) => std::str::from_utf8(target).is_ok(),
         _ => true,
     }
-}
-
-/// `path` が、どちらかの側にある名前の祖先か
-fn is_ancestor_of_a_name(path: &str, targets: &MergeTargets, missing: &[&String]) -> bool {
-    targets
-        .named
-        .iter()
-        .any(|name| !missing.contains(&name) && is_below(name, path))
 }
 
 /// 書き込み先がディレクトリかディレクトリへの symlink で、種類の違いでスキップする祖先か
