@@ -1,5 +1,6 @@
 #![cfg(unix)]
-//! merge のテキスト出力と左右と同じ参照先（docs/ir/cli/merge.md）の契約テスト。
+//! merge のテキスト出力と左右と同じ参照先（docs/ir/cli/merge.md）と、書き込み先がサーバのときの
+//! バックアップの置き場とバイナリの書き込みの契約テスト。
 //!
 //! 隔離された偽の SSH サーバ（エージェントを置いたもの）の develop を書き込み先、staging を参照先にして
 //! 実行ファイルを起動する。
@@ -8,7 +9,7 @@
 use std::fs;
 use std::process::{Output, Stdio};
 
-use super::common::{CliEnv, assert_exit_success, place_symlink};
+use super::common::{CliEnv, assert_exit_success, place_binary_file, place_symlink};
 
 /// local の file.txt を develop に書き込める構成
 fn one_file_to_merge() -> CliEnv {
@@ -183,4 +184,59 @@ fn a_reference_equal_to_either_side_is_warned_about_and_not_used() {
         assert!(json.get("ref").is_none(), "{reference}: {json}");
         assert_eq!(develop_file(&env), "incoming\n", "{reference}");
     }
+}
+
+// エージェントの経路でも、バックアップは書き込み先を増やさず集約先に保存し、一覧に出る
+// @kotowari[REQ-backup-001]
+#[test]
+fn a_backup_of_a_remote_merge_is_kept_out_of_the_remote_root_and_listed() {
+    let env = CliEnv::new(
+        &[("file.txt", "local content\n")],
+        &[("file.txt", "remote content\n")],
+    );
+
+    let output = merge(&env, &[]);
+
+    assert_exit_success(&output);
+    let remote_entries: Vec<_> = fs::read_dir(&env.remote_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(remote_entries, vec![std::ffi::OsString::from("file.txt")]);
+    let list = env
+        .cmd_with("rollback")
+        .args(["--list", "--target", "develop"])
+        .output()
+        .unwrap();
+    assert_exit_success(&list);
+    assert!(
+        String::from_utf8_lossy(&list.stdout).contains("file.txt"),
+        "{list:?}"
+    );
+}
+
+// バイナリのファイルは中身のバイト列のまま書き込む
+// @kotowari[REQ-cli-010]
+#[test]
+fn a_binary_file_is_written_byte_for_byte() {
+    let env = CliEnv::new(&[], &[]);
+    let local_binary = b"\x89PNG\r\n\x1a\n\x00\x00LOCAL";
+    place_binary_file(&env.local_dir, "image.png", local_binary);
+    place_binary_file(
+        &env.remote_dir,
+        "image.png",
+        b"\x89PNG\r\n\x1a\n\x00\x00REMOTE",
+    );
+
+    let output = env
+        .cmd_with("merge")
+        .args(["image.png", "--left", "local", "--right", "develop"])
+        .output()
+        .unwrap();
+
+    assert_exit_success(&output);
+    assert_eq!(
+        fs::read(env.remote_dir.join("image.png")).unwrap(),
+        local_binary
+    );
 }
