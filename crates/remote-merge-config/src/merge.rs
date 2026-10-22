@@ -202,3 +202,179 @@ pub(crate) fn merge_raw_defaults(
         dir_permissions,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::loading::load_config_from_paths;
+    use crate::test_support::write_temp_config;
+
+    #[test]
+    fn suspicious_exclude_patterns_are_split_out_once_each() {
+        let patterns = ["*.log", "../a", "b/../c", "../a"]
+            .map(String::from)
+            .to_vec();
+        let (kept, suspicious) = split_suspicious_excludes(patterns);
+        assert_eq!(kept, ["*.log"]);
+        assert_eq!(suspicious, ["../a", "b/../c"]);
+    }
+
+    #[test]
+    fn test_empty_file_parse_error() {
+        // 空ファイルには [local] セクションがないのでバリデーションエラー
+        let f = write_temp_config("");
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("local"),
+            "Expected error about missing [local], got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_valid_toml_missing_local_section() {
+        let content = r#"
+[filter]
+exclude = ["*.log"]
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("local"),
+            "Expected error about missing [local], got: {}",
+            err
+        );
+    }
+
+    // ── merge_raw_defaults テスト ──
+
+    #[test]
+    fn test_merge_raw_defaults_both_none() {
+        let result = merge_raw_defaults(None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_global_only() {
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: Some("0o700".into()),
+        };
+        let result = merge_raw_defaults(Some(&global), None).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o700"));
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_only() {
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: None,
+        };
+        let result = merge_raw_defaults(None, Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o644"));
+        assert!(result.dir_permissions.is_none());
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_partial_override() {
+        // グローバル: file=0o644, dir=0o755
+        // プロジェクト: file=0o600 のみ指定
+        // 結果: file=0o600 (プロジェクト優先), dir=0o755 (グローバルフォールバック)
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: Some("0o755".into()),
+        };
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: None,
+        };
+        let result = merge_raw_defaults(Some(&global), Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o755"));
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_full_override() {
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: Some("0o755".into()),
+        };
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: Some("0o700".into()),
+        };
+        let result = merge_raw_defaults(Some(&global), Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o700"));
+    }
+
+    #[test]
+    fn test_include_parsed_from_toml() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+include = ["ja/Back", "src/lib"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.filter.include, vec!["ja/Back", "src/lib"]);
+    }
+
+    #[test]
+    fn test_include_not_specified_defaults_to_empty() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+exclude = ["*.log"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(config.filter.include.is_empty());
+    }
+
+    #[test]
+    fn test_include_merged_from_global_and_project() {
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+include = ["ja/Back"]
+"#;
+        let project = r#"
+[filter]
+include = ["src/lib", "ja/Back"]
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        // 和集合: グローバルの "ja/Back" + プロジェクトの "src/lib"（重複除去）
+        assert!(config.filter.include.contains(&"ja/Back".to_string()));
+        assert!(config.filter.include.contains(&"src/lib".to_string()));
+        assert_eq!(config.filter.include.len(), 2);
+    }
+}

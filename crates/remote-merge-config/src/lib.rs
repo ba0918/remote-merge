@@ -8,6 +8,8 @@ mod loading;
 mod merge;
 mod parse_error;
 mod schema;
+#[cfg(test)]
+mod test_support;
 mod value;
 
 pub use loading::{load_config_from_paths, load_config_with_project_override};
