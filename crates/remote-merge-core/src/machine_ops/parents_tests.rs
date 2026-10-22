@@ -10,6 +10,7 @@
 use std::fs;
 use std::io::Write;
 
+use super::parents::undo_parents;
 use super::*;
 use crate::op_failure::OpFailure;
 use crate::relative_path::EntryPath;

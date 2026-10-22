@@ -104,7 +104,7 @@ fn parent_failure(dir: &Path, error: &std::io::Error) -> OpFailure {
 
 /// 作った親 `dirs`（上から順）を下から消して、`failure` を返す。消せなかったものがあれば、それを示す
 /// I/O の失敗にする
-pub fn undo_parents(
+pub(super) fn undo_parents(
     dirs: &[PathBuf],
     failure: OpFailure,
     mut remove: impl FnMut(&Path) -> std::io::Result<()>,

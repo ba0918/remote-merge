@@ -14,7 +14,7 @@ pub use change::create_symlink_creating;
 pub use change::{chmod, create_symlink, remove, write};
 pub use mode::{ModeTooWide, PermissionMode};
 pub use open::{Opened, open_for_write, open_for_write_with};
-pub use parents::{remove_dir as remove_created_dir, undo_parents};
+pub use parents::remove_dir as remove_created_dir;
 
 use crate::op_failure::{OpFailure, SizeLimit, check_size, from_io_error};
 use crate::relative_path::EntryPath;
