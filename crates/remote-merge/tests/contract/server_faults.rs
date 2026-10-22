@@ -77,11 +77,11 @@ pub struct FaultState {
     /// 後から仕掛けたエージェントとの間を切る条件（`faults.agent_cut` より優先する）
     armed_agent_cut: Mutex<Option<AgentCut>>,
     /// 要求の種類ごとの数（起動し直した後も続けて数える。仕掛け直すと数え直す）
-    agent_counts: Mutex<HashMap<String, usize>>,
+    agent_counts: Mutex<HashMap<&'static str, usize>>,
     agent_cut_claimed: AtomicBool,
     agent_starts: AtomicUsize,
     agent_requests: Mutex<Vec<String>>,
-    /// エージェントが受けた要求の中身（`Debug` の形）
+    /// エージェントが受けた要求の中身（[`request_details`] の形）
     agent_request_details: Mutex<Vec<String>>,
     sudo_bin: Option<tempfile::TempDir>,
     /// 決めた回の書き込みの前にディレクトリを消す仕掛け
@@ -123,7 +123,7 @@ impl FaultState {
         self.agent_requests.lock().unwrap().clone()
     }
 
-    /// エージェントが受けた要求の中身（`Debug` の形。起動し直した後のものも続けて並ぶ）
+    /// エージェントが受けた要求の中身（[`request_details`] の形。起動し直した後のものも続けて並ぶ）
     pub fn agent_request_details(&self) -> Vec<String> {
         self.agent_request_details.lock().unwrap().clone()
     }
@@ -231,14 +231,14 @@ impl AgentInbound {
             let refused = match deserialize_request(&frame[4..]) {
                 Ok(request) => {
                     let kind = request_kind(&request);
-                    let refused = self.state.faults.refuse_agent == Some(kind.as_str());
+                    let refused = self.state.faults.refuse_agent == Some(kind);
                     if refused {
-                        self.record(&request);
+                        self.record(kind, &request);
                     } else {
-                        self.note(&request);
+                        self.note(kind, &request);
                     }
-                    self.state.removal.on_agent_request(&kind);
-                    self.state.rewrite.on_agent_request(&kind);
+                    self.state.removal.on_agent_request(kind);
+                    self.state.rewrite.on_agent_request(kind);
                     refused
                 }
                 Err(_) => false,
@@ -275,30 +275,29 @@ impl AgentInbound {
         *self.stdin.lock().await = None;
     }
 
-    /// 受けた要求の種類と中身を記録する
-    fn record(&self, request: &AgentRequest) {
+    /// 受けた要求の種類 `kind` と中身を記録する
+    fn record(&self, kind: &'static str, request: &AgentRequest) {
         self.state
             .agent_requests
             .lock()
             .unwrap()
-            .push(request_kind(request));
+            .push(kind.to_string());
         self.state
             .agent_request_details
             .lock()
             .unwrap()
-            .push(format!("{request:?}"));
+            .push(request_details(request));
     }
 
-    fn note(&mut self, request: &AgentRequest) {
-        let kind = request_kind(request);
-        self.record(request);
+    fn note(&mut self, kind: &'static str, request: &AgentRequest) {
+        self.record(kind, request);
         if matches!(request, AgentRequest::Shutdown) {
             return;
         }
         let (seen_kind, seen_any) = {
             let mut counts = self.state.agent_counts.lock().unwrap();
-            *counts.entry(kind.clone()).or_insert(0) += 1;
-            (counts[&kind], counts.values().sum::<usize>())
+            *counts.entry(kind).or_insert(0) += 1;
+            (counts[kind], counts.values().sum::<usize>())
         };
         let cut = self.state.agent_cut().and_then(|cut| {
             let seen = match cut.request {
@@ -485,12 +484,50 @@ fn is_last(response: &AgentResponse) -> bool {
 }
 
 /// 要求の種類の名前（`AgentRequest` の名前）
-fn request_kind(request: &AgentRequest) -> String {
-    let text = format!("{request:?}");
-    text.split(|ch: char| !ch.is_alphanumeric())
-        .next()
-        .unwrap_or_default()
-        .to_string()
+fn request_kind(request: &AgentRequest) -> &'static str {
+    match request {
+        AgentRequest::ListTree { .. } => "ListTree",
+        AgentRequest::ReadFiles { .. } => "ReadFiles",
+        AgentRequest::HashFiles { .. } => "HashFiles",
+        AgentRequest::HashContents { .. } => "HashContents",
+        AgentRequest::WriteFile { .. } => "WriteFile",
+        AgentRequest::InspectPath { .. } => "InspectPath",
+        AgentRequest::InspectPaths { .. } => "InspectPaths",
+        AgentRequest::Symlink { .. } => "Symlink",
+        AgentRequest::Remove { .. } => "Remove",
+        AgentRequest::Chmod { .. } => "Chmod",
+        AgentRequest::ReadEntryLink { .. } => "ReadEntryLink",
+        AgentRequest::Shutdown => "Shutdown",
+        AgentRequest::Ping => "Ping",
+    }
+}
+
+/// 記録する要求の中身。`Debug` の形で、書き込む中身だけは長さにする（数 MB の中身を要求ごとに
+/// 文字にすると、上限を超える大きさを書くテストが書式化に時間を取られる）
+fn request_details(request: &AgentRequest) -> String {
+    match request {
+        AgentRequest::WriteFile {
+            path,
+            content,
+            is_binary,
+            more_to_follow,
+        } => format!(
+            "WriteFile {{ path: {path:?}, content: <{} bytes>, is_binary: {is_binary}, more_to_follow: {more_to_follow} }}",
+            content.len()
+        ),
+        AgentRequest::ListTree { .. }
+        | AgentRequest::ReadFiles { .. }
+        | AgentRequest::HashFiles { .. }
+        | AgentRequest::HashContents { .. }
+        | AgentRequest::InspectPath { .. }
+        | AgentRequest::InspectPaths { .. }
+        | AgentRequest::Symlink { .. }
+        | AgentRequest::Remove { .. }
+        | AgentRequest::Chmod { .. }
+        | AgentRequest::ReadEntryLink { .. }
+        | AgentRequest::Shutdown
+        | AgentRequest::Ping => format!("{request:?}"),
+    }
 }
 
 /// 長さの前置き（4 バイトのビッグエンディアン）を含むフレームを一つ取り出す
