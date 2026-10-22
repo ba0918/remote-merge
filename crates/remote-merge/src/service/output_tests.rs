@@ -1,6 +1,36 @@
 //! text と JSON の書き出しの単体テスト
 use super::*;
 
+/// 左（local）と右（dev）を比べ、差も参照先もない diff の項目
+fn plain_diff(path: &str) -> DiffOutput {
+    DiffOutput {
+        encodings: Default::default(),
+        byte_only_difference: false,
+        path: path.into(),
+        left: SourceInfo {
+            label: "local".into(),
+            root: ".".into(),
+        },
+        right: SourceInfo {
+            label: "dev".into(),
+            root: "/r".into(),
+        },
+        ref_: None,
+        binary: false,
+        symlink: false,
+        link_targets: None,
+        truncated: false,
+        hunks: vec![],
+        ref_hunks: None,
+        left_hash: None,
+        right_hash: None,
+        ref_hash: None,
+        note: None,
+        conflict_count: 0,
+        conflict_regions: vec![],
+    }
+}
+
 fn sample_status() -> StatusOutput {
     StatusOutput {
         left: SourceInfo {
@@ -94,20 +124,10 @@ fn test_status_json_no_agent_field_when_none() {
 #[test]
 fn test_format_diff_text() {
     let output = DiffOutput {
-        path: "src/config.ts".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
         right: SourceInfo {
             label: "develop".into(),
             root: "/var/www".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
         hunks: vec![DiffHunk {
             index: 0,
             left_start: 10,
@@ -127,15 +147,7 @@ fn test_format_diff_text() {
                 },
             ],
         }],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("src/config.ts")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("--- a/src/config.ts (local)"));
@@ -148,7 +160,6 @@ fn test_format_diff_text() {
 #[test]
 fn test_format_diff_text_truncated() {
     let output = DiffOutput {
-        path: "big.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -157,21 +168,8 @@ fn test_format_diff_text_truncated() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
         truncated: true,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("big.rs")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("truncated"));
@@ -306,24 +304,10 @@ fn test_format_status_text_no_ref_backward_compat() {
 #[test]
 fn test_format_diff_text_with_ref_hunks() {
     let output = DiffOutput {
-        path: "config.ts".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
         ref_: Some(SourceInfo {
             label: "staging".into(),
             root: "/s".into(),
         }),
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
         ref_hunks: Some(vec![DiffHunk {
             index: 0,
             left_start: 1,
@@ -339,14 +323,7 @@ fn test_format_diff_text_with_ref_hunks() {
                 },
             ],
         }]),
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("config.ts")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -357,7 +334,6 @@ fn test_format_diff_text_with_ref_hunks() {
 #[test]
 fn test_format_diff_text_no_ref_backward_compat() {
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -366,21 +342,7 @@ fn test_format_diff_text_no_ref_backward_compat() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("a.rs")
     };
     let text = format_diff_text(&output);
     assert!(!text.contains("ref"));
@@ -390,30 +352,8 @@ fn test_format_diff_text_no_ref_backward_compat() {
 fn test_format_diff_text_binary() {
     // T-3: binary=true の場合 "Binary files differ" が出力される
     let output = DiffOutput {
-        path: "image.png".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
         binary: true,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("image.png")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Binary files differ"));
@@ -426,34 +366,13 @@ fn test_format_diff_text_binary() {
 #[test]
 fn test_format_diff_text_symlink() {
     let output = DiffOutput {
-        path: "link".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
-        binary: false,
         symlink: true,
         link_targets: Some(crate::service::types::LinkTargets {
             left: Some("before.txt".into()),
             right: Some("after.txt".into()),
             ref_: None,
         }),
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("link")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Symbolic link targets differ"));
@@ -578,20 +497,6 @@ fn test_format_merge_text_no_hunk_info_for_normal_merge() {
 
 fn sample_diff(path: &str) -> DiffOutput {
     DiffOutput {
-        path: path.into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
         hunks: vec![DiffHunk {
             index: 0,
             left_start: 1,
@@ -607,15 +512,7 @@ fn sample_diff(path: &str) -> DiffOutput {
                 },
             ],
         }],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff(path)
     }
 }
 
@@ -731,30 +628,10 @@ fn test_status_json_not_affected_by_header() {
 #[test]
 fn test_format_diff_text_binary_with_hashes() {
     let output = DiffOutput {
-        path: "image.png".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
         binary: true,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
         left_hash: Some("abc123def456".into()),
         right_hash: Some("789xyz000111".into()),
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("image.png")
     };
     let text = format_diff_text(&output);
     assert!(
@@ -768,30 +645,9 @@ fn test_format_diff_text_binary_with_hashes() {
 #[test]
 fn test_format_diff_text_binary_left_only_hash() {
     let output = DiffOutput {
-        path: "image.png".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
         binary: true,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
         left_hash: Some("abc123".into()),
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("image.png")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
@@ -800,30 +656,8 @@ fn test_format_diff_text_binary_left_only_hash() {
 #[test]
 fn test_format_diff_text_binary_no_hashes_fallback() {
     let output = DiffOutput {
-        path: "image.png".into(),
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
         binary: true,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("image.png")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Binary files differ"));
@@ -833,7 +667,6 @@ fn test_format_diff_text_binary_no_hashes_fallback() {
 #[test]
 fn test_diff_output_binary_hash_serialization() {
     let output = DiffOutput {
-        path: "image.png".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -842,21 +675,10 @@ fn test_diff_output_binary_hash_serialization() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
         binary: true,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
         left_hash: Some("aaa".into()),
         right_hash: Some("bbb".into()),
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("image.png")
     };
     let json = format_json(&output).unwrap();
     assert!(json.contains("\"left_hash\""));
@@ -869,7 +691,6 @@ fn test_diff_output_binary_hash_serialization() {
 fn test_diff_output_text_no_hash_in_json() {
     // テキストファイルの diff では left_hash/right_hash は None → JSON に含まれない
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -878,21 +699,7 @@ fn test_diff_output_text_no_hash_in_json() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("a.rs")
     };
     let json = format_json(&output).unwrap();
     assert!(!json.contains("left_hash"));
@@ -962,7 +769,6 @@ fn test_format_merge_outcome_json_r2r_blocked_no_root_path() {
 #[test]
 fn test_format_diff_text_with_conflicts() {
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -971,21 +777,8 @@ fn test_format_diff_text_with_conflicts() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
         conflict_count: 2,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("a.rs")
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Conflicts: 2 region(s)"));
@@ -994,7 +787,6 @@ fn test_format_diff_text_with_conflicts() {
 #[test]
 fn test_format_diff_text_no_conflicts() {
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -1003,21 +795,7 @@ fn test_format_diff_text_no_conflicts() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("a.rs")
     };
     let text = format_diff_text(&output);
     assert!(!text.contains("Conflicts"));
@@ -1060,7 +838,6 @@ fn test_format_multi_diff_text_no_conflicts() {
 #[test]
 fn test_diff_output_conflict_count_zero_omitted_in_json() {
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -1069,21 +846,7 @@ fn test_diff_output_conflict_count_zero_omitted_in_json() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        conflict_count: 0,
-        conflict_regions: vec![],
-        encodings: Default::default(),
-        byte_only_difference: false,
+        ..plain_diff("a.rs")
     };
     let json = format_json(&output).unwrap();
     assert!(!json.contains("conflict_count"));
@@ -1206,7 +969,6 @@ fn test_diff_output_conflict_count_nonzero_in_json() {
     use crate::diff::conflict::ConflictRegion;
 
     let output = DiffOutput {
-        path: "a.rs".into(),
         left: SourceInfo {
             label: "l".into(),
             root: ".".into(),
@@ -1215,25 +977,13 @@ fn test_diff_output_conflict_count_nonzero_in_json() {
             label: "r".into(),
             root: "/r".into(),
         },
-        ref_: None,
-        binary: false,
-        symlink: false,
-        link_targets: None,
-        truncated: false,
-        hunks: vec![],
-        ref_hunks: None,
-        left_hash: None,
-        right_hash: None,
-        ref_hash: None,
-        note: None,
-        encodings: Default::default(),
-        byte_only_difference: false,
         conflict_count: 1,
         conflict_regions: vec![crate::service::types::ConflictArea::Lines(ConflictRegion {
             ref_range: 10..15,
             left_lines: vec!["changed left".into()],
             right_lines: vec!["changed right".into()],
         })],
+        ..plain_diff("a.rs")
     };
     let json = format_json(&output).unwrap();
     assert!(json.contains("\"conflict_count\""));
