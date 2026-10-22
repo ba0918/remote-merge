@@ -448,6 +448,36 @@ pub mod exit_code {
 mod tests {
     use super::*;
 
+    /// 左右だけを比べ、差も参照先もない diff の項目
+    fn plain_diff(path: &str) -> DiffOutput {
+        DiffOutput {
+            encodings: Default::default(),
+            byte_only_difference: false,
+            path: path.into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            binary: false,
+            symlink: false,
+            link_targets: None,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            ref_hash: None,
+            note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
+        }
+    }
+
     #[test]
     fn test_status_output_serialize() {
         let output = StatusOutput {
@@ -521,20 +551,6 @@ mod tests {
     #[test]
     fn test_diff_output_serialize() {
         let output = DiffOutput {
-            path: "src/config.ts".into(),
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "develop".into(),
-                root: "/var/www".into(),
-            },
-            ref_: None,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
                 left_start: 10,
@@ -554,15 +570,7 @@ mod tests {
                     },
                 ],
             }],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            ref_hash: None,
-            note: None,
-            conflict_count: 0,
-            conflict_regions: vec![],
-            encodings: Default::default(),
-            byte_only_difference: false,
+            ..plain_diff("src/config.ts")
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -687,33 +695,12 @@ mod tests {
     #[test]
     fn test_diff_output_with_ref_hunks_serialize() {
         let output = DiffOutput {
-            path: "a.rs".into(),
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "dev".into(),
-                root: "/r".into(),
-            },
             ref_: Some(SourceInfo {
                 label: "staging".into(),
                 root: "/s".into(),
             }),
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
             ref_hunks: Some(vec![]),
-            left_hash: None,
-            right_hash: None,
-            ref_hash: None,
-            note: None,
-            conflict_count: 0,
-            conflict_regions: vec![],
-            encodings: Default::default(),
-            byte_only_difference: false,
+            ..plain_diff("a.rs")
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -722,32 +709,7 @@ mod tests {
 
     #[test]
     fn test_diff_output_without_ref_serialize() {
-        let output = DiffOutput {
-            path: "a.rs".into(),
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "dev".into(),
-                root: "/r".into(),
-            },
-            ref_: None,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            ref_hash: None,
-            note: None,
-            conflict_count: 0,
-            conflict_regions: vec![],
-            encodings: Default::default(),
-            byte_only_difference: false,
-        };
+        let output = plain_diff("a.rs");
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
         assert!(!json.contains("\"ref_hunks\""));
@@ -837,32 +799,7 @@ mod tests {
     #[test]
     fn test_multi_diff_output_serialize() {
         let output = MultiDiffOutput {
-            files: vec![DiffOutput {
-                path: "a.rs".into(),
-                left: SourceInfo {
-                    label: "local".into(),
-                    root: ".".into(),
-                },
-                right: SourceInfo {
-                    label: "dev".into(),
-                    root: "/r".into(),
-                },
-                ref_: None,
-                binary: false,
-                symlink: false,
-                link_targets: None,
-                truncated: false,
-                hunks: vec![],
-                ref_hunks: None,
-                left_hash: None,
-                right_hash: None,
-                ref_hash: None,
-                note: None,
-                conflict_count: 0,
-                conflict_regions: vec![],
-                encodings: Default::default(),
-                byte_only_difference: false,
-            }],
+            files: vec![plain_diff("a.rs")],
             errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 5,
@@ -900,34 +837,13 @@ mod tests {
         use remote_merge_core::diff::conflict::ConflictRegion;
 
         let output = DiffOutput {
-            path: "a.rs".into(),
-            left: SourceInfo {
-                label: "l".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "r".into(),
-                root: "/r".into(),
-            },
-            ref_: None,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            ref_hash: None,
-            note: None,
-            encodings: Default::default(),
-            byte_only_difference: false,
             conflict_count: 1,
             conflict_regions: vec![ConflictArea::Lines(ConflictRegion {
                 ref_range: 0..1,
                 left_lines: vec!["B".into()],
                 right_lines: vec!["C".into()],
             })],
+            ..plain_diff("a.rs")
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"conflict_count\":1"));
