@@ -71,13 +71,7 @@ fn a_missing_name_under_a_kind_mismatch_fails_without_skipping_the_ancestor() {
 
     let planned = plan_for(&listed, &["x/nope.txt"], delete);
 
-    assert_eq!(
-        planned,
-        [(
-            "x/nope.txt".to_string(),
-            MergeEntry::Fail(NOT_FOUND.to_string())
-        )]
-    );
+    assert_eq!(planned, [("x/nope.txt".to_string(), MergeEntry::NotFound)]);
 }
 
 // 書き込み先の symlink のリンク先が UTF-8 として読めないか置換文字を含むなら、変わっていないことを
@@ -163,4 +157,36 @@ fn a_source_link_whose_target_is_not_utf8_fails_in_the_plan() {
             ("plain".to_string(), MergeEntry::WriteLink),
         ]
     );
+}
+
+// 見つからない名前は書き込み先の順・扱いの並びの順に警告し、比べたどの書き込み先でも名前がすべて
+// ないときだけ止める。比べられなかった書き込み先があれば止めない（REQ-merge-035）
+// @kotowari[REQ-merge-035]
+#[test]
+fn every_named_path_must_be_missing_on_every_compared_target_to_stop() {
+    let gone = |names: &[&str]| -> Vec<(String, MergeEntry)> {
+        names
+            .iter()
+            .map(|name| (name.to_string(), MergeEntry::NotFound))
+            .collect()
+    };
+    let both = gone(&["a.txt", "b.txt"]);
+    let one = [
+        ("a.txt".to_string(), MergeEntry::WriteFile),
+        ("b.txt".to_string(), MergeEntry::NotFound),
+    ];
+
+    let all = missing_names([Some(both.as_slice()), Some(both.as_slice())], 2);
+    assert_eq!(all.names, ["a.txt", "b.txt", "a.txt", "b.txt"]);
+    assert!(all.all_missing);
+
+    let partly = missing_names([Some(both.as_slice()), Some(one.as_slice())], 2);
+    assert_eq!(partly.names, ["a.txt", "b.txt", "b.txt"]);
+    assert!(!partly.all_missing);
+
+    let uncompared = missing_names([Some(both.as_slice()), None], 2);
+    assert_eq!(uncompared.names, ["a.txt", "b.txt"]);
+    assert!(!uncompared.all_missing);
+
+    assert!(!missing_names([Some(&[][..])], 0).all_missing);
 }

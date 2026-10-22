@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use remote_merge_core::compare::PathComparison;
 use remote_merge_engine::treat::merge::MergeEntry;
+use remote_merge_engine::treat::merge_plan::NOT_FOUND;
 use remote_merge_engine::treat::merge_result::Outcome;
 use remote_merge_engine::treat::status::{RefMark, ref_mark};
 
@@ -70,6 +71,7 @@ pub(super) fn apply_plan(
             let outcome = match (entry, results.remove(path.as_str())) {
                 (MergeEntry::Skip(reason), _) => Outcome::Skipped(reason.text()),
                 (MergeEntry::Fail(error), _) => Outcome::Failed(error.clone()),
+                (MergeEntry::NotFound, _) => Outcome::Failed(NOT_FOUND.to_string()),
                 (_, Some(Applied::Failed(error))) => Outcome::Failed(error),
                 (_, Some(Applied::FailedAfterChange(error))) => Outcome::FailedAfterChange(error),
                 (MergeEntry::Delete, Some(Applied::Done { backup })) => Outcome::Deleted { backup },

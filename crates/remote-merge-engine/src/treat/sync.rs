@@ -15,7 +15,8 @@ pub fn nothing_to_sync(plan: &[(String, MergeEntry)]) -> bool {
         MergeEntry::WriteFile
         | MergeEntry::WriteLink
         | MergeEntry::Delete
-        | MergeEntry::Fail(_) => false,
+        | MergeEntry::Fail(_)
+        | MergeEntry::NotFound => false,
     })
 }
 

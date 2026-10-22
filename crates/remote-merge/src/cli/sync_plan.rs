@@ -8,15 +8,16 @@ use remote_merge_core::compare::{Incomplete, PathComparison, Role};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::MergeEntry;
-use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, change_counts, merge_plan};
+use remote_merge_engine::treat::merge_plan::{
+    PlanOptions, change_counts, merge_plan, missing_names,
+};
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::MergeUses;
 use remote_merge_engine::treat::sync::nothing_to_sync;
 
-use super::merge_files::{compare_named_files, merge_request};
+use super::merge_files::{compare_named_files, merge_request, report_missing_names};
 use super::sync::SyncArgs;
 use crate::runtime::{CompareRequest, CompareSides, CoreRuntime, Reused};
-use crate::service::path_resolver::paths_not_found;
 use crate::service::types::SourceInfo;
 use crate::side::Side;
 
@@ -98,7 +99,12 @@ pub(super) fn plan_targets(
             state,
         });
     }
-    stop_if_nothing_named_exists(&plans, targets.named.len())?;
+    let planned = plans.iter().map(|plan| match &plan.state {
+        TargetState::Planned { plan, .. } => Some(plan.as_slice()),
+        TargetState::Failed(_) => None,
+    });
+    // 比べられたすべての書き込み先で名前がすべてないときだけ止める（REQ-merge-035）
+    report_missing_names(&missing_names(planned, targets.named.len()))?;
     Ok(plans)
 }
 
@@ -170,30 +176,4 @@ fn source_unreadable(core: &mut CoreRuntime, source: &Side, request: &CompareReq
         reference: None,
     };
     core.collect_compare_states(&alone, request).is_err()
-}
-
-/// 左右のどちらにもない名前を書き込み先ごとに警告し、比べられたすべての書き込み先で名前がすべて
-/// ないなら書き込まずに止める（比べられなかった書き込み先があれば止めない。REQ-merge-035）
-fn stop_if_nothing_named_exists(plans: &[TargetPlan], named: usize) -> anyhow::Result<()> {
-    let not_found = MergeEntry::Fail(NOT_FOUND.to_string());
-    let mut all_missing = named > 0;
-    for plan in plans {
-        let TargetState::Planned { plan: entries, .. } = &plan.state else {
-            all_missing = false;
-            continue;
-        };
-        let missing: Vec<&String> = entries
-            .iter()
-            .filter(|(_, entry)| *entry == not_found)
-            .map(|(path, _)| path)
-            .collect();
-        for path in &missing {
-            eprintln!("Warning: '{path}' not found on either side");
-        }
-        all_missing &= missing.len() == named;
-    }
-    if all_missing {
-        return Err(paths_not_found());
-    }
-    Ok(())
 }

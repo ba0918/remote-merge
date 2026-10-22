@@ -41,6 +41,7 @@ fn only_a_plan_without_changes_failures_or_kind_mismatches_has_nothing_to_sync()
         MergeEntry::WriteLink,
         MergeEntry::Delete,
         MergeEntry::Fail("broken".to_string()),
+        MergeEntry::NotFound,
         MergeEntry::Skip(SkipReason::KindMismatch {
             source: Kind::File,
             destination: Kind::Directory,

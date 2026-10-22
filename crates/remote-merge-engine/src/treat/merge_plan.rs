@@ -35,10 +35,44 @@ pub fn skip_reasons(plan: &[(String, MergeEntry)]) -> Vec<SkipReason> {
             | MergeEntry::WriteLink
             | MergeEntry::Delete
             | MergeEntry::Fail(_)
+            | MergeEntry::NotFound
             | MergeEntry::Absent
             | MergeEntry::Nothing => None,
         })
         .collect()
+}
+
+/// 左右のどちらにもない名前（REQ-merge-035）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingNames<'a> {
+    /// 書き込み先ごとに扱いの並びの順で並べた、見つからない名前（警告に出す）
+    pub names: Vec<&'a str>,
+    /// 比べたどの書き込み先でも名前がすべてない（書き込まずに止める）
+    pub all_missing: bool,
+}
+
+/// 書き込み先ごとの扱いの並び（比べられなかった書き込み先は None）から、見つからない名前と、書き込まずに
+/// 止めるかを決める。`named` は名前で指定したパスの数で、比べられなかった書き込み先があれば止めない
+pub fn missing_names<'a>(
+    plans: impl IntoIterator<Item = Option<&'a [(String, MergeEntry)]>>,
+    named: usize,
+) -> MissingNames<'a> {
+    let mut names = Vec::new();
+    let mut all_missing = named > 0;
+    for plan in plans {
+        let Some(plan) = plan else {
+            all_missing = false;
+            continue;
+        };
+        let before = names.len();
+        names.extend(
+            plan.iter()
+                .filter(|(_, entry)| *entry == MergeEntry::NotFound)
+                .map(|(path, _)| path.as_str()),
+        );
+        all_missing &= names.len() - before == named;
+    }
+    MissingNames { names, all_missing }
 }
 
 /// 書き込み先の symlink のリンク先が UTF-8 として読めないか置換文字を含むときの error（REQ-merge-033。
@@ -50,7 +84,8 @@ pub const LINK_UNVERIFIABLE: &str = "the destination symlink target is not plain
 /// 決めない）
 pub const SOURCE_LINK_NOT_UTF8: &str = "the link target of the source is not valid UTF-8";
 
-/// 左右のどちらにもない名前の failed の error（REQ-merge-035。文言は IR で決めない）
+/// 左右のどちらにもない名前（`MergeEntry::NotFound`）の failed の error（REQ-merge-035。文言は IR で
+/// 決めない）
 pub const NOT_FOUND: &str = "not found on either side";
 
 /// 扱いを変える指定
@@ -113,7 +148,8 @@ pub fn merge_plan(
             | MergeEntry::WriteLink
             | MergeEntry::Delete
             | MergeEntry::Skip(_)
-            | MergeEntry::Fail(_)) => entry,
+            | MergeEntry::Fail(_)
+            | MergeEntry::NotFound) => entry,
         };
         entries.push((path.clone(), entry));
     }
@@ -121,7 +157,7 @@ pub fn merge_plan(
     entries.extend(
         missing
             .into_iter()
-            .map(|name| (name.clone(), MergeEntry::Fail(NOT_FOUND.to_string()))),
+            .map(|name| (name.clone(), MergeEntry::NotFound)),
     );
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
@@ -155,6 +191,7 @@ fn with_destination_read_failure(entry: MergeEntry, comparison: &PathComparison)
         MergeEntry::Fail(_) if !sides.is_empty() => {}
         entry @ (MergeEntry::Skip(_)
         | MergeEntry::Fail(_)
+        | MergeEntry::NotFound
         | MergeEntry::Absent
         | MergeEntry::Nothing) => return entry,
     }

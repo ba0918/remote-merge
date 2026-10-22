@@ -26,7 +26,9 @@ pub enum MergeEntry {
     Skip(SkipReason),
     /// 書かず消さず、理由とともに failed に出す
     Fail(String),
-    /// 左右のどちらにもない（名前で指定したパスなら failed に出す。REQ-merge-035）
+    /// 名前で指定したパスが左右のどちらにもない（failed に出す。REQ-merge-035）。扱いの並びだけが持つ
+    NotFound,
+    /// 左右のどちらにもない（扱いの並びには載せず、名前で指定したパスは NotFound にする）
     Absent,
     /// 何もしない（同じ組・ディレクトリそのもの・ディレクトリとディレクトリへの symlink の組）
     Nothing,

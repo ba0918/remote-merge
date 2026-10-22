@@ -88,7 +88,7 @@ fn a_name_on_neither_side_fails() {
     let planned = plan_for(&listed, &["a.txt", "gone.txt"], PLAIN);
 
     assert_eq!(planned[1].0, "gone.txt");
-    assert_eq!(planned[1].1, MergeEntry::Fail(NOT_FOUND.to_string()));
+    assert_eq!(planned[1].1, MergeEntry::NotFound);
 }
 
 // 走査の範囲が祖先を含むときは、種類の違う祖先を一件だけスキップし、その下の名前を扱わない

@@ -8,7 +8,7 @@ use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::{MergeEntry, exit_code};
 use remote_merge_engine::treat::merge_plan::{
-    NOT_FOUND, PlanOptions, change_counts, merge_plan, skip_reasons,
+    MissingNames, PlanOptions, change_counts, merge_plan, missing_names, skip_reasons,
 };
 use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
@@ -79,7 +79,7 @@ pub fn plan_merge(
         reference_check,
     };
     let plan = merge_plan(&comparison.paths, &targets, options);
-    stop_if_nothing_named_exists(&plan, &targets)?;
+    report_missing_names(&missing_names([Some(plan.as_slice())], targets.named.len()))?;
     Ok(PlannedMerge {
         paths: comparison.paths,
         plan,
@@ -200,19 +200,11 @@ pub(super) fn merge_request(
 }
 
 /// 左右のどちらにもない名前を警告し、名前がすべてないなら書き込まずに止める（REQ-merge-035）
-pub(super) fn stop_if_nothing_named_exists(
-    plan: &[(String, MergeEntry)],
-    targets: &MergeTargets,
-) -> anyhow::Result<()> {
-    let missing: Vec<&String> = plan
-        .iter()
-        .filter(|(_, entry)| *entry == MergeEntry::Fail(NOT_FOUND.to_string()))
-        .map(|(path, _)| path)
-        .collect();
-    for path in &missing {
+pub(super) fn report_missing_names(missing: &MissingNames<'_>) -> anyhow::Result<()> {
+    for path in &missing.names {
         eprintln!("Warning: '{path}' not found on either side");
     }
-    if !targets.named.is_empty() && missing.len() == targets.named.len() {
+    if missing.all_missing {
         return Err(paths_not_found());
     }
     Ok(())
