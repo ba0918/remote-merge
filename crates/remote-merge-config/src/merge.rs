@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::filter::{IncludeValues, normalize_include_paths};
+use crate::include::{IncludeValues, normalize_include_paths};
 use crate::loading::resolve_local_root;
 use crate::schema::{RawConfig, RawDefaultsConfig};
 use crate::value::*;

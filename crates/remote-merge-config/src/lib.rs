@@ -1,9 +1,10 @@
 #![warn(clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
-use remote_merge_core::{error, filter};
+use remote_merge_core::error;
 
 pub mod content;
+mod include;
 mod loading;
 mod merge;
 mod parse_error;
