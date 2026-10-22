@@ -80,9 +80,8 @@ pub(super) fn write_both(
 
 // @kotowari[REQ-compare-003, REQ-compare-012, EX-compare-003, EX-compare-014]
 #[test]
-fn ex_compare_003_a_file_removed_before_it_was_read_is_undecidable_on_all_three_routes() {
-    let name =
-        "ex_compare_003_a_file_removed_before_it_was_read_is_undecidable_on_all_three_routes";
+fn ex_compare_003_a_file_removed_before_it_was_read_is_undecidable_on_both_routes() {
+    let name = "ex_compare_003_a_file_removed_before_it_was_read_is_undecidable_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -103,8 +102,8 @@ fn ex_compare_003_a_file_removed_before_it_was_read_is_undecidable_on_all_three_
 
 // @kotowari[REQ-compare-012, REQ-compare-014, REQ-paths-021, EX-compare-014]
 #[test]
-fn ex_compare_014_each_kind_of_read_failure_is_undecidable_on_all_three_routes() {
-    let name = "ex_compare_014_each_kind_of_read_failure_is_undecidable_on_all_three_routes";
+fn ex_compare_014_each_kind_of_read_failure_is_undecidable_on_both_routes() {
+    let name = "ex_compare_014_each_kind_of_read_failure_is_undecidable_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -137,9 +136,8 @@ fn ex_compare_014_each_kind_of_read_failure_is_undecidable_on_all_three_routes()
 
 // @kotowari[REQ-compare-014, EX-compare-016]
 #[test]
-fn ex_compare_016_the_reason_names_both_sides_that_could_not_be_read_on_all_three_routes() {
-    let name =
-        "ex_compare_016_the_reason_names_both_sides_that_could_not_be_read_on_all_three_routes";
+fn ex_compare_016_the_reason_names_both_sides_that_could_not_be_read_on_both_routes() {
+    let name = "ex_compare_016_the_reason_names_both_sides_that_could_not_be_read_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }

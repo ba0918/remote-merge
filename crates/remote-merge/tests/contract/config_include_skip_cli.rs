@@ -16,7 +16,7 @@ use super::cli_launch_support::{AgentRootsFixture, statuses_by_path};
 use super::common::{CliEnv, gen_config, place_files, strip_ansi, with_filter};
 use super::config_filters_cli::{combined, status};
 
-/// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
+/// include を `include` にした設定で、右をエージェントの経路にした `status --all --format json` を起動する
 fn status_on_the_remote_server(dirs: &CliEnv, include: &[&str]) -> Output {
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
     let config = with_filter(&base, &format!("include = {include:?}"));
@@ -142,8 +142,8 @@ async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed
 
 // @kotowari[REQ-config-032]
 #[test]
-fn include_value_whose_ancestor_is_not_a_directory_on_the_ssh_side_stops_with_that_error() {
-    // 右の SSH の側では "src" が通常ファイルなので、"src/sub" の確認は祖先がディレクトリでないエラーになる
+fn include_value_whose_ancestor_is_not_a_directory_on_the_remote_side_stops_with_that_error() {
+    // 右のリモートの側では "src" が通常ファイルなので、"src/sub" の確認は祖先がディレクトリでないエラーになる
     let dirs = CliEnv::new(
         &[("src/sub/a.txt", "local\n"), ("top.txt", "local\n")],
         &[("src", "file\n"), ("top.txt", "remote\n")],

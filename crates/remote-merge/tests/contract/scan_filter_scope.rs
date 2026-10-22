@@ -1,7 +1,7 @@
 #![cfg(unix)]
 //! merge・sync が指定したディレクトリの下だけを走査するときも（TBL-scan-001）、exclude と include
 //! を走査の起点からではなく root_dir からのパスに当てること（docs/ir/scan/limits.md の
-//! REQ-scan-019）を、読み込み元をローカル・SSH・エージェントの三つの経路にして確かめる契約テスト。
+//! REQ-scan-019）を、読み込み元をローカルとエージェントの二つの経路にして確かめる契約テスト。
 
 use std::fs;
 

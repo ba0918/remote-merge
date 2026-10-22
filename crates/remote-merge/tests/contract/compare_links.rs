@@ -49,9 +49,9 @@ fn answer(mut child: Child) {
 
 // @kotowari[REQ-compare-008, REQ-compare-006]
 #[test]
-fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_all_three_routes()
- {
-    let name = "req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_all_three_routes";
+fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_both_routes()
+{
+    let name = "req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targets_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -88,8 +88,9 @@ fn req_compare_008_links_are_compared_by_text_and_diff_also_compares_their_targe
 
 // @kotowari[REQ-compare-004, EX-compare-004]
 #[test]
-fn ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_all_three_routes() {
-    let name = "ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_all_three_routes";
+fn ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_both_routes() {
+    let name =
+        "ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -123,9 +124,8 @@ fn ex_compare_004_the_content_outside_the_reference_root_dir_is_not_compared_on_
 
 // @kotowari[REQ-compare-008]
 #[test]
-fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_three_routes() {
-    let name =
-        "req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_three_routes";
+fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_both_routes() {
+    let name = "req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -150,9 +150,9 @@ fn req_compare_008_link_texts_that_are_not_utf8_are_compared_as_bytes_on_all_thr
 
 // @kotowari[REQ-compare-009, REQ-compare-008]
 #[test]
-fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes()
+fn req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_both_routes()
  {
-    let name = "req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_all_three_routes";
+    let name = "req_compare_009_links_whose_targets_are_of_another_kind_are_undecidable_before_reading_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }

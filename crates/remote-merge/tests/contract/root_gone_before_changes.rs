@@ -11,51 +11,45 @@ use super::root_gone_support::*;
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dry_run_merge_of_root_level_paths_stops_when_the_root_dir_is_gone() {
-    for setup in routes() {
-        let fixture = fixture_with(setup, &EXISTING).await;
-        remove_root_at(&fixture, "InspectPaths", 1, When::Before);
+    let fixture = fixture_with(&EXISTING).await;
+    remove_root_at(&fixture, "InspectPaths", 1, When::Before);
 
-        let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt", "--dry-run"]);
+    let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt", "--dry-run"]);
 
-        let result = stdout_json(&output);
-        assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
-        assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
-    }
+    let result = stdout_json(&output);
+    assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
+    assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
 }
 
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dry_run_sync_of_root_level_paths_stops_when_the_root_dir_is_gone() {
-    for setup in routes() {
-        let fixture = fixture_with(setup, &NEW).await;
-        remove_root_at(&fixture, "InspectPaths", 1, When::Before);
+    let fixture = fixture_with(&NEW).await;
+    remove_root_at(&fixture, "InspectPaths", 1, When::Before);
 
-        let output = fixture.run(&["sync", ".", "--dry-run", "--force"]);
+    let output = fixture.run(&["sync", ".", "--dry-run", "--force"]);
 
-        let result = stdout_json(&output);
-        let failed = &result["targets"][0]["failed"];
-        assert_stopped(&fixture, &output, failed, "a.txt", "b.txt");
-    }
+    let result = stdout_json(&output);
+    let failed = &result["targets"][0]["failed"];
+    assert_stopped(&fixture, &output, failed, "a.txt", "b.txt");
 }
 
 // --hunks の一つのファイルも、--dry-run で root_dir がないと分かれば failed にして終了コード 2
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dry_run_hunk_merge_stops_when_the_root_dir_is_gone() {
-    for setup in routes() {
-        let fixture = fixture_with(setup, &EXISTING).await;
-        remove_root_at(&fixture, "InspectPaths", 1, When::Before);
+    let fixture = fixture_with(&EXISTING).await;
+    remove_root_at(&fixture, "InspectPaths", 1, When::Before);
 
-        let output = fixture.run(&["merge", "a.txt", "--hunks", "0", "--dry-run", "--force"]);
+    let output = fixture.run(&["merge", "a.txt", "--hunks", "0", "--dry-run", "--force"]);
 
-        assert_eq!(output.status.code(), Some(2), "{output:?}");
-        let result = stdout_json(&output);
-        let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
-        assert!(
-            failure(&result["failed"], "a.txt").contains(&message),
-            "{result}"
-        );
-    }
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = stdout_json(&output);
+    let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
+    assert!(
+        failure(&result["failed"], "a.txt").contains(&message),
+        "{result}"
+    );
 }
 
 // バックアップのまとめた読み込みで分かったときは、その読み込みに入っていた最初のファイルに付け、
@@ -67,17 +61,15 @@ async fn a_root_dir_found_gone_by_the_backup_read_is_reported_on_the_file_read()
         ("a.txt", Some("local\n"), None),
         ("b.txt", Some("local\n"), Some("remote old\n")),
     ];
-    for setup in routes() {
-        let fixture = fixture_with(setup, &MIXED).await;
-        remove_root_at(&fixture, "ReadFiles", 1, When::Before);
+    let fixture = fixture_with(&MIXED).await;
+    remove_root_at(&fixture, "ReadFiles", 1, When::Before);
 
-        let output = fixture.run(&["merge", "a.txt", "b.txt"]);
+    let output = fixture.run(&["merge", "a.txt", "b.txt"]);
 
-        let result = stdout_json(&output);
-        assert_stopped(&fixture, &output, &result["failed"], "b.txt", "a.txt");
-        let gone = failure(&result["failed"], "b.txt");
-        assert!(gone.contains("cannot read b.txt"), "{gone}");
-    }
+    let result = stdout_json(&output);
+    assert_stopped(&fixture, &output, &result["failed"], "b.txt", "a.txt");
+    let gone = failure(&result["failed"], "b.txt");
+    assert!(gone.contains("cannot read b.txt"), "{gone}");
 }
 
 // rollback も、退避のためのまとめた読み込みで分かれば、最初のファイルにだけ root_dir がない error を
@@ -85,18 +77,16 @@ async fn a_root_dir_found_gone_by_the_backup_read_is_reported_on_the_file_read()
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rollback_whose_root_dir_is_gone_before_the_save_reports_it_once() {
-    for setup in routes() {
-        let fixture = fixture_with(setup, &EXISTING).await;
-        let merge = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
-        assert!(merge.status.success(), "{merge:?}");
-        remove_root_at(&fixture, "ReadFiles", 1, When::Before);
+    let fixture = fixture_with(&EXISTING).await;
+    let merge = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
+    assert!(merge.status.success(), "{merge:?}");
+    remove_root_at(&fixture, "ReadFiles", 1, When::Before);
 
-        let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
+    let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
 
-        let result = stdout_json(&output);
-        assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
-        assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
-    }
+    let result = stdout_json(&output);
+    assert_stopped(&fixture, &output, &result["failed"], "a.txt", "b.txt");
+    assert!(failure(&result["failed"], "c.txt").contains(UNTOUCHED));
 }
 
 // rollback が戻す先の事実を集めるときに root_dir がなければ、パスの深さと --dry-run によらず、
@@ -110,7 +100,7 @@ async fn a_rollback_without_the_root_dir_stops_the_same_way_for_any_depth() {
     ];
     for files in [&EXISTING[..2], &deep[..]] {
         for dry_run in [false, true] {
-            let fixture = fixture_with(Setup::default(), files).await;
+            let fixture = fixture_with(files).await;
             let mut merge = vec!["merge"];
             merge.extend(files.iter().map(|(name, ..)| *name));
             assert!(fixture.run(&merge).status.success());

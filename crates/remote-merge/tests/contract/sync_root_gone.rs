@@ -3,7 +3,7 @@
 //! ファイルを行わずに終了コード 2 で終えること（docs/ir/merge/concurrency.md の REQ-merge-044、
 //! docs/decision/records/2026-10-12-foundation-3.md の D47・D48）の契約テスト。新しいファイルの書き込み
 //! だけでなく、既にあるファイルの書く前の読み込み・--delete の削除・権限の変更で消えたときも止める。
-//! root_dir がない失敗の文言は一度だけ出す。エージェントと SSH の経路で同じに確かめる。
+//! root_dir がない失敗の文言は一度だけ出す。リモートのエージェントの経路で確かめる。
 
 use super::common::stdout_json;
 use super::root_gone_support::*;
@@ -11,31 +11,26 @@ use super::root_gone_support::*;
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_stops_for_the_server_whose_root_dir_is_gone_in_the_middle() {
-    for setup in routes() {
-        let fixture = fixture_with(setup, &NEW).await;
-        remove_root_at(&fixture, "WriteFile", 2, When::Before);
+    let fixture = fixture_with(&NEW).await;
+    remove_root_at(&fixture, "WriteFile", 2, When::Before);
 
-        let output = fixture.run(&["sync", ".", "--force"]);
+    let output = fixture.run(&["sync", ".", "--force"]);
 
-        let result = stdout_json(&output);
-        let failed = &result["targets"][0]["failed"];
-        assert_stopped(&fixture, &output, failed, "b.txt", "c.txt");
-    }
+    let result = stdout_json(&output);
+    let failed = &result["targets"][0]["failed"];
+    assert_stopped(&fixture, &output, failed, "b.txt", "c.txt");
 }
 
 // --delete の削除で root_dir がないと分かる。root_dir が通常ファイルに替わったときも同じ
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_with_delete_stops_when_the_root_dir_is_gone_before_a_removal() {
-    for (setup, gone) in routes_and_ways() {
-        let fixture = fixture_with(
-            setup,
-            &[
-                ("x.txt", None, Some("x\n")),
-                ("y.txt", None, Some("y\n")),
-                ("z.txt", None, Some("z\n")),
-            ],
-        )
+    for gone in WAYS {
+        let fixture = fixture_with(&[
+            ("x.txt", None, Some("x\n")),
+            ("y.txt", None, Some("y\n")),
+            ("z.txt", None, Some("z\n")),
+        ])
         .await;
         gone_root_at(&fixture, "Remove", 2, When::Before, gone);
 
@@ -49,8 +44,8 @@ async fn a_sync_with_delete_stops_when_the_root_dir_is_gone_before_a_removal() {
 
 /// `files` を merge してから、最初の書き戻しの後に remote の root_dir を消して rollback し、止まった
 /// ことを確かめる
-async fn assert_a_rollback_stops(setup: Setup, files: &[(&str, Option<&str>, Option<&str>)]) {
-    let fixture = fixture_with(setup, files).await;
+async fn assert_a_rollback_stops(files: &[(&str, Option<&str>, Option<&str>)]) {
+    let fixture = fixture_with(files).await;
     let names: Vec<&str> = files.iter().map(|(name, ..)| *name).collect();
     let mut merge_args = vec!["merge"];
     merge_args.extend(&names);
@@ -80,9 +75,7 @@ async fn assert_a_rollback_stops(setup: Setup, files: &[(&str, Option<&str>, Opt
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rollback_stops_when_the_root_dir_is_gone_in_the_middle() {
-    for setup in routes() {
-        assert_a_rollback_stops(setup, &EXISTING).await;
-    }
+    assert_a_rollback_stops(&EXISTING).await;
 }
 
 // 深いパスの書き戻しでも、親がないとして飛ばす前に root_dir を確かめ直し、なくなっていれば止める
@@ -94,7 +87,5 @@ async fn a_rollback_of_deep_paths_stops_when_the_root_dir_is_gone_in_the_middle(
         ("sub/b.txt", Some("local\n"), Some("remote old\n")),
         ("sub/c.txt", Some("local\n"), Some("remote old\n")),
     ];
-    for setup in routes() {
-        assert_a_rollback_stops(setup, &deep).await;
-    }
+    assert_a_rollback_stops(&deep).await;
 }

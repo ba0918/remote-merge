@@ -9,9 +9,8 @@ use super::scan_other_kinds::make_fifo;
 
 // @kotowari[REQ-compare-010, REQ-compare-011, EX-compare-012, EX-compare-013]
 #[test]
-fn ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_all_three_routes()
- {
-    let name = "ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_all_three_routes";
+fn ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_both_routes() {
+    let name = "ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_do_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -53,8 +52,8 @@ fn ex_compare_012_013_hashes_have_no_size_limit_and_only_contents_read_for_use_d
 
 // @kotowari[REQ-compare-009, REQ-scan-021]
 #[test]
-fn req_compare_009_another_kind_is_undecidable_without_being_read_on_all_three_routes() {
-    let name = "req_compare_009_another_kind_is_undecidable_without_being_read_on_all_three_routes";
+fn req_compare_009_another_kind_is_undecidable_without_being_read_on_both_routes() {
+    let name = "req_compare_009_another_kind_is_undecidable_without_being_read_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }

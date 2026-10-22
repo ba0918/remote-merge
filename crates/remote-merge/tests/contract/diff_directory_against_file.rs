@@ -152,7 +152,7 @@ fn assert_kind_and_body(json: &serde_json::Value, context: &str) {
     );
 }
 
-// SSH の経路でも、子のないディレクトリとファイルの組は種類の差とファイル側の本文を示す
+// リモートのエージェントの経路でも、子のないディレクトリとファイルの組は種類の差とファイル側の本文を示す
 // @kotowari[REQ-cli-085]
 #[test]
 fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body_on_the_remote_server()

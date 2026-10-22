@@ -2,8 +2,7 @@
 //! パスの引数に絶対パスか ".." の要素があるときに、コマンドが経路によらず引数の段階で止まる契約テスト
 //! （docs/ir/cli/diff-output.md の REQ-cli-078、docs/ir/merge/symlink.md の REQ-merge-007）。
 //!
-//! 実行ファイルを試験 SSH サーバに対して起動し、エージェントを有効にした経路と、書き込み先が SSH の
-//! 経路を確かめる。
+//! 実行ファイルを試験 SSH サーバに対して起動し、リモートのエージェントの経路で確かめる。
 
 use std::fs;
 
@@ -33,7 +32,7 @@ async fn an_absolute_path_stops_diff_before_any_command_reaches_the_agent_server
 
 // @kotowari[REQ-merge-007]
 #[test]
-fn an_absolute_path_stops_a_merge_into_an_ssh_target_before_writing() {
+fn an_absolute_path_stops_a_merge_into_a_remote_target_before_writing() {
     let env = super::common::CliEnv::new_3way(
         &[("file.txt", "incoming\n")],
         &[("file.txt", "develop old\n"), ("extra.txt", "extra\n")],

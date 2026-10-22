@@ -2,7 +2,7 @@
 //! root_dir が symlink を経由するときの diff の root_dir の外かどうかの判定
 //! （docs/ir/cli/symlink-diff.md の REQ-cli-026）の、エージェントの経路の契約テスト。
 //!
-//! ローカルと SSH の経路は tests/cli_diff.rs で確かめる。エージェントの経路は
+//! 左右それぞれの root_dir を symlink にした場合は tests/cli_diff.rs でも確かめる。エージェントの経路は
 //! cli_launch_support の `AgentRootsFixture` で試験サーバを起動し、右の root_dir を実ディレクトリへの
 //! symlink にした設定で `diff --left local --right develop` を起動する。
 

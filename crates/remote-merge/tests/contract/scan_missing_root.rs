@@ -38,7 +38,7 @@ impl Sides {
     pub(super) fn tested_root(&self) -> std::path::PathBuf {
         match self.route {
             Route::Local => self.fixture.local(),
-            _ => self.fixture.remote(),
+            Route::Agent => self.fixture.remote(),
         }
     }
 
@@ -46,7 +46,7 @@ impl Sides {
     pub(super) fn other_root(&self) -> std::path::PathBuf {
         match self.route {
             Route::Local => self.fixture.remote(),
-            _ => self.fixture.local(),
+            Route::Agent => self.fixture.local(),
         }
     }
 
@@ -54,14 +54,14 @@ impl Sides {
     fn tested(&self) -> &'static str {
         match self.route {
             Route::Local => "local",
-            _ => "fixture",
+            Route::Agent => "fixture",
         }
     }
 
     fn other(&self) -> &'static str {
         match self.route {
             Route::Local => "fixture",
-            _ => "local",
+            Route::Agent => "local",
         }
     }
 
@@ -140,7 +140,7 @@ async fn a_missing_destination_root_dir_stops_every_scan_before_writing() {
             let output = sides.run_into_tested(command);
             let left = match route {
                 Route::Local => "right\n",
-                _ => "left\n",
+                Route::Agent => "left\n",
             };
             assert_stopped(&sides, &output, command, left);
         }
@@ -157,7 +157,7 @@ async fn a_missing_source_root_dir_stops_every_scan_before_writing() {
             let output = sides.run_from_tested(command);
             let other = match route {
                 Route::Local => "right\n",
-                _ => "left\n",
+                Route::Agent => "left\n",
             };
             assert_stopped(&sides, &output, command, other);
         }

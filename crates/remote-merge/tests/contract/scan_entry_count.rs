@@ -42,8 +42,8 @@ async fn ex_scan_012_a_directory_is_not_counted_toward_the_limit_via_the_agent()
 /// find のパターンに移せず、走査の出力から後で除く exclude
 const EXCLUDE_UNPRUNABLE: &str = "exclude = [\"x?.txt\"]";
 
-/// `root` に root の外のファイルを指す symlink を 2 件と、exclude に当たる通常ファイルを置く。
-/// SSH の経路は symlink を先に出すので、上限ちょうどの項目の後に除外する項目が並ぶ
+/// `root` に root の外のファイルを指す symlink を 2 件（上限ちょうどの件数）と、exclude に当たる
+/// 通常ファイルを置く
 fn links_then_excluded_file(root: &Path, outside: &Path) {
     place_files(outside, &[("one.txt", "1\n"), ("two.txt", "2\n")]);
     for (link, target) in [("l1", "one.txt"), ("l2", "two.txt")] {

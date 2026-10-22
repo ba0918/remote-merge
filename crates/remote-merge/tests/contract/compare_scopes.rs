@@ -106,9 +106,9 @@ fn lines_of<'a>(text: &'a str, path: &str) -> Vec<&'a str> {
 
 // @kotowari[REQ-compare-002, REQ-compare-006]
 #[test]
-fn a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_all_three_routes()
+fn a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_both_routes()
  {
-    let name = "a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_all_three_routes";
+    let name = "a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_scope_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -130,9 +130,9 @@ fn a_named_directory_that_is_a_link_to_a_directory_is_judged_the_same_in_every_s
 
 // @kotowari[REQ-compare-004, REQ-compare-002]
 #[test]
-fn a_path_below_a_link_outside_root_dir_is_not_collected_in_every_scope_on_all_three_routes() {
+fn a_path_below_a_link_outside_root_dir_is_not_collected_in_every_scope_on_both_routes() {
     let name =
-        "a_path_below_a_link_outside_root_dir_is_not_collected_in_every_scope_on_all_three_routes";
+        "a_path_below_a_link_outside_root_dir_is_not_collected_in_every_scope_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -158,9 +158,9 @@ fn a_path_below_a_link_outside_root_dir_is_not_collected_in_every_scope_on_all_t
 
 // @kotowari[REQ-compare-003]
 #[test]
-fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_three_routes() {
+fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_both_routes() {
     let name =
-        "a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_three_routes";
+        "a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -194,30 +194,26 @@ fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_
     }
 }
 
-/// `request` を `route` で動かしたときに、調べる経路が受けたパスの確認と走査の数
-fn round_trips(routes: &FlowRoutes, route: Route, test: &str, request: &str) -> (usize, usize) {
+/// `request` をエージェントの経路で動かしたときに、エージェントが受けたパスの確認と走査の数
+fn round_trips(routes: &FlowRoutes, test: &str, request: &str) -> (usize, usize) {
     let requests = routes.agent_requests().len();
-    routes.run(route, test, request);
+    routes.run(Route::Agent, test, request);
     let asked = |kinds: &[&str]| -> usize {
         routes.agent_requests()[requests..]
             .iter()
             .filter(|request| kinds.contains(&request.as_str()))
             .count()
     };
-    match route {
-        Route::Agent => (
-            asked(&["InspectPath", "InspectPaths"]),
-            asked(&["ListTree"]),
-        ),
-        Route::Local => (0, 0),
-    }
+    (
+        asked(&["InspectPath", "InspectPaths"]),
+        asked(&["ListTree"]),
+    )
 }
 
 // @kotowari[REQ-compare-004]
 #[test]
-fn the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote_routes() {
-    let name =
-        "the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote_routes";
+fn the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_agent_route() {
+    let name = "the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_agent_route";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -232,25 +228,22 @@ fn the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote
         }
     });
 
-    let cases = [
-        ("one external", "many external", [(Route::Agent, 1)]),
-        ("one link", "many links", [(Route::Agent, 1)]),
-    ];
-    for (one, many, expected) in cases {
-        for (route, checks) in expected {
-            let one = round_trips(&routes, route, &test_name(name), one);
-            let many = round_trips(&routes, route, &test_name(name), many);
-            assert_eq!(many, one, "{route:?}");
-            assert_eq!(one.0, checks, "{route:?}: path checks");
-        }
+    for (one, many) in [
+        ("one external", "many external"),
+        ("one link", "many links"),
+    ] {
+        let one = round_trips(&routes, &test_name(name), one);
+        let many = round_trips(&routes, &test_name(name), many);
+        assert_eq!(many, one);
+        assert_eq!(one.0, 1, "path checks");
     }
 }
 
 // @kotowari[REQ-compare-003]
 #[test]
-fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes()
+fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_agent_route()
  {
-    let name = "named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes";
+    let name = "named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_agent_route";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -265,27 +258,24 @@ fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_ch
         }
     });
 
-    for route in [Route::Agent] {
-        // 走査は、ふさがれた走査と（残りの起点か root_dir だけを確かめる）走査し直しの二つ、パスの
-        // 確認は一度。外への
-        // リンクを辿らないときも、走査の後の確かめはふさがれた起点の確かめで取った事実を使い回す
-        for (one, many) in [
-            ("one blocked", "many blocked"),
-            ("one blocked stop", "many blocked stop"),
-        ] {
-            let one = round_trips(&routes, route, &test_name(name), one);
-            let many = round_trips(&routes, route, &test_name(name), many);
-            assert_eq!(one, (1, 2), "{route:?}");
-            assert_eq!(many, (1, 2), "{route:?}");
-        }
+    // 走査は、ふさがれた走査と（残りの起点か root_dir だけを確かめる）走査し直しの二つ、パスの
+    // 確認は一度。外へのリンクを辿らないときも、走査の後の確かめはふさがれた起点の確かめで取った
+    // 事実を使い回す
+    for (one, many) in [
+        ("one blocked", "many blocked"),
+        ("one blocked stop", "many blocked stop"),
+    ] {
+        let one = round_trips(&routes, &test_name(name), one);
+        let many = round_trips(&routes, &test_name(name), many);
+        assert_eq!(one, (1, 2), "{one:?}");
+        assert_eq!(many, (1, 2), "{many:?}");
     }
 }
 
 // @kotowari[REQ-scan-005, REQ-scan-002, REQ-compare-003]
 #[test]
-fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_routes() {
-    let name =
-        "a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_all_three_routes";
+fn a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_both_routes() {
+    let name = "a_path_not_listed_on_a_side_stopped_at_a_cycle_is_not_collected_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }
@@ -377,9 +367,9 @@ fn answer_root_state(mut child: Child, state: &str) {
 
 // @kotowari[REQ-scan-015, REQ-compare-002, REQ-paths-020]
 #[test]
-fn a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_all_three_routes()
-{
-    let name = "a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_all_three_routes";
+fn a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_both_routes() {
+    let name =
+        "a_root_dir_missing_a_file_or_unsearchable_is_the_same_error_in_every_scope_on_both_routes";
     if let Some(child) = child() {
         return answer(child);
     }

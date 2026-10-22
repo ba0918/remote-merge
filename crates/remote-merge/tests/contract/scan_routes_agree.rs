@@ -204,9 +204,9 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
 
-// ─── find のパターンに移せない exclude でも同じ（REQ-config-022・REQ-config-021） ─────────
+// ─── ワイルドカードや文字の組の exclude でも同じ（REQ-config-022・REQ-config-021） ─────────
 
-/// "a/b" に当たるが find のパターンでは同じ意味に書けないパターン
+/// ワイルドカードで "a/b" に当たるパターン
 const NON_PRUNABLE_EXCLUDES: [&str; 2] = ["exclude = [\"a/?\"]", "exclude = [\"**/b\"]"];
 const EXCLUDE_B_BY_CLASS: &str = "exclude = [\"[b]\"]";
 

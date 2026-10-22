@@ -22,7 +22,7 @@ const EXCLUDED_UNRESOLVABLE: [Placement; 4] = [
         place_a_link_through_a_file,
         "exclude = [\"n\"]",
     ),
-    // "[d]" は find のパターンに移せないので、SSH の find は "d" の下へ降りる
+    // 文字の組の "[d]" でも、ディレクトリ "d" の下へは降りない
     (
         "a loop below an excluded directory",
         place_a_loop_below_d,

@@ -2,7 +2,7 @@
 //! exclude に当たる項目の情報は読みに行かないので、それだけを入れた検索できないディレクトリや、
 //! exclude の下の読めないディレクトリで、どの経路でも走査が止まらないこと
 //! （docs/ir/config/filters.md の REQ-config-044、docs/ir/scan/listing.md の REQ-scan-017）の
-//! 契約テスト。exclude が find の刈り込みに使えないときも確かめる。
+//! 契約テスト。exclude がワイルドカードや文字の組を含むときも確かめる。
 
 use std::ffi::OsStr;
 use std::fs;
@@ -98,7 +98,7 @@ async fn an_unreadable_directory_with_a_newline_in_its_name_is_handled_the_same_
     }
 }
 
-/// 試す側の "d" に `names` を置いて検索の権限をなくし（mode 0644）、三つの経路で status を動かした
+/// 試す側の "d" に `names` を置いて検索の権限をなくし（mode 0644）、二つの経路で status を動かした
 /// 終了コードと誤り
 async fn unsearchable_on_every_route(names: &[&str]) -> Vec<(Option<i32>, String)> {
     let mut seen = Vec::new();

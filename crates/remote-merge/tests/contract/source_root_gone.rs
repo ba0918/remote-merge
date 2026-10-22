@@ -16,11 +16,8 @@ const REMOTE_ONLY: [(&str, Option<&str>, Option<&str>); 3] = [
 /// 読み込み元の中身を読む前に、読み込み元の remote の root_dir を消して `args` を remote を左にして
 /// 動かす。読み込み元の中身は比べる流れが側ごとにまとめて一度に読むので、消えたことはその読み込みで
 /// 分かり、まだどのファイルも書いていない
-async fn run_with_the_source_gone(
-    setup: Setup,
-    args: &[&str],
-) -> (AgentFixture, std::process::Output) {
-    let fixture = fixture_with(setup, &REMOTE_ONLY).await;
+async fn run_with_the_source_gone(args: &[&str]) -> (AgentFixture, std::process::Output) {
+    let fixture = fixture_with(&REMOTE_ONLY).await;
     remove_root_at(&fixture, "ReadFiles", 1, When::Before);
     let output = fixture.run_with_sides(args, &["--left", "fixture", "--right", "local"]);
     (fixture, output)
@@ -45,22 +42,17 @@ fn assert_stopped_before_writing(fixture: &AgentFixture, output: &std::process::
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_from_a_source_whose_root_dir_is_gone_stops_the_rest() {
-    for setup in routes() {
-        let (fixture, output) =
-            run_with_the_source_gone(setup, &["merge", "a.txt", "b.txt", "c.txt"]).await;
+    let (fixture, output) = run_with_the_source_gone(&["merge", "a.txt", "b.txt", "c.txt"]).await;
 
-        assert_stopped_before_writing(&fixture, &output);
-    }
+    assert_stopped_before_writing(&fixture, &output);
 }
 
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_from_a_source_whose_root_dir_is_gone_stops_the_rest() {
-    for setup in routes() {
-        let (fixture, output) = run_with_the_source_gone(setup, &["sync", ".", "--force"]).await;
+    let (fixture, output) = run_with_the_source_gone(&["sync", ".", "--force"]).await;
 
-        assert_stopped_before_writing(&fixture, &output);
-    }
+    assert_stopped_before_writing(&fixture, &output);
 }
 
 // status でハッシュを比べる途中に root_dir がなくなっても、止めた側の最初の理由を一度出して終了
@@ -68,56 +60,46 @@ async fn a_sync_from_a_source_whose_root_dir_is_gone_stops_the_rest() {
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_status_stops_when_a_root_dir_is_gone_while_comparing_hashes() {
-    for setup in routes() {
-        let fixture = fixture_with(
-            setup,
-            &[
-                ("a.txt", Some("local\n"), Some("other\n")),
-                ("b.txt", Some("local\n"), Some("other\n")),
-                ("c.txt", Some("local\n"), Some("other\n")),
-            ],
-        )
-        .await;
-        remove_root_at(&fixture, "HashContents", 1, When::Before);
+    let fixture = fixture_with(&[
+        ("a.txt", Some("local\n"), Some("other\n")),
+        ("b.txt", Some("local\n"), Some("other\n")),
+        ("c.txt", Some("local\n"), Some("other\n")),
+    ])
+    .await;
+    remove_root_at(&fixture, "HashContents", 1, When::Before);
 
-        let output = fixture.run(&["status", "--checksum"]);
+    let output = fixture.run(&["status", "--checksum"]);
 
-        // 記録（標準エラーのログ）ではなく、コマンドの出力に一度だけ出す
-        assert_eq!(output.status.code(), Some(2), "{output:?}");
-        let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(stdout.matches(&message).count(), 1, "{stdout}");
-        assert!(!fixture.remote().is_dir());
-    }
+    // 記録（標準エラーのログ）ではなく、コマンドの出力に一度だけ出す
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.matches(&message).count(), 1, "{stdout}");
+    assert!(!fixture.remote().is_dir());
 }
 
 // 読むだけのコマンドでも、root_dir がなくなったと分かれば止めて終了コード 2 で終える
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_diff_stops_when_a_root_dir_is_gone_while_reading() {
-    for setup in routes() {
-        let fixture = fixture_with(
-            setup,
-            &[
-                ("a.txt", Some("local\n"), Some("remote\n")),
-                ("b.txt", Some("local\n"), Some("remote\n")),
-                ("c.txt", Some("local\n"), Some("remote\n")),
-            ],
-        )
-        .await;
-        // 三つのファイルの中身は一度の要求でまとめて読む（REQ-compare-011）ので、その要求の前に消す
-        remove_root_at(&fixture, "ReadFiles", 1, When::Before);
+    let fixture = fixture_with(&[
+        ("a.txt", Some("local\n"), Some("remote\n")),
+        ("b.txt", Some("local\n"), Some("remote\n")),
+        ("c.txt", Some("local\n"), Some("remote\n")),
+    ])
+    .await;
+    // 三つのファイルの中身は一度の要求でまとめて読む（REQ-compare-011）ので、その要求の前に消す
+    remove_root_at(&fixture, "ReadFiles", 1, When::Before);
 
-        let output = fixture.run(&["diff", "a.txt", "b.txt", "c.txt"]);
+    let output = fixture.run(&["diff", "a.txt", "b.txt", "c.txt"]);
 
-        assert_eq!(output.status.code(), Some(2), "{output:?}");
-        let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
-        let all = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(all.matches(&message).count(), 1, "{all}");
-        assert!(!fixture.remote().is_dir());
-    }
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let message = format!("root_dir is gone: fixture:{}", fixture.remote().display());
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(all.matches(&message).count(), 1, "{all}");
+    assert!(!fixture.remote().is_dir());
 }

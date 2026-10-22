@@ -17,7 +17,7 @@ use super::args_support::{diff_args, merge_args};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
-const THIS_TEST: &str = "reference_other_kinds::a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_all_three_routes";
+const THIS_TEST: &str = "reference_other_kinds::a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_both_routes";
 
 /// 子のプロセスで、参照先を付けた status と merge の JSON を "--" でつないで答える
 fn answer(child: Child) {
@@ -73,8 +73,7 @@ fn reported_with_reason(json: &Value, key: &str, path: &str) -> bool {
 
 // @kotowari[REQ-compare-009, REQ-compare-004]
 #[test]
-fn a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_all_three_routes()
- {
+fn a_fifo_in_the_reference_is_undecidable_against_the_reference_and_not_missing_on_both_routes() {
     if let Some(child) = child() {
         return answer(child);
     }

@@ -1,7 +1,7 @@
 #![cfg(unix)]
 //! diff が名前で指定したディレクトリの配下を、全体の走査と同じ走査で展開すること
 //! （docs/ir/scan/listing.md の REQ-scan-020、docs/ir/cli/directory-paths.md の REQ-cli-096 と
-//! EX-cli-097）を、比べる片側をローカル・SSH・エージェントの三つの経路にして確かめる契約テスト。
+//! EX-cli-097）を、比べる片側をローカルとエージェントの二つの経路にして確かめる契約テスト。
 
 use std::ffi::OsStr;
 use std::fs;

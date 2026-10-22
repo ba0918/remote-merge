@@ -1,7 +1,7 @@
 #![cfg(unix)]
 //! include の値の扱い（docs/ir/config/include.md）の契約テスト。
 //!
-//! 左のローカルの経路と右の SSH の経路を通すため、実行ファイルを試験 SSH サーバに対して
+//! 左のローカルの経路と右のエージェントの経路を通すため、実行ファイルを試験 SSH サーバに対して
 //! `status --left local --right develop` で起動する。設定は `gen_config` の [filter] の exclude の
 //! 行を include の行に置き換え、既存の隔離の確認を通してから起動する。
 

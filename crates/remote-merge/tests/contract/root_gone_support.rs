@@ -11,25 +11,12 @@ pub use super::server_removal::When;
 
 pub const UNTOUCHED: &str = "not attempted";
 
-/// エージェントの経路と二つのなくし方の組
-pub fn routes_and_ways() -> Vec<(Setup, Gone)> {
-    routes()
-        .into_iter()
-        .flat_map(|setup| [(setup, Gone::Removed), (setup, Gone::ReplacedByFile)])
-        .collect()
-}
-
-/// リモートの経路（エージェント）の設定
-pub fn routes() -> [Setup; 1] {
-    [Setup::default()]
-}
+/// root_dir の二つのなくし方
+pub const WAYS: [Gone; 2] = [Gone::Removed, Gone::ReplacedByFile];
 
 /// local と remote に置いた fixture。remote の root_dir は必ず作る
-pub async fn fixture_with(
-    setup: Setup,
-    files: &[(&str, Option<&str>, Option<&str>)],
-) -> AgentFixture {
-    let fixture = AgentFixture::new(setup, Faults::default()).await;
+pub async fn fixture_with(files: &[(&str, Option<&str>, Option<&str>)]) -> AgentFixture {
+    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
     fs::create_dir_all(fixture.remote()).unwrap();
     fs::create_dir_all(fixture.local()).unwrap();
     for (name, local, remote) in files {

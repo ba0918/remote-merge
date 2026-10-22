@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! FIFO とソケットを、三つの経路の走査が通常ファイルとせずにその他の種類として載せ、止まらずに
+//! FIFO とソケットを、二つの経路の走査が通常ファイルとせずにその他の種類として載せ、止まらずに
 //! 終わること（docs/ir/scan/listing.md の REQ-scan-021）の契約テスト。
 
 use std::os::unix::net::UnixListener;
@@ -10,7 +10,8 @@ use remote_merge_core::scan::outcome::{ListedKind, Listing, ScanRequest, ScanSco
 
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
-const THIS_TEST: &str = "scan_other_kinds::ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes";
+const THIS_TEST: &str =
+    "scan_other_kinds::ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_both_routes";
 
 /// 一覧の項目を "パス 種類" の行にする
 fn listing_text(listing: anyhow::Result<Listing>) -> String {
@@ -58,7 +59,7 @@ pub(super) fn make_socket(path: &Path) {
 
 // @kotowari[REQ-scan-021, REQ-scan-017, EX-scan-017]
 #[test]
-fn ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes() {
+fn ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_both_routes() {
     if let Some(child) = child() {
         return answer(child);
     }

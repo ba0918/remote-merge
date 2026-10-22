@@ -797,7 +797,7 @@ fn empty_subdirectory_on_both_sides_has_no_diff() {
 
 // @kotowari[REQ-cli-077]
 #[test]
-fn directory_outside_include_has_no_diff_on_local_and_ssh_routes() {
+fn directory_outside_include_has_no_diff_against_local_or_between_servers() {
     let env = CliEnv::new_3way(
         &[("src/app.rs", "same\n"), ("vendor/lib.txt", "local\n")],
         &[("src/app.rs", "same\n"), ("vendor/lib.txt", "develop\n")],
@@ -1409,7 +1409,7 @@ fn broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads() {
 
 // @kotowari[REQ-cli-022]
 #[test]
-fn broken_link_on_the_ssh_side_is_an_error_against_a_local_regular_file() {
+fn broken_link_on_the_remote_side_is_an_error_against_a_local_regular_file() {
     let env = CliEnv::new(&[("link.txt", "left body\n")], &[]);
     place_symlink(&env.remote_dir, "link.txt", "missing.txt");
 

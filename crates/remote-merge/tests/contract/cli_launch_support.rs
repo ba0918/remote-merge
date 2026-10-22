@@ -282,8 +282,8 @@ impl AgentRootsFixture {
     }
 
     /// 隔離を確かめてから、エージェントを有効にした設定で実行ファイルを `args` で起動する。
-    /// この起動で試験サーバがエージェントの起動を受け、パスの確認が SSH の経路を通らなかったことを
-    /// 確かめて出力を返す。merge と rollback の起動に使う
+    /// この起動で試験サーバがエージェントの起動を受けたことを確かめて出力を返す。merge と rollback の
+    /// 起動に使う
     pub(super) fn run_with_agent(
         &self,
         local_root: &Path,

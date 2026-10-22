@@ -14,7 +14,7 @@ use remote_merge_core::test_tree::PermissionLocks;
 use super::compare_support::{DestinationHashed, request};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 
-const THIS_TEST: &str = "compare_recheck::ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_all_three_routes";
+const THIS_TEST: &str = "compare_recheck::ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_both_routes";
 
 /// 中身を書き換えても大きさと更新時刻を元のままにする
 fn rewrite_keeping_size_and_time(path: &Path, content: &str) {
@@ -64,8 +64,7 @@ fn answer(mut child: Child) {
 
 // @kotowari[REQ-compare-015, EX-compare-017, EX-compare-018]
 #[test]
-fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_all_three_routes()
- {
+fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_on_both_routes() {
     if let Some(child) = child() {
         return answer(child);
     }
@@ -88,7 +87,7 @@ fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_
     }
 }
 
-const LOCKED_TEST: &str = "compare_recheck::a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes";
+const LOCKED_TEST: &str = "compare_recheck::a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_both_routes";
 
 /// 子のプロセスで、比べた後に書き込み先の "d" の検索の権限を外し、"d/a.txt" の変更の直前の判定を
 /// 答える
@@ -117,7 +116,7 @@ fn answer_locked(mut child: Child) {
 
 // @kotowari[REQ-compare-015, REQ-compare-013]
 #[test]
-fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes()
+fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_both_routes()
  {
     if let Some(child) = child() {
         return answer(child);
@@ -143,7 +142,8 @@ fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_de
     }
 }
 
-const ROOT_GONE_TEST: &str = "compare_recheck::a_destination_root_dir_gone_before_the_change_stops_the_side_on_all_three_routes";
+const ROOT_GONE_TEST: &str =
+    "compare_recheck::a_destination_root_dir_gone_before_the_change_stops_the_side_on_both_routes";
 
 /// 子のプロセスで、比べた後に書き込み先の root_dir を `change`（"removed" か "file"）にして、"a.txt" の
 /// 変更の直前の判定の失敗の種類と、その側を止めた記録があるかを答える
@@ -177,7 +177,7 @@ fn answer_root_gone(mut child: Child, change: &str) {
 
 // @kotowari[REQ-compare-015, REQ-merge-044]
 #[test]
-fn a_destination_root_dir_gone_before_the_change_stops_the_side_on_all_three_routes() {
+fn a_destination_root_dir_gone_before_the_change_stops_the_side_on_both_routes() {
     if let Some(child) = child() {
         return answer(child);
     }

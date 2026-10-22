@@ -3,7 +3,7 @@
 //! （理由は "not a regular file"）として errors・failed に出して終了コード 2 にし、書き込み先の
 //! その他の種類も、読み込み元がその他の種類の書き込み先の通常ファイルも、--delete でも書き換えも
 //! 消しもしないこと（docs/ir/compare/judgement.md の REQ-compare-009、docs/decision/records/
-//! 2026-10-12-foundation-4.md の E8・E29）の CLI の契約テスト。試す側は三つの経路のそれぞれ。
+//! 2026-10-12-foundation-4.md の E8・E29）の CLI の契約テスト。試す側はローカルとエージェントの二つの経路のそれぞれ。
 
 use std::fs;
 use std::process::Output;
@@ -25,8 +25,8 @@ fn reported(output: &Output, key: &str, path: &str) -> bool {
 
 // @kotowari[REQ-compare-009, EX-compare-010]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_compare_010_status_and_diff_report_fifos_on_both_sides_and_exit_with_2_on_all_three_routes()
- {
+async fn ex_compare_010_status_and_diff_report_fifos_on_both_sides_and_exit_with_2_on_both_routes()
+{
     for route in ROUTES {
         let sides = Sides::new(route).await;
         sides.fixture.put("a.txt", Some("same\n"), Some("same\n"));
@@ -50,8 +50,7 @@ async fn ex_compare_010_status_and_diff_report_fifos_on_both_sides_and_exit_with
 
 // @kotowari[REQ-compare-009, EX-compare-011]
 #[tokio::test(flavor = "multi_thread")]
-async fn ex_compare_011_a_socket_only_on_the_destination_is_not_deleted_by_sync_on_all_three_routes()
- {
+async fn ex_compare_011_a_socket_only_on_the_destination_is_not_deleted_by_sync_on_both_routes() {
     for route in ROUTES {
         let sides = Sides::new(route).await;
         sides.fixture.put("a.txt", Some("same\n"), Some("same\n"));
@@ -81,8 +80,8 @@ fn target_failed(output: &Output, path: &str) -> bool {
 
 // @kotowari[REQ-compare-009]
 #[tokio::test(flavor = "multi_thread")]
-async fn merge_neither_replaces_a_file_from_a_fifo_nor_deletes_nor_replaces_a_fifo_on_all_three_routes()
- {
+async fn merge_neither_replaces_a_file_from_a_fifo_nor_deletes_nor_replaces_a_fifo_on_both_routes()
+{
     for route in ROUTES {
         // 読み込み元（試す側）の FIFO と、書き込み先の同じパスの通常ファイル
         let sides = Sides::new(route).await;
