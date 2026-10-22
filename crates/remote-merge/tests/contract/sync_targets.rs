@@ -2,7 +2,7 @@
 
 use remote_merge::cli::sync::SyncArgs;
 
-use super::sync_support::{Fixture, args, fixture, labels};
+use super::sync_support::{Fixture, fixture, labels, sync_args_to};
 
 /// local に "incoming\n"、develop と staging に別の古い中身の file.txt を置いた構成
 fn file_on_every_side() -> Fixture {
@@ -18,7 +18,7 @@ fn file_on_every_side() -> Fixture {
 fn one_source_and_two_targets_are_accepted_and_both_targets_are_written() {
     let fixture = file_on_every_side();
 
-    let (output, _) = fixture.sync(args(&["file.txt"], &["develop", "staging"]));
+    let (output, _) = fixture.sync(sync_args_to(&["file.txt"], &["develop", "staging"]));
 
     assert_eq!(output.left.label, "local");
     assert_eq!(labels(&output), ["develop", "staging"]);
@@ -30,7 +30,7 @@ fn one_source_and_two_targets_are_accepted_and_both_targets_are_written() {
 #[test]
 fn each_invalid_specification_stops_with_its_error_and_changes_no_target() {
     let with = |left: Option<&str>, rights: &[&str]| -> SyncArgs {
-        let mut args = args(&["file.txt"], rights);
+        let mut args = sync_args_to(&["file.txt"], rights);
         args.left = left.map(Into::into);
         args
     };
@@ -86,7 +86,7 @@ fn targets_are_processed_and_reported_in_the_order_given() {
     for order in [["develop", "staging"], ["staging", "develop"]] {
         let fixture = file_on_every_side();
 
-        let (output, _) = fixture.sync(args(&["file.txt"], &order));
+        let (output, _) = fixture.sync(sync_args_to(&["file.txt"], &order));
 
         assert_eq!(labels(&output), order);
         assert_eq!(fixture.read("develop", "file.txt"), "incoming\n");
@@ -98,7 +98,7 @@ fn targets_are_processed_and_reported_in_the_order_given() {
 #[test]
 fn a_source_that_cannot_be_connected_stops_the_sync_and_changes_no_target() {
     let fixture = file_on_every_side();
-    let mut args = args(&["file.txt"], &["develop", "staging"]);
+    let mut args = sync_args_to(&["file.txt"], &["develop", "staging"]);
     args.left = Some("offline".into());
 
     let result = fixture.run(args);

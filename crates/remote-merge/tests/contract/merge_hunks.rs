@@ -10,7 +10,8 @@ use remote_merge::cli::merge::MergeArgs;
 
 use serde_json::json;
 
-use super::merge_support::{Fixture, args, fixture, fixture_with_backup};
+use super::args_support::merge_args;
+use super::merge_support::{Fixture, fixture, fixture_with_backup};
 
 const PATH: &str = "file.txt";
 
@@ -19,7 +20,7 @@ fn hunk_args(path: &str, hunks: &[usize]) -> MergeArgs {
     MergeArgs {
         force: true,
         hunks: Some(hunks.to_vec()),
-        ..args(&[path])
+        ..merge_args(&[path])
     }
 }
 

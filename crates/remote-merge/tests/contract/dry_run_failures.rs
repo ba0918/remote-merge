@@ -14,6 +14,7 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::exit_code;
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, sync_args};
 use super::common::place_files;
 
 /// 左右に書き込む予定のファイルと、右を読めず比べられないファイルを置いた設定
@@ -89,16 +90,9 @@ fn ex_cli_091_a_dry_run_sync_with_a_plan_and_a_failure_is_partial_with_exit_code
         return;
     };
     let args = SyncArgs {
-        paths: vec![".".into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
         dry_run: true,
         force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
+        ..sync_args(&["."])
     };
 
     let result = execute_sync(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
@@ -120,19 +114,9 @@ fn req_cli_091_a_dry_run_merge_with_a_failure_exits_with_2() {
         return;
     };
     let args = MergeArgs {
-        paths: vec![".".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
         dry_run: true,
         force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(&["."])
     };
 
     let result = execute_merge(args, fixture.config.clone(), fixture.targets.clone()).unwrap();

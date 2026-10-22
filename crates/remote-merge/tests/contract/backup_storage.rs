@@ -7,9 +7,10 @@ use std::os::unix::fs::PermissionsExt;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, rollback_args};
 use super::backup_support::{
-    config, config_with_servers, fixed_now, listed_sessions, merge_args, merge_files, restore,
-    rollback_args, store_entries, targets,
+    config, config_with_servers, fixed_now, listed_sessions, merge_files, restore, store_entries,
+    targets,
 };
 
 fn mode(path: &std::path::Path) -> u32 {
@@ -38,11 +39,11 @@ fn aggregate_store_entries_are_owner_only_regardless_of_the_original_permissions
     let config = config(&local, &develop, true);
 
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
-    let mut delete = merge_args("obsolete.txt");
+    let mut delete = merge_args(&["obsolete.txt"]);
     delete.delete = true;
     merge_files(delete, config, targets(&develop, &store));
 
@@ -82,11 +83,11 @@ fn each_target_area_has_a_readable_description_of_the_write_target() {
     );
 
     merge_files(
-        merge_args("up.txt"),
+        merge_args(&["up.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
-    let mut down = merge_args("down.txt");
+    let mut down = merge_args(&["down.txt"]);
     down.left = Some("develop".into());
     down.right = Some("local".into());
     merge_files(down, config, targets(&develop, &store));
@@ -123,7 +124,7 @@ fn overwrite_backs_up_the_destination_content_read_immediately_before_writing() 
     let config = config(&local, &develop, true);
 
     let output = merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -133,11 +134,7 @@ fn overwrite_backs_up_the_destination_content_read_immediately_before_writing() 
         "source content\n"
     );
 
-    restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(
         fs::read_to_string(develop.path().join("file.txt")).unwrap(),
@@ -157,18 +154,14 @@ fn deletion_backs_up_the_destination_content_read_immediately_before_removing() 
     )
     .unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("obsolete.txt");
+    let mut args = merge_args(&["obsolete.txt"]);
     args.delete = true;
 
     let output = merge_files(args, config.clone(), targets(&develop, &store));
     assert_eq!(output.deleted.len(), 1, "{output:?}");
     assert!(!develop.path().join("obsolete.txt").exists());
 
-    restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(
         fs::read_to_string(develop.path().join("obsolete.txt")).unwrap(),
@@ -189,7 +182,7 @@ fn only_the_overwritten_file_on_the_written_side_is_backed_up() {
     let config = config(&local, &develop, true);
 
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -228,7 +221,7 @@ fn creating_a_new_file_records_nothing_and_leaves_no_session() {
     let config = config(&local, &develop, true);
 
     let output = merge_files(
-        merge_args("new.txt"),
+        merge_args(&["new.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -250,7 +243,7 @@ fn creating_a_new_file_in_a_missing_directory_records_nothing_and_leaves_no_sess
     let config = config(&local, &develop, true);
 
     let output = merge_files(
-        merge_args("nested/new.txt"),
+        merge_args(&["nested/new.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -277,7 +270,7 @@ fn a_merge_saves_its_backup_only_in_the_aggregate_store() {
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
 
     let output = merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -303,7 +296,7 @@ fn a_deletion_saves_its_backup_only_in_the_aggregate_store() {
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
     fs::write(develop.path().join("obsolete.txt"), "obsolete\n").unwrap();
-    let mut args = merge_args("obsolete.txt");
+    let mut args = merge_args(&["obsolete.txt"]);
     args.delete = true;
 
     let output = merge_files(
@@ -335,7 +328,7 @@ fn a_hunk_merge_saves_its_backup_only_in_the_aggregate_store() {
     let store = TempDir::new().unwrap();
     fs::write(local.path().join("file.txt"), "first\nchanged\nthird\n").unwrap();
     fs::write(develop.path().join("file.txt"), "first\nold\nthird\n").unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.hunks = Some(vec![0]);
 
     let output = merge_files(
@@ -362,7 +355,7 @@ fn a_merge_into_local_keeps_its_backup_out_of_the_local_root() {
     let store = TempDir::new().unwrap();
     fs::write(local.path().join("file.txt"), "old\n").unwrap();
     fs::write(develop.path().join("file.txt"), "new remote content\n").unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("local".into());
     let config = config(&local, &develop, true);
@@ -401,7 +394,7 @@ fn a_merge_between_servers_keeps_its_backup_out_of_both_roots() {
         .with_backup_store(Some(store.path().to_path_buf()))
         .with_startup_directory(std::env::current_dir().unwrap())
         .with_now(fixed_now());
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("staging".into());
     args.force = true;
@@ -432,7 +425,7 @@ fn disabled_backup_writes_without_creating_entries_in_a_located_store() {
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
 
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config(&local, &develop, false),
         targets(&develop, &store),
     );

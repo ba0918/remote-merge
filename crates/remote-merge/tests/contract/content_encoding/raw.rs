@@ -1,6 +1,5 @@
-use super::super::backup_support::{
-    config, merge_args, merge_files, restore, rollback_args, targets,
-};
+use super::super::args_support::{merge_args, rollback_args};
+use super::super::backup_support::{config, merge_files, restore, targets};
 use tempfile::TempDir;
 
 // @kotowari[REQ-content-006, REQ-merge-045]
@@ -37,7 +36,7 @@ fn invalid_hunk_interpretation_never_reserves_or_cleans_backups_even_with_force(
                 super::super::backup_support::fixed_now() - chrono::Duration::days(8),
             );
             assert_eq!(
-                merge_files(merge_args("a"), config.clone(), old_targets)
+                merge_files(merge_args(&["a"]), config.clone(), old_targets)
                     .merged
                     .len(),
                 1
@@ -45,7 +44,7 @@ fn invalid_hunk_interpretation_never_reserves_or_cleans_backups_even_with_force(
             std::fs::write(local.path().join("a"), source).unwrap();
             std::fs::write(remote.path().join("a"), b"\xa4\xa2\n").unwrap();
             let before = super::super::backup_support::store_entries(backup.path());
-            let mut args = merge_args("a");
+            let mut args = merge_args(&["a"]);
             args.hunks = Some(vec![0]);
             args.force = true;
             args.dry_run = dry_run;
@@ -86,7 +85,11 @@ fn ex_content_007_rollback_restores_raw_bytes_after_encoding_configuration_chang
     config.content = remote_merge_config::load_config_from_paths(Some(&content_file), None)
         .unwrap()
         .content;
-    let output = merge_files(merge_args("a"), config.clone(), targets(&remote, &backup));
+    let output = merge_files(
+        merge_args(&["a"]),
+        config.clone(),
+        targets(&remote, &backup),
+    );
     assert_eq!(output.merged.len(), 1);
     assert_eq!(
         std::fs::read(remote.path().join("a")).unwrap(),
@@ -100,11 +103,7 @@ fn ex_content_007_rollback_restores_raw_bytes_after_encoding_configuration_chang
     config.content = remote_merge_config::load_config_from_paths(Some(&content_file), None)
         .unwrap()
         .content;
-    let (output, code) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&remote, &backup),
-    );
+    let (output, code) = restore(rollback_args("develop"), config, targets(&remote, &backup));
     assert_eq!(code, 0);
     assert_eq!(output.restored.len(), 1);
     assert_eq!(

@@ -21,6 +21,8 @@ use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
+use super::args_support::{diff_args, merge_args, sync_args};
+
 const LIMIT: usize = 5;
 
 struct ScopeFixture {
@@ -100,17 +102,9 @@ fn status(fixture: ScopeFixture) -> anyhow::Result<()> {
 /// （docs/ir/cli/diff-strategy.md の REQ-cli-084）ので、errors の最初の理由をエラーとして返す
 fn diff_without_paths(fixture: ScopeFixture) -> anyhow::Result<()> {
     let args = DiffArgs {
-        paths: vec![],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
         max_files: 0,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
         max_entries: Some(LIMIT),
+        ..diff_args(&[])
     };
     let (output, _) = execute_diff(args, fixture.config, fixture.targets)?;
     match output.errors.first() {
@@ -119,27 +113,14 @@ fn diff_without_paths(fixture: ScopeFixture) -> anyhow::Result<()> {
     }
 }
 
-fn owned(paths: &[&str]) -> Vec<String> {
-    paths.iter().map(|path| path.to_string()).collect()
-}
-
 /// merge を --dry-run で実行し、merged に載ったパスを返す。エラーにならなければ終了コードは 0
 fn merge_dry_run(paths: &[&str], delete: bool) -> anyhow::Result<BTreeSet<String>> {
     let fixture = scope_fixture();
     let args = MergeArgs {
-        paths: owned(paths),
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
         dry_run: true,
-        force: false,
         delete,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
         max_entries: Some(LIMIT),
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(paths)
     };
     let result = execute_merge(args, fixture.config, fixture.targets)?;
     assert_eq!(result.exit_code, 0);
@@ -157,16 +138,11 @@ fn merge_dry_run(paths: &[&str], delete: bool) -> anyhow::Result<BTreeSet<String
 fn sync_dry_run(paths: &[&str], delete: bool) -> anyhow::Result<BTreeSet<String>> {
     let fixture = scope_fixture();
     let args = SyncArgs {
-        paths: owned(paths),
-        left: Some("local".into()),
-        right: vec!["develop".into()],
         dry_run: true,
         force: false,
         delete,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
         max_entries: Some(LIMIT),
+        ..sync_args(paths)
     };
     let result = execute_sync(args, fixture.config, fixture.targets)?;
     assert_eq!(result.exit_code, 0);

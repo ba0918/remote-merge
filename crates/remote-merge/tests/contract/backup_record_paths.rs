@@ -10,9 +10,8 @@ use std::path::PathBuf;
 use remote_merge::cli::rollback::execute_rollback;
 use tempfile::TempDir;
 
-use super::backup_support::{
-    config, merge_args, merge_files, rollback_list_args, store_entries, targets,
-};
+use super::args_support::merge_args;
+use super::backup_support::{config, merge_files, rollback_list_args, store_entries, targets};
 
 /// "file.txt" を一度マージしてセッションの記録を作り、記録の path を `path` に書き換える。
 /// 書き換えた記録のパスを返す
@@ -24,7 +23,7 @@ fn session_record_with_path(
 ) -> Vec<PathBuf> {
     fs::write(local.path().join("file.txt"), "new\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.force = true;
     let merged = merge_files(args, config(local, develop, true), targets(develop, store));
     assert_eq!(merged.merged.len(), 1, "{merged:?}");

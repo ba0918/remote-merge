@@ -13,7 +13,7 @@ use remote_merge::cli::status::{StatusArgs, execute_status};
 use remote_merge::service::output::format_json;
 use serde_json::Value;
 
-use super::backup_support::merge_args;
+use super::args_support::{diff_args, merge_args};
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
@@ -37,7 +37,7 @@ fn answer(child: Child) {
         child.targets.clone(),
     )
     .unwrap();
-    let mut merge = merge_args("m.txt");
+    let mut merge = merge_args(&["m.txt"]);
     merge.right = Some("fixture".into());
     merge.ref_server = Some("reference".into());
     let merged = execute_merge(merge, child.config.clone(), child.targets.clone()).unwrap();
@@ -45,17 +45,9 @@ fn answer(child: Child) {
         panic!("expected the merged files");
     };
     let diff = DiffArgs {
-        paths: vec!["m.txt".into()],
-        left: Some("local".into()),
         right: Some("fixture".into()),
         ref_server: Some("reference".into()),
-        format: "json".into(),
-        max_lines: None,
-        max_files: 100,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
+        ..diff_args(&["m.txt"])
     };
     let (diffed, diff_code) =
         execute_diff(diff, child.config.clone(), child.targets.clone()).unwrap();

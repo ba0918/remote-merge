@@ -18,6 +18,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
+use super::args_support::diff_args;
+
 pub(super) struct DiffFixture {
     _config_dir: TempDir,
     pub(super) left: TempDir,
@@ -66,7 +68,7 @@ impl DiffFixture {
 
     /// 既定の引数で `paths` を比べ、出力と終了コードを返す
     pub(super) fn diff(&self, paths: &[&str]) -> (MultiDiffOutput, i32) {
-        self.run(args(paths))
+        self.run(diff_args(paths))
     }
 }
 
@@ -75,23 +77,6 @@ pub(super) fn place(root: &Path, files: &[(&str, &[u8])]) {
         let path = root.join(path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
-    }
-}
-
-/// 既定の引数（--max-lines なし、--max-files 100、--force なし）
-pub(super) fn args(paths: &[&str]) -> DiffArgs {
-    DiffArgs {
-        paths: paths.iter().map(|path| path.to_string()).collect(),
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
-        max_files: 100,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
     }
 }
 

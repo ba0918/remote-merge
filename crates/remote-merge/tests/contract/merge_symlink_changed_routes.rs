@@ -21,6 +21,7 @@ use remote_merge_core::test_tree::PermissionLocks;
 use tempfile::TempDir;
 
 use super::agent_support::{AgentFixture, Setup};
+use super::args_support::merge_args;
 use super::merge_steps::merge_with_a_change_between;
 use super::server_faults::Faults;
 
@@ -193,19 +194,9 @@ fn merge_after_change(
     change: Change,
 ) -> Outcome {
     let args = MergeArgs {
-        paths: vec![LINK.into()],
         left: Some(source.display_name().to_string()),
         right: Some(destination.display_name().to_string()),
-        ref_server: None,
-        dry_run: false,
-        force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(&[LINK])
     };
     let output = merge_with_a_change_between(core, &args, || change.apply(destination_root));
     if let Some(skipped) = output.skipped.first() {

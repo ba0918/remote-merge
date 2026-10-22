@@ -5,7 +5,8 @@
 //!
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 
-use super::merge_support::{args, fixture_with_filter, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::fixture_with_filter;
 
 // exclude に当たるファイルを名前で指定した merge は、そのファイルを書く
 // @kotowari[REQ-merge-022]
@@ -15,7 +16,7 @@ fn merge_writes_a_named_file_that_the_exclude_matches() {
     fixture.write("local", "app.log", "local\n");
     fixture.write("develop", "app.log", "remote\n");
 
-    let (json, code) = fixture.merge_json(args(&["app.log"]));
+    let (json, code) = fixture.merge_json(merge_args(&["app.log"]));
 
     assert_eq!(code, 0, "{json}");
     assert_eq!(fixture.read("develop", "app.log"), "local\n");
@@ -47,7 +48,7 @@ fn merge_writes_a_named_file_outside_the_include() {
     fixture.write("local", "app.txt", "local\n");
     fixture.write("develop", "app.txt", "remote\n");
 
-    let (json, code) = fixture.merge_json(args(&["app.txt"]));
+    let (json, code) = fixture.merge_json(merge_args(&["app.txt"]));
 
     assert_eq!(code, 0, "{json}");
     assert_eq!(fixture.read("develop", "app.txt"), "local\n");

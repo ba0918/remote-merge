@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
+use super::args_support::merge_args;
 use super::cli_launch_support::{
     AgentRootsFixture, launch_diff, launch_status, write_isolated_config,
 };
@@ -148,7 +149,7 @@ async fn req_scan_018_merge_stops_before_writing_on_a_link_that_cannot_be_follow
 // @kotowari[REQ-scan-018]
 #[test]
 fn req_scan_018_a_merge_to_a_local_destination_stops_below_a_link_that_cannot_be_followed() {
-    use super::backup_support::{config, merge_args, targets};
+    use super::backup_support::{config, targets};
     let local = tempfile::TempDir::new().unwrap();
     let develop = tempfile::TempDir::new().unwrap();
     let store = tempfile::TempDir::new().unwrap();
@@ -157,7 +158,7 @@ fn req_scan_018_a_merge_to_a_local_destination_stops_below_a_link_that_cannot_be
     std::os::unix::fs::symlink("cycle", develop.path().join("cycle")).unwrap();
 
     let error = remote_merge::cli::merge::execute_merge(
-        merge_args("cycle/file.txt"),
+        merge_args(&["cycle/file.txt"]),
         config(&local, &develop, true),
         targets(&develop, &store),
     )

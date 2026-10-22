@@ -1,5 +1,6 @@
-use super::diff_support::{DiffFixture, args, entry, json, lines_of, sha256};
-use super::merge_support::{args as merge_args, fixture};
+use super::args_support::{diff_args, merge_args, sync_args};
+use super::diff_support::{DiffFixture, entry, json, lines_of, sha256};
+use super::merge_support::fixture;
 use remote_merge::cli::diff::execute_diff;
 use remote_merge_core::content::{Encoding, Interpretation};
 use remote_merge_engine::treat::content::Overrides;
@@ -20,7 +21,7 @@ fn diff(
     encodings: Overrides,
     reference: bool,
 ) -> (serde_json::Value, i32) {
-    let mut arguments = args(paths);
+    let mut arguments = diff_args(paths);
     arguments.encodings = encodings;
     arguments.ref_server = reference.then(|| "staging".into());
     let (output, code) =
@@ -32,7 +33,7 @@ fn diff(
 #[test]
 fn req_content_001_euc_jp_diff_uses_strict_decoded_lines() {
     let fixture = DiffFixture::new(&[("a", b"\xa4\xa2\n")], &[("a", b"\xa4\xa4\n")]);
-    let mut args = args(&["a"]);
+    let mut args = diff_args(&["a"]);
     args.encodings.left = Some(Interpretation::Text(Encoding::EucJp));
     args.encodings.right = args.encodings.left;
     let (output, code) = fixture.run(args);
@@ -55,7 +56,7 @@ fn req_merge_046_cp932_hunks_retain_destination_equal_alias_bytes() {
     let fixture = super::merge_support::fixture();
     fixture.write_bytes("local", "a", b"\x87\x54\nnew\r\n");
     fixture.write_bytes("develop", "a", b"\xfa\x4a\nold\n");
-    let mut args = super::merge_support::args(&["a"]);
+    let mut args = merge_args(&["a"]);
     args.hunks = Some(vec![0]);
     args.encodings.left = Some(Interpretation::Text(Encoding::ShiftJis));
     args.encodings.right = args.encodings.left;
@@ -71,7 +72,7 @@ fn req_content_008_whole_file_previews_explain_no_encoding_conversion() {
     fixture.append_config("[content.defaults]\nlocal='euc-jp'\ndevelop='utf-8'\n");
     fixture.write_bytes("local", "a", b"\xa4\xa2\n");
     fixture.write("develop", "a", "old\n");
-    let mut args = super::merge_support::args(&["a"]);
+    let mut args = merge_args(&["a"]);
     args.dry_run = true;
     args.encodings.left = Some(Interpretation::Text(Encoding::EucJp));
     args.encodings.right = Some(Interpretation::Text(Encoding::Utf8));
@@ -83,7 +84,7 @@ fn req_content_008_whole_file_previews_explain_no_encoding_conversion() {
             .contains("without encoding conversion")
     );
     assert!(text.contains("without encoding conversion"));
-    let mut sync = super::merge_support::sync_args(&["a"]);
+    let mut sync = sync_args(&["a"]);
     sync.dry_run = true;
     let result =
         remote_merge::cli::sync::execute_sync(sync, fixture.config(), fixture.runtime_targets())
@@ -120,7 +121,7 @@ fn req_content_008_whole_file_previews_explain_no_encoding_conversion() {
 #[test]
 fn ex_content_002_unspecified_non_utf8_keeps_raw_hashes() {
     let fixture = DiffFixture::new(&[("a", b"\xa4\xa2\n")], &[("a", b"\xa4\xa4\n")]);
-    let (output, code) = fixture.run(args(&["a"]));
+    let (output, code) = fixture.run(diff_args(&["a"]));
     assert_eq!(code, 1);
     let value = json(&output);
     assert_eq!(entry(&value, "a")["binary"], true);
@@ -136,7 +137,7 @@ fn ex_content_003_invalid_tail_is_an_error_before_file_limits() {
         &[("a-bad", &invalid), ("b-good", b"\xa4\xa2\n")],
         &[("a-bad", b"valid\n"), ("b-good", b"\xa4\xa4\n")],
     );
-    let mut args = args(&[]);
+    let mut args = diff_args(&[]);
     args.encodings = encodings(Encoding::EucJp, Encoding::EucJp);
     args.max_files = 1;
     args.max_lines = Some(1);
@@ -158,7 +159,7 @@ fn ex_content_003_invalid_tail_is_an_error_before_file_limits() {
 #[test]
 fn decoding_failures_name_each_failed_side_and_its_codec() {
     let fixture = DiffFixture::new(&[("a", b"\xa4")], &[("a", b"\x82")]);
-    let mut args = args(&["a"]);
+    let mut args = diff_args(&["a"]);
     args.encodings = encodings(Encoding::EucJp, Encoding::ShiftJis);
     let (output, code) = fixture.run(args);
     assert_eq!(code, 2);

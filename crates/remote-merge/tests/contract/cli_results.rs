@@ -10,6 +10,8 @@ use remote_merge::service::types::SyncTargetStatus;
 use remote_merge_core::sha256::hex_of_bytes;
 use tempfile::TempDir;
 
+use super::args_support::{diff_args, merge_args, sync_args};
+
 struct SyncFixture {
     source: TempDir,
     first: TempDir,
@@ -48,18 +50,11 @@ fn sync_fixture() -> SyncFixture {
     }
 }
 
-fn sync_args() -> SyncArgs {
+/// local から first と second へ "file.txt" を同期する引数
+fn sync_to_both_args() -> SyncArgs {
     SyncArgs {
-        paths: vec!["file.txt".into()],
-        left: Some("local".into()),
         right: vec!["first".into(), "second".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
+        ..sync_args(&["file.txt"])
     }
 }
 
@@ -69,17 +64,8 @@ fn successful_cli_diff_json_contains_the_observed_change() {
     let fixture = sync_fixture();
     let (result, code) = execute_diff(
         DiffArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
-            ref_server: None,
-            format: "json".into(),
-            max_lines: None,
-            max_files: 100,
-            force: false,
-            follow_external_links: false,
-            encodings: Default::default(),
-            max_entries: None,
+            ..diff_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -97,19 +83,11 @@ fn successful_cli_diff_json_contains_the_observed_change() {
     );
 }
 
-fn diff_args() -> DiffArgs {
+/// local と first の "file.bin" を比べる引数
+fn binary_diff_args() -> DiffArgs {
     DiffArgs {
-        paths: vec!["file.bin".into()],
-        left: Some("local".into()),
         right: Some("first".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
-        max_files: 100,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
+        ..diff_args(&["file.bin"])
     }
 }
 
@@ -124,7 +102,7 @@ fn link_target_and_resolved_text_have_separate_json_fields() {
     fs::write(fixture.first.path().join("right.txt"), "right contents\n").unwrap();
     symlink("left.txt", fixture.source.path().join("link.txt")).unwrap();
     symlink("right.txt", fixture.first.path().join("link.txt")).unwrap();
-    let mut args = diff_args();
+    let mut args = binary_diff_args();
     args.paths = vec!["link.txt".into()];
     let (result, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
     assert_eq!(code, remote_merge::service::types::exit_code::DIFF_FOUND);
@@ -147,9 +125,9 @@ fn directory_argument_with_and_without_slash_has_the_same_child_diff() {
     fs::create_dir(fixture.first.path().join("src")).unwrap();
     fs::write(fixture.source.path().join("src/app.rs"), "left\n").unwrap();
     fs::write(fixture.first.path().join("src/app.rs"), "right\n").unwrap();
-    let mut plain = diff_args();
+    let mut plain = binary_diff_args();
     plain.paths = vec!["src".into()];
-    let mut slash = diff_args();
+    let mut slash = binary_diff_args();
     slash.paths = vec!["src/".into()];
     let (plain_output, plain_code) =
         execute_diff(plain, fixture.config.clone(), fixture.targets.clone()).unwrap();
@@ -179,9 +157,9 @@ fn directory_link_slash_does_not_discard_link_or_child_diff() {
     fs::write(fixture.first.path().join("right-dir/child.txt"), "right\n").unwrap();
     symlink("left-dir", fixture.source.path().join("shared")).unwrap();
     symlink("right-dir", fixture.first.path().join("shared")).unwrap();
-    let mut plain = diff_args();
+    let mut plain = binary_diff_args();
     plain.paths = vec!["shared".into()];
-    let mut slash = diff_args();
+    let mut slash = binary_diff_args();
     slash.paths = vec!["shared/".into()];
     let (plain_output, plain_code) =
         execute_diff(plain, fixture.config.clone(), fixture.targets.clone()).unwrap();
@@ -217,7 +195,7 @@ fn different_binary_files_report_hashes_without_text_lines() {
     let right = b"\0\xffbravo";
     fs::write(fixture.source.path().join("file.bin"), left).unwrap();
     fs::write(fixture.first.path().join("file.bin"), right).unwrap();
-    let (result, _) = execute_diff(diff_args(), fixture.config, fixture.targets).unwrap();
+    let (result, _) = execute_diff(binary_diff_args(), fixture.config, fixture.targets).unwrap();
     assert_eq!(result.files.len(), 1, "{result:?}");
     let file = &result.files[0];
     assert!(file.binary);
@@ -236,19 +214,9 @@ fn merge_binary(source: &[u8], target: &[u8]) -> Vec<u8> {
     fs::write(fixture.first.path().join("file.bin"), target).unwrap();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.bin".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.bin"])
         },
         fixture.config,
         fixture.targets,
@@ -285,7 +253,7 @@ fn directory_diff_json_contains_both_changed_files() {
             fs::write(root.path().join("folder").join(name), content).unwrap();
         }
     }
-    let mut args = diff_args();
+    let mut args = binary_diff_args();
     args.paths = vec!["folder/".into()];
     let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
     assert_eq!(code, remote_merge::service::types::exit_code::DIFF_FOUND);
@@ -321,11 +289,11 @@ fn equal_directory_diff_json_reports_no_changed_files() {
         fs::create_dir(root.path().join("folder")).unwrap();
         fs::write(root.path().join("folder/alpha.txt"), "same\n").unwrap();
     }
-    let mut args = diff_args();
+    let mut args = binary_diff_args();
     args.paths = vec!["folder/".into()];
     let (output, code) =
         execute_diff(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
-    let mut without_slash = diff_args();
+    let mut without_slash = binary_diff_args();
     without_slash.paths = vec!["folder".into()];
     let (plain_output, plain_code) =
         execute_diff(without_slash, fixture.config, fixture.targets).unwrap();
@@ -347,19 +315,9 @@ fn merge_without_an_explicit_destination_refuses_to_write() {
     let fixture = sync_fixture();
     let error = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: None,
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -379,19 +337,10 @@ fn dry_run_reports_the_merge_without_changing_the_destination() {
     let fixture = sync_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
-            ref_server: None,
             dry_run: true,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -415,19 +364,9 @@ fn explicit_source_and_destination_merge_the_requested_file() {
     let fixture = sync_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -450,19 +389,10 @@ fn reference_side_is_not_modified_by_a_three_way_merge() {
     let fixture = sync_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
             ref_server: Some("second".into()),
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -493,7 +423,7 @@ fn three_way_diff_reports_conflicting_edits_to_the_same_line() {
     fs::write(fixture.source.path().join("file.txt"), "left change\n").unwrap();
     fs::write(fixture.first.path().join("file.txt"), "right change\n").unwrap();
     fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
-    let mut args = diff_args();
+    let mut args = binary_diff_args();
     args.paths = vec!["file.txt".into()];
     args.ref_server = Some("second".into());
     let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
@@ -509,7 +439,7 @@ fn identical_changes_on_both_sides_have_no_three_way_conflict() {
     fs::write(fixture.source.path().join("file.txt"), "same change\n").unwrap();
     fs::write(fixture.first.path().join("file.txt"), "same change\n").unwrap();
     fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
-    let mut args = diff_args();
+    let mut args = binary_diff_args();
     args.paths = vec!["file.txt".into()];
     args.ref_server = Some("second".into());
     let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
@@ -530,19 +460,9 @@ fn three_way_conflict_is_not_written_without_explicit_override() {
     fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
             ref_server: Some("second".into()),
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -582,19 +502,9 @@ fn a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge() {
     }
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into(), "other.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
             ref_server: Some("second".into()),
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt", "other.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -626,19 +536,10 @@ fn selected_hunk_with_three_way_conflict_does_not_overwrite_the_target() {
     fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
             right: Some("first".into()),
             ref_server: Some("second".into()),
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
             hunks: Some(vec![0]),
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -693,7 +594,7 @@ fn a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code() {
         fs::File::open(&blocked).is_err(),
         "test needs an unreadable target"
     );
-    let result = execute_sync(sync_args(), fixture.config, fixture.targets).unwrap();
+    let result = execute_sync(sync_to_both_args(), fixture.config, fixture.targets).unwrap();
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o600)).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
@@ -728,7 +629,7 @@ fn a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code() {
 #[test]
 fn every_successful_sync_target_returns_a_zero_exit_code() {
     let fixture = sync_fixture();
-    let result = execute_sync(sync_args(), fixture.config, fixture.targets).unwrap();
+    let result = execute_sync(sync_to_both_args(), fixture.config, fixture.targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
     };
@@ -766,7 +667,7 @@ fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
         .with_local("first", fixture.first.path())
         .with_backup_store(None)
         .with_startup_directory(fixture.source.path().to_path_buf());
-    let result = execute_sync(sync_args(), config, targets).unwrap();
+    let result = execute_sync(sync_to_both_args(), config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
     };
@@ -802,19 +703,9 @@ fn remote_to_remote_merge_requires_an_explicit_override() {
     let fixture = sync_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
             left: Some("first".into()),
             right: Some("second".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -845,19 +736,10 @@ fn explicit_override_allows_only_the_selected_remote_destination_to_change() {
     let fixture = sync_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["file.txt".into()],
             left: Some("first".into()),
             right: Some("second".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["file.txt"])
         },
         fixture.config,
         fixture.targets,

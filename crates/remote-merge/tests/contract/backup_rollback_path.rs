@@ -4,21 +4,20 @@
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
-use remote_merge::cli::rollback::{RollbackCommandOutput, execute_rollback};
+use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
 use tempfile::TempDir;
 
-use super::backup_support::{
-    config, fixed_now, listed_sessions, merge_args, merge_files, restore, rollback_args, targets,
-};
+use super::args_support::{merge_args, rollback_args};
+use super::backup_support::{config, fixed_now, listed_sessions, merge_files, restore, targets};
 
 /// file.txt を "original" から "merged" に書き換えたセッションを一つ作る。
 fn merged_file_fixture(local: &TempDir, develop: &TempDir, store: &TempDir) {
     fs::write(local.path().join("file.txt"), "merged\n").unwrap();
     fs::write(develop.path().join("file.txt"), "original\n").unwrap();
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config(local, develop, true),
         targets(develop, store),
     );
@@ -39,7 +38,7 @@ fn enabled_rollback_saves_the_current_content_in_a_new_session_before_restoring(
     let config = config(&local, &develop, true);
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config.clone(),
         targets(&develop, &store),
     );
@@ -58,7 +57,10 @@ fn enabled_rollback_saves_the_current_content_in_a_new_session_before_restoring(
     let mut disabled = config;
     disabled.backup.enabled = false;
     restore(
-        rollback_args("develop", Some(&pre_rollback)),
+        RollbackArgs {
+            session: Some(pre_rollback.to_string()),
+            ..rollback_args("develop")
+        },
         disabled,
         targets(&develop, &store),
     );
@@ -79,7 +81,7 @@ fn rollback_does_not_restore_a_file_when_its_current_content_cannot_be_backed_up
     }
 
     let result = execute_rollback(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -107,14 +109,14 @@ fn rollback_recreates_a_file_removed_by_merge_delete_without_a_pre_rollback_back
     let store = TempDir::new().unwrap();
     fs::write(develop.path().join("removed.txt"), "deleted content\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("removed.txt");
+    let mut args = merge_args(&["removed.txt"]);
     args.delete = true;
     args.force = true;
     merge_files(args, config.clone(), targets(&develop, &store));
     assert!(!develop.path().join("removed.txt").exists());
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config.clone(),
         targets(&develop, &store),
     );
@@ -136,7 +138,7 @@ fn disabled_rollback_restores_without_saving_the_current_content() {
     let disabled = config(&local, &develop, false);
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         disabled.clone(),
         targets(&develop, &store),
     );
@@ -159,16 +161,12 @@ fn rollback_restores_file_content_without_changing_existing_permissions() {
     let file = develop.path().join("file.txt");
     fs::set_permissions(&file, fs::Permissions::from_mode(0o640)).unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.force = true;
     merge_files(args, config.clone(), targets(&develop, &store));
     let owner = std::os::unix::fs::MetadataExt::uid(&fs::metadata(&file).unwrap());
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(output.restored.len(), 1, "{output:?}");
     assert_eq!(read(&develop, "file.txt"), "old\n");
@@ -190,17 +188,13 @@ fn rollback_skips_deleted_file_when_its_parent_no_longer_exists() {
     )
     .unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("nested/removed.txt");
+    let mut args = merge_args(&["nested/removed.txt"]);
     args.delete = true;
     args.force = true;
     merge_files(args, config.clone(), targets(&develop, &store));
     fs::remove_dir(develop.path().join("nested")).unwrap();
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert!(output.restored.is_empty(), "{output:?}");
     assert_eq!(output.skipped.len(), 1, "{output:?}");
@@ -222,7 +216,7 @@ fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file() {
     fs::write(develop.path().join("dir/a.txt"), "deleted a\n").unwrap();
     fs::write(develop.path().join("other.txt"), "deleted other\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("dir/a.txt");
+    let mut args = merge_args(&["dir/a.txt"]);
     args.paths.push("other.txt".into());
     args.delete = true;
     args.force = true;
@@ -230,11 +224,7 @@ fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file() {
     fs::remove_dir(develop.path().join("dir")).unwrap();
     fs::write(develop.path().join("dir"), "now a file\n").unwrap();
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(output.skipped.len(), 1, "{output:?}");
     assert_eq!(output.skipped[0].path, "dir/a.txt");
@@ -263,18 +253,14 @@ fn assert_skipped_after_an_ancestor_is_replaced(
     fs::write(&file, "deleted\n").unwrap();
     fs::write(develop.path().join("other.txt"), "deleted other\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args(deleted);
+    let mut args = merge_args(&[deleted]);
     args.paths.push("other.txt".into());
     args.delete = true;
     args.force = true;
     merge_files(args, config.clone(), targets(&develop, &store));
     replace(develop.path());
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(output.failed.len(), 0, "{output:?}");
     assert_eq!(output.skipped.len(), 1, "{output:?}");
@@ -333,7 +319,10 @@ fn a_recorded_symlink_is_not_restored_with_or_without_force() {
     fs::remove_file(develop.path().join("link.txt")).unwrap();
     fs::write(develop.path().join("link.txt"), "replacement\n").unwrap();
 
-    let mut preview = rollback_args("develop", Some(&session_id));
+    let mut preview = RollbackArgs {
+        session: Some(session_id.to_string()),
+        ..rollback_args("develop")
+    };
     preview.force = false;
     preview.dry_run = true;
     let RollbackCommandOutput::DryRun {
@@ -345,7 +334,10 @@ fn a_recorded_symlink_is_not_restored_with_or_without_force() {
         panic!("expected dry-run output")
     };
     let (forced, _) = restore(
-        rollback_args("develop", Some(&session_id)),
+        RollbackArgs {
+            session: Some(session_id.to_string()),
+            ..rollback_args("develop")
+        },
         config,
         targets(&develop, &store),
     );
@@ -398,14 +390,14 @@ fn rollback_skips_a_file_after_the_target_root_symlink_is_retargeted() {
         .with_startup_directory(std::env::current_dir().unwrap())
         .with_now(fixed_now());
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         runtime_targets.clone(),
     );
     fs::remove_file(&current).unwrap();
     symlink(&release_b, &current).unwrap();
 
-    let (output, _) = restore(rollback_args("develop", None), config, runtime_targets);
+    let (output, _) = restore(rollback_args("develop"), config, runtime_targets);
 
     assert_single_skip(&output, CHANGED_LOCATION);
     assert_eq!(
@@ -426,7 +418,7 @@ fn rollback_keeps_a_symlink_that_replaced_the_recorded_regular_file() {
     symlink("other.txt", develop.path().join("file.txt")).unwrap();
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -450,7 +442,7 @@ fn an_unresolvable_destination_fails_with_the_cause_after_a_single_prefix() {
     symlink("file.txt", develop.path().join("file.txt")).unwrap();
 
     let (output, code) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -474,17 +466,13 @@ fn a_destination_parent_that_became_a_cyclic_symlink_fails_with_the_cause() {
     fs::create_dir(develop.path().join("dir")).unwrap();
     fs::write(develop.path().join("dir/file.txt"), "original\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("dir/file.txt");
+    let mut args = merge_args(&["dir/file.txt"]);
     args.delete = true;
     merge_files(args, config.clone(), targets(&develop, &store));
     fs::remove_dir(develop.path().join("dir")).unwrap();
     symlink("dir", develop.path().join("dir")).unwrap();
 
-    let (output, code) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, code) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert!(
         output.failed[0].error.starts_with("cannot resolve path: "),
@@ -504,7 +492,7 @@ fn rollback_skips_a_dangling_symlink_as_a_changed_destination() {
     symlink("missing.txt", develop.path().join("file.txt")).unwrap();
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -541,11 +529,7 @@ fn rollback_skips_a_deleted_file_after_its_parent_symlink_is_retargeted() {
     fs::remove_file(develop.path().join("current")).unwrap();
     symlink(&release_b, develop.path().join("current")).unwrap();
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_single_skip(&output, CHANGED_LOCATION);
     assert!(!release_b.join("file.txt").exists());
@@ -562,18 +546,14 @@ fn rollback_skips_a_recorded_symlink_changed_by_a_third_party() {
     symlink("target.txt", develop.path().join("link.txt")).unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("link.txt"),
+        merge_args(&["link.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
     fs::remove_file(develop.path().join("link.txt")).unwrap();
     fs::write(develop.path().join("link.txt"), "third party\n").unwrap();
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_single_skip(&output, "symlink changed after merge");
     assert_eq!(read(&develop, "link.txt"), "third party\n");
@@ -589,7 +569,7 @@ fn an_unresolvable_path_blocks_every_file_in_the_rollback_session() {
         fs::write(local.path().join(name), "merged\n").unwrap();
         fs::write(develop.path().join(name), "original\n").unwrap();
     }
-    let mut args = merge_args("first.txt");
+    let mut args = merge_args(&["first.txt"]);
     args.paths.push("second.txt".into());
     merge_files(
         args,
@@ -601,7 +581,7 @@ fn an_unresolvable_path_blocks_every_file_in_the_rollback_session() {
     symlink("second.txt", develop.path().join("second.txt")).unwrap();
 
     let (output, _) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );

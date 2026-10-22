@@ -6,7 +6,8 @@
 use std::os::unix::fs::MetadataExt;
 use std::time::Duration;
 
-use super::merge_support::{Fixture, args, fixture, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::{Fixture, fixture};
 
 /// 読めない側を指定したファイルを三つ作る。読めなくできない（root で動く）なら None。
 /// source-locked.txt は local、destination-locked.txt は develop、both-locked.txt は両側が読めない。
@@ -80,7 +81,7 @@ fn merge_reports_which_side_could_not_be_read() {
         return;
     };
 
-    let (json, _) = fixture.merge_json(args(&files));
+    let (json, _) = fixture.merge_json(merge_args(&files));
 
     assert_eq!(json["failed"].as_array().unwrap().len(), 3, "{json}");
     assert_read_failures(&json["failed"]);
@@ -162,7 +163,7 @@ fn directory_merge_without_checksum_writes_only_files_the_metadata_and_contents_
     metadata_quick_check_folder(&fixture);
     let same_bytes_time = fixture.modified("develop", "folder/same-bytes.txt");
 
-    let (json, _) = fixture.merge_json(args(&["folder"]));
+    let (json, _) = fixture.merge_json(merge_args(&["folder"]));
 
     assert_eq!(
         json["merged"]
@@ -221,7 +222,7 @@ fn directory_merge_overwrites_changed_files_creates_source_only_files_and_skips_
     let same_time = std::time::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
     fixture.set_modified("develop", "folder/same.txt", same_time);
 
-    let (json, code) = fixture.merge_json(args(&["folder"]));
+    let (json, code) = fixture.merge_json(merge_args(&["folder"]));
 
     assert_eq!(
         merged_paths(&json),
@@ -251,7 +252,7 @@ fn a_merge_of_two_paths_writes_each_of_them() {
     fixture.write("local", "b.txt", "b new version\n");
     fixture.write("develop", "b.txt", "b old\n");
 
-    let (json, code) = fixture.merge_json(args(&["a.txt", "b.txt"]));
+    let (json, code) = fixture.merge_json(merge_args(&["a.txt", "b.txt"]));
 
     assert_eq!(merged_paths(&json), ["a.txt", "b.txt"], "{json}");
     assert_eq!(code, 0, "{json}");
@@ -266,7 +267,7 @@ fn a_path_given_twice_is_written_once() {
     fixture.write("local", "a.txt", "a new version\n");
     fixture.write("develop", "a.txt", "a old\n");
 
-    let (json, code) = fixture.merge_json(args(&["a.txt", "a.txt"]));
+    let (json, code) = fixture.merge_json(merge_args(&["a.txt", "a.txt"]));
 
     assert_eq!(merged_paths(&json), ["a.txt"], "{json}");
     assert_eq!(json["failed"], serde_json::json!([]), "{json}");
@@ -295,7 +296,7 @@ fn listed_paths(list: &serde_json::Value) -> Vec<&str> {
 fn checksum_directory_merge_skips_a_file_against_a_directory_without_failing() {
     let fixture = fixture();
     file_against_directory_folder(&fixture);
-    let mut args = args(&["folder"]);
+    let mut args = merge_args(&["folder"]);
     args.checksum = true;
 
     let (json, _) = fixture.merge_json(args);
@@ -340,7 +341,7 @@ fn checksum_directory_sync_skips_a_file_against_a_directory_without_failing() {
 fn dry_run_merge_reports_a_file_against_a_directory_as_skipped() {
     let fixture = fixture();
     file_against_directory_folder(&fixture);
-    let mut args = args(&["folder"]);
+    let mut args = merge_args(&["folder"]);
     args.checksum = true;
     args.dry_run = true;
 

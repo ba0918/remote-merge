@@ -13,7 +13,8 @@ use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 use tempfile::TempDir;
 
-use super::merge_support::{Fixture, args, fixture, fixture_with_backup, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::{Fixture, fixture, fixture_with_backup};
 
 const INCOMING: &str = "incoming contents\n";
 const EXISTING: &str = "existing\n";
@@ -91,7 +92,7 @@ fn merge_with(paths: &[&str], dry_run: bool, delete: bool) -> MergeArgs {
     MergeArgs {
         dry_run,
         delete,
-        ..args(paths)
+        ..merge_args(paths)
     }
 }
 
@@ -139,7 +140,7 @@ fn ex_merge_058_a_destination_directory_link_outside_the_root_is_compared_as_a_d
     let fixture = fixture_with_backup();
     let outside = source_directory_over_destination_link(&fixture);
 
-    let (json, _) = fixture.merge_json(args(&["linked"]));
+    let (json, _) = fixture.merge_json(merge_args(&["linked"]));
 
     assert_children_merged(&json);
     assert!(json["merged"][0]["backup"].is_string(), "{json}");

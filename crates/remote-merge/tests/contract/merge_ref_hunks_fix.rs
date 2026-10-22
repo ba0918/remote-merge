@@ -7,7 +7,8 @@ use serde_json::json;
 
 use remote_merge::cli::merge::MergeArgs;
 
-use super::merge_support::{Fixture, args, fixture};
+use super::args_support::merge_args;
+use super::merge_support::{Fixture, fixture};
 
 const PATH: &str = "file.txt";
 
@@ -36,7 +37,7 @@ fn place(fixture: &Fixture, local: &str, develop: &str, staging: &str) {
 
 /// 参照先 staging を使い `force` を指定して `PATH` を merge する引数
 fn ref_args(force: bool) -> MergeArgs {
-    let mut args = args(&[PATH]);
+    let mut args = merge_args(&[PATH]);
     args.ref_server = Some("staging".into());
     args.force = force;
     args
@@ -118,7 +119,7 @@ fn hunk_args(hunks: &[usize]) -> MergeArgs {
     MergeArgs {
         force: true,
         hunks: Some(hunks.to_vec()),
-        ..args(&[PATH])
+        ..merge_args(&[PATH])
     }
 }
 

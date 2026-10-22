@@ -8,6 +8,7 @@
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::exit_code;
 
+use super::args_support::diff_args;
 use super::diff_support::*;
 
 // ── REQ-cli-052: 比べる対象をパスで選ぶ ──
@@ -152,7 +153,7 @@ fn req_cli_057_a_glob_path_that_matches_nothing_is_an_error() {
     let fixture = DiffFixture::new(&[("a.txt", b"left\n")], &[("a.txt", b"right\n")]);
 
     let error = fixture
-        .try_run(args(&["nothing/*.txt"]))
+        .try_run(diff_args(&["nothing/*.txt"]))
         .expect_err("a path found on neither side must be an error");
 
     assert!(

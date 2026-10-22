@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::{SyncOutput, SyncTargetResult, SyncTargetStatus};
 
-use super::sync_support::{args, fixture, labels};
+use super::sync_support::{fixture, labels, sync_args_to};
 
 fn target<'a>(output: &'a SyncOutput, label: &str) -> &'a SyncTargetResult {
     output
@@ -53,7 +53,7 @@ fn a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two() 
         return;
     }
 
-    let (output, code) = fixture.sync(args(&["."], &["develop", "staging"]));
+    let (output, code) = fixture.sync(sync_args_to(&["."], &["develop", "staging"]));
 
     let develop = target(&output, "develop");
     assert_eq!(merged_paths(develop), ["a.txt", "b.txt"], "{output:?}");
@@ -78,7 +78,7 @@ fn a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds() {
         return;
     }
 
-    let (output, code) = fixture.sync(args(&["."], &["develop", "staging"]));
+    let (output, code) = fixture.sync(sync_args_to(&["."], &["develop", "staging"]));
 
     assert_eq!(target(&output, "develop").status, SyncTargetStatus::Success);
     assert_eq!(target(&output, "staging").status, SyncTargetStatus::Failed);
@@ -93,7 +93,7 @@ fn a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code
     fixture.write("develop", "a.txt", "develop old\n");
     fixture.write("staging", "a.txt", "incoming\n");
 
-    let (output, code) = fixture.sync(args(&["."], &["develop", "staging"]));
+    let (output, code) = fixture.sync(sync_args_to(&["."], &["develop", "staging"]));
 
     assert_eq!(target(&output, "develop").status, SyncTargetStatus::Success);
     assert_eq!(merged_paths(target(&output, "develop")), ["a.txt"]);
@@ -126,7 +126,7 @@ fn three_targets_with_every_status() -> Option<(SyncOutput, super::sync_support:
         return None;
     }
     fixture.write("staging", "gone.txt", "only on staging\n");
-    let mut args = args(&["."], &["develop", "staging", "production"]);
+    let mut args = sync_args_to(&["."], &["develop", "staging", "production"]);
     args.delete = true;
 
     let (output, _) = fixture.sync(args);
@@ -235,7 +235,7 @@ fn dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target() {
     fixture.write("develop", "a.txt", "develop old\n");
     fixture.write("develop", "gone.txt", "only on develop\n");
     fixture.write("staging", "a.txt", "staging old\n");
-    let mut args = args(&["."], &["develop", "staging"]);
+    let mut args = sync_args_to(&["."], &["develop", "staging"]);
     args.dry_run = true;
     args.force = false;
     args.delete = true;
@@ -281,7 +281,7 @@ fn two_directories_under_the_same_top_directory() -> super::sync_support::Fixtur
 fn directories_under_the_same_top_directory_are_both_written() {
     let fixture = two_directories_under_the_same_top_directory();
 
-    let (output, code) = fixture.sync(args(&["a/x/", "a/y/"], &["develop"]));
+    let (output, code) = fixture.sync(sync_args_to(&["a/x/", "a/y/"], &["develop"]));
 
     let develop = target(&output, "develop");
     assert_eq!(
@@ -300,7 +300,7 @@ fn directories_under_the_same_top_directory_are_both_written() {
 #[test]
 fn dry_run_of_directories_under_the_same_top_directory_lists_only_their_files() {
     let fixture = two_directories_under_the_same_top_directory();
-    let mut args = args(&["a/x/", "a/y/"], &["develop"]);
+    let mut args = sync_args_to(&["a/x/", "a/y/"], &["develop"]);
     args.dry_run = true;
     args.force = false;
 

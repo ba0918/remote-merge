@@ -8,7 +8,8 @@ use std::path::Path;
 
 use remote_merge::cli::merge::MergeArgs;
 
-use super::merge_support::{Fixture, args, fixture, fixture_with_backup, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::{Fixture, fixture, fixture_with_backup};
 
 const RIGHT_ONLY_REASON: &str = "right-only file (use --delete to remove)";
 
@@ -48,7 +49,7 @@ fn reasons_of<'a>(skipped: &'a serde_json::Value, path: &str) -> Vec<&'a str> {
 fn delete_args(paths: &[&str]) -> MergeArgs {
     MergeArgs {
         delete: true,
-        ..args(paths)
+        ..merge_args(paths)
     }
 }
 
@@ -58,7 +59,7 @@ fn merge_creates_a_missing_destination_symlink_without_following_it() {
     let fixture = fixture();
     source_link(&fixture);
 
-    let (json, _) = fixture.merge_json(args(&["link.txt"]));
+    let (json, _) = fixture.merge_json(merge_args(&["link.txt"]));
 
     assert_eq!(json["merged"][0]["path"], "link.txt", "{json}");
     assert_link_copied_without_following(&fixture);
@@ -85,7 +86,7 @@ fn merge_without_delete_skips_a_destination_only_file() {
     let fixture = fixture();
     fixture.write("develop", "only-here.txt", "preserve me\n");
 
-    let (json, _) = fixture.merge_json(args(&["."]));
+    let (json, _) = fixture.merge_json(merge_args(&["."]));
 
     assert_eq!(fixture.read("develop", "only-here.txt"), "preserve me\n");
     assert_eq!(

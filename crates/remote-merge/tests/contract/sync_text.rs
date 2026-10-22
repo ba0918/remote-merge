@@ -6,7 +6,7 @@
 
 use remote_merge::service::output::format_sync_text;
 
-use super::sync_support::{args, fixture};
+use super::sync_support::{fixture, sync_args_to};
 
 /// 先頭の印とパスで行を探す（印の後の空白の数は確かめない）
 fn has_line(text: &str, badge: &str, path: &str) -> bool {
@@ -38,7 +38,7 @@ fn text_has_the_heading_a_line_per_target_the_files_and_the_summary() {
         return;
     }
 
-    let (output, _) = fixture.sync(args(&["."], &["develop", "staging"]));
+    let (output, _) = fixture.sync(sync_args_to(&["."], &["develop", "staging"]));
     let text = format_sync_text(&output);
 
     let lines: Vec<&str> = text.lines().collect();
@@ -63,7 +63,7 @@ fn dry_run_text_shows_planned_files_and_skipped_files_with_a_reason() {
     // 読み込み元は symlink、書き込み先は通常のファイルで、種類が違うためスキップする
     std::os::unix::fs::symlink("a.txt", fixture.root("local").join("kind.txt")).unwrap();
     fixture.write("develop", "kind.txt", "develop\n");
-    let mut args = args(&["."], &["develop"]);
+    let mut args = sync_args_to(&["."], &["develop"]);
     args.dry_run = true;
     args.force = false;
 
@@ -87,7 +87,7 @@ fn the_summary_adds_the_deleted_count_when_files_were_deleted() {
     fixture.write("local", "a.txt", "incoming\n");
     fixture.write("develop", "a.txt", "develop old\n");
     fixture.write("develop", "extra.txt", "only on develop\n");
-    let mut args = args(&["."], &["develop"]);
+    let mut args = sync_args_to(&["."], &["develop"]);
     args.delete = true;
 
     let (output, _) = fixture.sync(args);

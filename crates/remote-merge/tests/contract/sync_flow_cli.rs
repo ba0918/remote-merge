@@ -10,7 +10,7 @@ use std::os::unix::fs::PermissionsExt;
 use remote_merge::service::output::format_sync_text;
 use remote_merge::service::types::{DeleteStatus, SyncTargetStatus};
 
-use super::sync_support::{args, fixture, labels};
+use super::sync_support::{fixture, labels, sync_args_to};
 
 // @kotowari[REQ-cli-041, TBL-cli-007, EX-cli-103]
 #[test]
@@ -23,7 +23,7 @@ fn ex_cli_103_a_kind_mismatch_makes_the_target_partial() {
     fixture.write("local", "a.txt", "new content\n");
     fixture.write("develop", "a.txt", "old\n");
 
-    let (output, code) = fixture.sync(args(&["."], &["develop"]));
+    let (output, code) = fixture.sync(sync_args_to(&["."], &["develop"]));
 
     assert_eq!(
         output.targets[0].status,
@@ -45,7 +45,7 @@ fn ex_cli_112_a_target_with_only_deletions_and_one_failure_is_partial() {
     fixture.write("develop", "locked/stuck.txt", "x\n");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
     let applies = fs::File::create(locked.join("probe")).is_err();
-    let mut delete = args(&["."], &["develop"]);
+    let mut delete = sync_args_to(&["."], &["develop"]);
     delete.delete = true;
 
     let result = fixture.run(delete);
@@ -70,7 +70,7 @@ fn ex_cli_113_a_target_that_cannot_be_connected_keeps_its_place_in_the_order() {
     let fixture = fixture();
     fixture.write("local", "a.txt", "new\n");
 
-    let (output, code) = fixture.sync(args(&["."], &["offline", "develop", "staging"]));
+    let (output, code) = fixture.sync(sync_args_to(&["."], &["offline", "develop", "staging"]));
 
     assert_eq!(labels(&output), ["offline", "develop", "staging"]);
     assert_eq!(
@@ -88,7 +88,7 @@ fn ex_compare_011_a_destination_only_socket_is_not_deleted() {
     let fixture = fixture();
     let socket = fixture.root("develop").join("app.sock");
     let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-    let mut delete = args(&["."], &["develop"]);
+    let mut delete = sync_args_to(&["."], &["develop"]);
     delete.delete = true;
 
     let (output, code) = fixture.sync(delete);
@@ -106,7 +106,7 @@ fn ex_compare_011_a_destination_only_socket_is_not_deleted() {
 fn a_dry_run_lists_planned_deletions_as_would_delete() {
     let fixture = fixture();
     fixture.write("develop", "old.txt", "x\n");
-    let mut planned = args(&["."], &["develop"]);
+    let mut planned = sync_args_to(&["."], &["develop"]);
     planned.delete = true;
     planned.dry_run = true;
 

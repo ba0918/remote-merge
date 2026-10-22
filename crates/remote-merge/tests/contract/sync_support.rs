@@ -13,6 +13,7 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;
 
+use super::args_support::sync_args;
 use super::common::ClosedPort;
 
 const TARGETS: [&str; 3] = ["develop", "staging", "production"];
@@ -125,18 +126,10 @@ impl Fixture {
 }
 
 /// local から `rights` へ `paths` を force で書き込む引数
-pub fn args(paths: &[&str], rights: &[&str]) -> SyncArgs {
+pub fn sync_args_to(paths: &[&str], rights: &[&str]) -> SyncArgs {
     SyncArgs {
-        paths: paths.iter().map(|path| path.to_string()).collect(),
-        left: Some("local".into()),
         right: rights.iter().map(|right| right.to_string()).collect(),
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
+        ..sync_args(paths)
     }
 }
 

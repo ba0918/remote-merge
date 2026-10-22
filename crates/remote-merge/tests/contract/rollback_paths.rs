@@ -6,11 +6,13 @@ use std::os::unix::fs::symlink;
 use chrono::{TimeZone, Utc};
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
-use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
 use tempfile::TempDir;
+
+use super::args_support::{merge_args, rollback_args, sync_args};
 
 // @kotowari[EX-backup-005, EX-backup-016]
 #[test]
@@ -48,12 +50,9 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
 
     let preview = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session.clone()),
             dry_run: true,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config.clone(),
         targets.clone(),
@@ -74,12 +73,8 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
 
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -134,12 +129,8 @@ fn unchanged_parent_link_allows_every_file_in_the_session_to_be_restored() {
 
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -182,7 +173,7 @@ fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
     symlink("old.txt", destination.path().join("link.txt")).unwrap();
     let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
     let result = execute_merge(
-        symlink_merge_args(vec!["link.txt"]),
+        symlink_merge_args(&["link.txt"]),
         config.clone(),
         targets.clone(),
     )
@@ -196,7 +187,7 @@ fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
         std::path::Path::new("new.txt")
     );
 
-    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let rollback = execute_rollback(rollback_args("develop"), config, targets).unwrap();
     let RollbackCommandOutput::Restore(restored) = rollback.output else {
         panic!("expected restore result")
     };
@@ -222,7 +213,7 @@ fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_s
     fs::write(destination.path().join("file.txt"), "old content\n").unwrap();
     let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
     let result = execute_merge(
-        symlink_merge_args(vec!["file.txt", "link.txt"]),
+        symlink_merge_args(&["file.txt", "link.txt"]),
         config.clone(),
         targets.clone(),
     )
@@ -234,7 +225,7 @@ fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_s
     fs::remove_file(destination.path().join("link.txt")).unwrap();
     symlink("./new.txt", destination.path().join("link.txt")).unwrap();
 
-    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let rollback = execute_rollback(rollback_args("develop"), config, targets).unwrap();
     let RollbackCommandOutput::Restore(restored) = rollback.output else {
         panic!("expected restore result")
     };
@@ -283,12 +274,9 @@ fn expired_backup_is_not_restored_without_force() {
     let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
     let listed = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
             list: true,
-            session: None,
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config.clone(),
         targets.clone(),
@@ -304,12 +292,9 @@ fn expired_backup_is_not_restored_without_force() {
     );
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -333,12 +318,8 @@ fn expired_backup_with_saved_data_is_restored_when_forced() {
     let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -364,12 +345,9 @@ fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
     drop(core);
     let listed = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
             list: true,
-            session: None,
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config.clone(),
         targets.clone(),
@@ -381,12 +359,8 @@ fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
     assert!(list.sessions.is_empty(), "{list:?}");
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -416,18 +390,7 @@ fn one_sync_of_two_files_appears_as_one_rollback_session() {
     }
     let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
     let result = execute_sync(
-        SyncArgs {
-            paths: vec!["first.txt".into(), "second.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-        },
+        sync_args(&["first.txt", "second.txt"]),
         config.clone(),
         targets.clone(),
     )
@@ -439,12 +402,9 @@ fn one_sync_of_two_files_appears_as_one_rollback_session() {
 
     let listed = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
             list: true,
-            session: None,
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -488,12 +448,10 @@ fn previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged() {
 
     let result = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(session),
             dry_run: true,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -530,7 +488,7 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
     fs::write(destination.path().join("file.txt"), "old\n").unwrap();
     let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
     let first = execute_merge(
-        symlink_merge_args(vec!["file.txt"]),
+        symlink_merge_args(&["file.txt"]),
         config.clone(),
         targets.clone(),
     )
@@ -541,7 +499,7 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
     assert_eq!(first.merged.len(), 1, "{first:?}");
     fs::write(local.path().join("file.txt"), "second\n").unwrap();
     let second = execute_merge(
-        symlink_merge_args(vec!["file.txt"]),
+        symlink_merge_args(&["file.txt"]),
         config.clone(),
         targets.clone(),
     )
@@ -553,12 +511,9 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
 
     let listed = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
             list: true,
-            session: None,
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -598,31 +553,9 @@ fn symlink_merge_setup(
     (config, targets)
 }
 
-fn symlink_merge_args(paths: Vec<&str>) -> MergeArgs {
+fn symlink_merge_args(paths: &[&str]) -> MergeArgs {
     MergeArgs {
-        paths: paths.into_iter().map(str::to_owned).collect(),
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
         force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
-    }
-}
-
-fn rollback_args(session: Option<String>) -> RollbackArgs {
-    RollbackArgs {
-        target: Some("develop".into()),
-        list: false,
-        session,
-        dry_run: false,
-        force: true,
-        format: "json".into(),
+        ..merge_args(paths)
     }
 }

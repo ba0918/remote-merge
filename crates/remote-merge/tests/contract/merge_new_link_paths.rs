@@ -5,7 +5,8 @@
 //!
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 
-use super::merge_support::{Fixture, args, fixture, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::{Fixture, fixture};
 use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 
@@ -43,7 +44,7 @@ fn merge_fails_a_new_link_under_a_destination_file_as_not_a_directory() {
 
         let (json, code) = fixture.merge_json(MergeArgs {
             dry_run,
-            ..args(&["x/lnk"])
+            ..merge_args(&["x/lnk"])
         });
 
         let label = format!("dry_run={dry_run}");
@@ -108,7 +109,7 @@ fn merge_fails_a_new_link_whose_destination_path_is_too_long() {
 
         let (json, code) = fixture.merge_json(MergeArgs {
             dry_run,
-            ..args(&["."])
+            ..merge_args(&["."])
         });
 
         let label = format!("dry_run={dry_run}");

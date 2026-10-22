@@ -8,17 +8,18 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use remote_merge::cli::merge::execute_merge;
-use remote_merge::cli::rollback::execute_rollback;
-use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::cli::rollback::{RollbackArgs, execute_rollback};
+use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
 use remote_merge::config::AppConfig;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_backup_list_text, format_json};
 use remote_merge_engine::backup::{compare_session_ids, next_session_id};
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, rollback_args, sync_args};
 use super::backup_support::{
-    config, config_with_servers, fixed_now, listed_sessions, merge_args, merge_files, restore,
-    rollback_args, rollback_list_args, targets, targets_at,
+    config, config_with_servers, fixed_now, listed_sessions, merge_files, restore,
+    rollback_list_args, targets, targets_at,
 };
 
 // ── 書き込み先の区別 ──
@@ -61,7 +62,7 @@ fn first_session_is_listed_for_second(first: &Server<'_>, second: &Server<'_>) -
         .with_local("second", destination.path())
         .with_backup_store(Some(store.path().to_path_buf()))
         .with_now(fixed_now());
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.right = Some("first".into());
     let output = merge_files(args, config.clone(), runtime_targets.clone());
     assert_eq!(output.merged.len(), 1, "{output:?}");
@@ -144,7 +145,7 @@ fn rollback_target_uses_only_the_write_target_its_name_now_points_to() {
         &[("develop", "old.example.invalid", 22, develop.path())],
         true,
     );
-    merge_files(merge_args("file.txt"), before, targets(&develop, &store));
+    merge_files(merge_args(&["file.txt"]), before, targets(&develop, &store));
     let after = config_with_servers(
         &local,
         &[("develop", "new.example.invalid", 22, develop.path())],
@@ -152,13 +153,9 @@ fn rollback_target_uses_only_the_write_target_its_name_now_points_to() {
     );
 
     assert!(listed_sessions("develop", after.clone(), targets(&develop, &store)).is_empty());
-    let error = execute_rollback(
-        rollback_args("develop", None),
-        after,
-        targets(&develop, &store),
-    )
-    .err()
-    .expect("no session belongs to the target the name now points to");
+    let error = execute_rollback(rollback_args("develop"), after, targets(&develop, &store))
+        .err()
+        .expect("no session belongs to the target the name now points to");
     assert!(
         error.to_string().contains("No backup sessions found"),
         "{error}"
@@ -190,11 +187,11 @@ fn sessions_for_two_write_targets_remain_separate() {
     fs::write(local.path().join("staging.txt"), "new staging\n").unwrap();
     fs::write(staging.path().join("staging.txt"), "old\n").unwrap();
     merge_files(
-        merge_args("develop.txt"),
+        merge_args(&["develop.txt"]),
         config.clone(),
         runtime_targets.clone(),
     );
-    let mut staging_args = merge_args("staging.txt");
+    let mut staging_args = merge_args(&["staging.txt"]);
     staging_args.right = Some("staging".into());
     merge_files(staging_args, config.clone(), runtime_targets.clone());
 
@@ -227,7 +224,7 @@ fn ex_backup_023_a_session_stays_listed_after_the_trailing_slash_of_a_remote_roo
         &[("develop", "example.invalid", 22, &written_with_slash)],
         true,
     );
-    let output = merge_files(merge_args("file.txt"), before, targets(&develop, &store));
+    let output = merge_files(merge_args(&["file.txt"]), before, targets(&develop, &store));
     assert_eq!(output.merged.len(), 1, "{output:?}");
     let after = config_with_servers(
         &local,
@@ -258,7 +255,7 @@ fn a_session_stays_listed_after_the_leading_dot_of_a_relative_remote_root_dir_is
         )],
         true,
     );
-    let output = merge_files(merge_args("file.txt"), before, targets(&develop, &store));
+    let output = merge_files(merge_args(&["file.txt"]), before, targets(&develop, &store));
     assert_eq!(output.merged.len(), 1, "{output:?}");
     let after = config_with_servers(
         &local,
@@ -301,7 +298,7 @@ fn ex_backup_023_a_session_stays_listed_after_the_trailing_slash_of_the_local_ro
     fs::write(local.path().join("file.txt"), "old local\n").unwrap();
     fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
     let before = config_with_local_root(&configs, &with_trailing_slash(local.path()));
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("local".into());
     let output = merge_files(args, before, targets(&develop, &store));
@@ -336,7 +333,7 @@ fn relative_local_root_is_identified_from_the_directory_of_its_config_file() {
     )
     .unwrap();
     let config = remote_merge::config::load_config_from_paths(Some(&config_path), None).unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("local".into());
     let output = merge_files(
@@ -384,7 +381,7 @@ fn a_config_path_through_a_sibling_directory_gives_the_same_local_write_target()
     };
     let inside = load(&project.join(".remote-merge.toml"));
     let through_sibling = load(&sibling.join("../proj/.remote-merge.toml"));
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("local".into());
     let output = merge_files(
@@ -482,7 +479,7 @@ fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
     .unwrap();
     let config = remote_merge::config::load_config_from_paths(Some(&config_path), None).unwrap();
     let runtime_targets = targets(&develop, &store);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.left = Some("develop".into());
     args.right = Some("local".into());
     execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
@@ -640,11 +637,11 @@ fn create_two_same_second_sessions(
     let runtime_targets = targets(develop, store);
     fs::write(local.path().join("file.txt"), "first merge\n").unwrap();
     fs::write(develop.path().join("file.txt"), "original\n").unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.force = true;
     merge_files(args, config.clone(), runtime_targets.clone());
     fs::write(local.path().join("file.txt"), "second merge content\n").unwrap();
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.force = true;
     merge_files(args, config.clone(), runtime_targets.clone());
     (config, runtime_targets)
@@ -677,7 +674,10 @@ fn rollback_accepts_a_same_second_session_id_with_numeric_suffix() {
     config.backup.enabled = false;
 
     let (output, _) = restore(
-        rollback_args("develop", Some("20260914-120000-2")),
+        RollbackArgs {
+            session: Some("20260914-120000-2".into()),
+            ..rollback_args("develop")
+        },
         config,
         runtime_targets,
     );
@@ -698,7 +698,7 @@ fn rollback_without_session_uses_the_newest_numeric_suffix() {
     let (mut config, runtime_targets) = create_two_same_second_sessions(&local, &develop, &store);
     config.backup.enabled = false;
 
-    let (output, _) = restore(rollback_args("develop", None), config, runtime_targets);
+    let (output, _) = restore(rollback_args("develop"), config, runtime_targets);
 
     assert_eq!(output.session_id, "20260914-120000-2");
     assert_eq!(
@@ -721,7 +721,7 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     fs::write(local.path().join("file.txt"), "first content\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let first = merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -731,7 +731,7 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     )
     .unwrap();
     let second = merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -761,7 +761,7 @@ fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
             std::thread::spawn(move || {
                 let _guards = (local, develop, store);
                 barrier.wait();
-                merged_session(&merge_files(merge_args("file.txt"), config, targets))
+                merged_session(&merge_files(merge_args(&["file.txt"]), config, targets))
             })
         })
         .collect::<Vec<_>>();
@@ -806,7 +806,7 @@ fn sync_uses_one_session_id_for_all_targets() {
         true,
     );
     let runtime_targets = targets(&develop, &store).with_local("staging", staging.path());
-    let mut args = sync_args("file.txt");
+    let mut args = sync_args(&["file.txt"]);
     args.right = vec!["develop".into(), "staging".into()];
 
     let SyncCommandOutput::Result(output) =
@@ -846,28 +846,13 @@ fn at(year: i32, month: u32, day: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
 }
 
-fn sync_args(path: &str) -> SyncArgs {
-    SyncArgs {
-        paths: vec![path.into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    }
-}
-
 /// 2020-01-01 のセッションを一つ作る。保持期間は既定の 7 日。
 fn expired_session_fixture(local: &TempDir, develop: &TempDir, store: &TempDir) -> AppConfig {
     fs::write(local.path().join("file.txt"), "first\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(local, develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets_at(develop, store, at(2020, 1, 1)),
     );
@@ -891,7 +876,7 @@ fn merge_removes_expired_sessions_when_it_starts() {
     let config = expired_session_fixture(&local, &develop, &store);
 
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets_at(&develop, &store, at(2020, 1, 8)),
     );
@@ -908,7 +893,7 @@ fn sync_removes_expired_sessions_when_it_starts() {
     let config = expired_session_fixture(&local, &develop, &store);
 
     execute_sync(
-        sync_args("file.txt"),
+        sync_args(&["file.txt"]),
         config.clone(),
         targets_at(&develop, &store, at(2020, 1, 8)),
     )
@@ -924,9 +909,9 @@ fn dry_run_merge_and_sync_keep_expired_sessions() {
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
     let config = expired_session_fixture(&local, &develop, &store);
-    let mut merge = merge_args("file.txt");
+    let mut merge = merge_args(&["file.txt"]);
     merge.dry_run = true;
-    let mut sync = sync_args("file.txt");
+    let mut sync = sync_args(&["file.txt"]);
     sync.dry_run = true;
 
     execute_merge(
@@ -960,11 +945,17 @@ fn rollback_in_any_mode_keeps_expired_sessions() {
         current.clone(),
     )
     .unwrap();
-    let mut dry_run = rollback_args("develop", Some("20200101-000000"));
+    let mut dry_run = RollbackArgs {
+        session: Some("20200101-000000".into()),
+        ..rollback_args("develop")
+    };
     dry_run.dry_run = true;
     execute_rollback(dry_run, config.clone(), current.clone()).unwrap();
     restore(
-        rollback_args("develop", Some("20200101-000000")),
+        RollbackArgs {
+            session: Some("20200101-000000".into()),
+            ..rollback_args("develop")
+        },
         config.clone(),
         current,
     );
@@ -987,7 +978,7 @@ fn disabled_backup_merge_still_removes_expired_sessions() {
     let disabled = config(&local, &develop, false);
 
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         disabled.clone(),
         targets_at(&develop, &store, at(2020, 1, 8)),
     );
@@ -1012,7 +1003,7 @@ fn listing_and_cleanup_share_the_retention_boundary() {
     );
     assert!(!listed[0].expired, "{listed:?}");
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets_at(&develop, &store, before),
     );
@@ -1030,7 +1021,7 @@ fn listing_and_cleanup_share_the_retention_boundary() {
     assert!(original.expired, "{listed:?}");
     fs::write(local.path().join("file.txt"), "third\n").unwrap();
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets_at(&develop, &store, boundary),
     );

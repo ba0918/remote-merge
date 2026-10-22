@@ -6,6 +6,7 @@ use std::os::unix::fs::symlink;
 use tempfile::TempDir;
 
 use super::agent_support::{AgentFixture, Setup, json};
+use super::args_support::merge_args;
 use super::server_faults::Faults;
 
 fn verify_local_external_link() {
@@ -36,19 +37,8 @@ fn verify_local_external_link() {
         .with_backup_store(Some(backup_root.clone()));
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["linked/file.txt".into()],
-            left: Some("local".into()),
             right: Some("fixture".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["linked/file.txt"])
         },
         config,
         targets,

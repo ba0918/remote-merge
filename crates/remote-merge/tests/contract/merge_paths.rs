@@ -13,6 +13,7 @@ use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 
+use super::args_support::{merge_args, rollback_args, sync_args};
 use super::merge_steps::merge_with_a_change_between;
 use tempfile::TempDir;
 use tracing_subscriber::prelude::*;
@@ -95,7 +96,7 @@ fn disabled_backup_allows_an_existing_file_to_be_updated_without_saving_a_copy()
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.backup.enabled = false;
     let result = execute_merge(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config,
         targets.with_backup_store(None),
     )
@@ -123,7 +124,7 @@ fn enabled_backup_saves_the_old_contents_before_merge() {
     fs::write(local.path().join("file.txt"), "new\n").unwrap();
     fs::write(destination.path().join("file.txt"), "old\n").unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_merge(merge_args("file.txt"), config.clone(), targets.clone()).unwrap();
+    let result = execute_merge(merge_args(&["file.txt"]), config.clone(), targets.clone()).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
     };
@@ -139,19 +140,7 @@ fn enabled_backup_saves_the_old_contents_before_merge() {
     );
     assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
     assert!(fs::read_dir(backup.path()).unwrap().next().is_some());
-    let restored = execute_rollback(
-        RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
-            session: None,
-            dry_run: false,
-            force: true,
-            format: "json".into(),
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let restored = execute_rollback(rollback_args("develop"), config, targets).unwrap();
     let RollbackCommandOutput::Restore(rollback) = restored.output else {
         panic!("expected restore result")
     };
@@ -176,16 +165,9 @@ fn sync_to_local_saves_its_previous_contents_outside_the_destination_root() {
     let before = fs::read_dir(local.path()).unwrap().count();
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["file.txt".into()],
             left: Some("develop".into()),
             right: vec!["local".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["file.txt"])
         },
         config.clone(),
         targets.clone(),
@@ -202,19 +184,7 @@ fn sync_to_local_saves_its_previous_contents_outside_the_destination_root() {
     );
     assert_eq!(fs::read_dir(local.path()).unwrap().count(), before);
     assert!(fs::read_dir(backup.path()).unwrap().next().is_some());
-    let restored = execute_rollback(
-        RollbackArgs {
-            target: Some("local".into()),
-            list: false,
-            session: None,
-            dry_run: false,
-            force: true,
-            format: "json".into(),
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let restored = execute_rollback(rollback_args("local"), config, targets).unwrap();
     let RollbackCommandOutput::Restore(rollback) = restored.output else {
         panic!("expected restore result")
     };
@@ -235,25 +205,14 @@ fn rollback_saves_the_overwritten_version_in_the_aggregate_store() {
     fs::write(local.path().join("file.txt"), "new\n").unwrap();
     fs::write(destination.path().join("file.txt"), "old\n").unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let merged = execute_merge(merge_args("file.txt"), config.clone(), targets.clone()).unwrap();
+    let merged = execute_merge(merge_args(&["file.txt"]), config.clone(), targets.clone()).unwrap();
     let MergeCommandOutput::Files(merged) = merged.output else {
         panic!("expected merge result")
     };
     assert_eq!(merged.merged.len(), 1, "{merged:?}");
 
-    let first = execute_rollback(
-        RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
-            session: None,
-            dry_run: false,
-            force: true,
-            format: "json".into(),
-        },
-        config.clone(),
-        targets.clone(),
-    )
-    .unwrap();
+    let first =
+        execute_rollback(rollback_args("develop"), config.clone(), targets.clone()).unwrap();
     let RollbackCommandOutput::Restore(first) = first.output else {
         panic!("expected restore result")
     };
@@ -270,12 +229,8 @@ fn rollback_saves_the_overwritten_version_in_the_aggregate_store() {
 
     let second = execute_rollback(
         RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
             session: Some(saved_version),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("develop")
         },
         config,
         targets,
@@ -335,23 +290,7 @@ fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
         .set_modified(mtime)
         .unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_sync(
-        SyncArgs {
-            paths: vec!["same-size.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let result = execute_sync(sync_args(&["same-size.txt"]), config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
     };
@@ -377,23 +316,7 @@ fn identical_file_sync_does_not_rewrite_the_destination() {
         .set_modified(before)
         .unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_sync(
-        SyncArgs {
-            paths: vec!["same.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let result = execute_sync(sync_args(&["same.txt"]), config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
     };
@@ -424,16 +347,8 @@ fn directory_sync_with_checksum_updates_equal_metadata_but_different_contents() 
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["folder".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
             checksum: true,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["folder"])
         },
         config,
         targets,
@@ -469,19 +384,9 @@ fn directory_merge_with_checksum_updates_equal_metadata_but_different_contents()
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["folder".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
             checksum: true,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["folder"])
         },
         config,
         targets,
@@ -522,16 +427,8 @@ fn sync_does_not_overwrite_a_destination_it_cannot_read() {
 
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["locked.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
             force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["locked.txt"])
         },
         config,
         targets,
@@ -565,26 +462,7 @@ fn explicit_merge_checks_readability_even_when_file_sizes_differ() {
     );
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.backup.enabled = false;
-    let result = execute_merge(
-        MergeArgs {
-            paths: vec!["locked.txt".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let result = execute_merge(merge_args(&["locked.txt"]), config, targets).unwrap();
     fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
@@ -623,21 +501,7 @@ fn unreadable_source_fails_one_file_without_blocking_the_other_merge() {
     fs::write(local.path().join("allowed.txt"), "new content\n").unwrap();
     fs::write(destination.path().join("allowed.txt"), "old\n").unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let args = MergeArgs {
-        paths: vec!["blocked.txt".into(), "allowed.txt".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
-        force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
-    };
+    let args = merge_args(&["blocked.txt", "allowed.txt"]);
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
@@ -679,26 +543,7 @@ fn two_unreadable_sides_are_not_reported_as_identical_empty_files() {
     assert!(fs::File::open(&source).is_err() && fs::File::open(&target).is_err());
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.backup.enabled = false;
-    let result = execute_merge(
-        MergeArgs {
-            paths: vec!["locked.txt".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let result = execute_merge(merge_args(&["locked.txt"]), config, targets).unwrap();
     fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
     fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -723,18 +568,7 @@ fn sync_skips_a_type_mismatch_and_preserves_the_destination() {
     fs::write(destination.path().join("target.txt"), "original\n").unwrap();
     symlink("target.txt", destination.path().join("link.txt")).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let args = SyncArgs {
-        paths: vec!["link.txt".into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    };
+    let args = sync_args(&["link.txt"]);
     let result = execute_sync(args, config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result");
@@ -761,19 +595,9 @@ fn a_deleted_regular_file_is_backed_up_and_recreated_by_rollback() {
     fs::write(destination.path().join("removed.txt"), "original bytes\n").unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
     let args = MergeArgs {
-        paths: vec!["removed.txt".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
         force: true,
         delete: true,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(&["removed.txt"])
     };
     let result = execute_merge(args, config.clone(), targets.clone()).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -783,19 +607,7 @@ fn a_deleted_regular_file_is_backed_up_and_recreated_by_rollback() {
     assert!(output.deleted[0].backup.is_some());
     assert!(!destination.path().join("removed.txt").exists());
 
-    let restored = execute_rollback(
-        RollbackArgs {
-            target: Some("develop".into()),
-            list: false,
-            session: None,
-            dry_run: false,
-            force: true,
-            format: "json".into(),
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let restored = execute_rollback(rollback_args("develop"), config, targets).unwrap();
     let RollbackCommandOutput::Restore(restored) = restored.output else {
         panic!("expected restore result");
     };
@@ -817,16 +629,8 @@ fn sync_delete_removes_a_destination_only_regular_file() {
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         SyncArgs {
-            paths: vec![".".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
             delete: true,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["."])
         },
         config,
         targets,
@@ -862,7 +666,7 @@ fn deletion_fails_without_removing_a_file_when_backup_cannot_be_saved() {
     let result = execute_merge(
         MergeArgs {
             delete: true,
-            ..merge_args("obsolete.txt")
+            ..merge_args(&["obsolete.txt"])
         },
         config,
         targets,
@@ -916,7 +720,7 @@ fn selected_hunk_changes_only_the_selected_region() {
     let target = destination.path().join("file.txt");
     fs::write(&target, &original).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.hunks = Some(vec![0]);
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -946,7 +750,7 @@ fn selecting_all_hunks_applies_both_regions() {
     let target = destination.path().join("file.txt");
     fs::write(&target, format!("old first\n{middle}old last\n")).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.hunks = Some(vec![0, 1]);
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -991,7 +795,7 @@ fn permission_copy_changes_destination_mode_to_source_mode() {
     fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
     fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.with_permissions = true;
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -1021,16 +825,8 @@ fn permission_copy_in_sync_changes_an_existing_destination_mode_to_the_source_mo
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["file.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
             with_permissions: true,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["file.txt"])
         },
         config,
         targets,
@@ -1078,7 +874,7 @@ fn new_file_uses_destination_configured_mode() {
     fs::write(local.path().join("new.txt"), "new\n").unwrap();
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.servers.get_mut("develop").unwrap().file_permissions = Some(0o640);
-    let result = execute_merge(merge_args("new.txt"), config, targets).unwrap();
+    let result = execute_merge(merge_args(&["new.txt"]), config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
     };
@@ -1101,23 +897,7 @@ fn sync_creates_missing_parent_directory_with_destination_mode() {
     fs::write(local.path().join("nested/file.txt"), "new\n").unwrap();
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.servers.get_mut("develop").unwrap().dir_permissions = Some(0o750);
-    let result = execute_sync(
-        SyncArgs {
-            paths: vec!["nested/file.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-        },
-        config,
-        targets,
-    )
-    .unwrap();
+    let result = execute_sync(sync_args(&["nested/file.txt"]), config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
         panic!("expected sync result")
     };
@@ -1152,7 +932,8 @@ fn creating_nested_directories_does_not_chmod_an_existing_parent() {
     .unwrap();
     let (mut config, targets) = setup(&local, &destination, &backup);
     config.servers.get_mut("develop").unwrap().dir_permissions = Some(0o750);
-    let result = execute_merge(merge_args("existing/new/sub/file.txt"), config, targets).unwrap();
+    let result =
+        execute_merge(merge_args(&["existing/new/sub/file.txt"]), config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
     };
@@ -1181,19 +962,9 @@ fn delete_does_not_remove_a_destination_only_symlink() {
     symlink("target.txt", destination.path().join("link.txt")).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
     let args = MergeArgs {
-        paths: vec!["link.txt".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
         force: true,
         delete: true,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(&["link.txt"])
     };
     let result = execute_merge(args, config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
@@ -1223,16 +994,8 @@ fn sync_delete_keeps_a_destination_only_symlink() {
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["link.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
             delete: true,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
+            ..sync_args(&["link.txt"])
         },
         config,
         targets,
@@ -1348,7 +1111,7 @@ fn matching_symlinks_are_not_rewritten() {
     let target = destination.path().join("link.txt");
     let inode = target.symlink_metadata().unwrap().ino();
     let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_merge(merge_args("link.txt"), config, targets).unwrap();
+    let result = execute_merge(merge_args(&["link.txt"]), config, targets).unwrap();
     assert!(matches!(
         result.output,
         MergeCommandOutput::Outcome(remote_merge::service::types::MergeOutcome::NoFilesToMerge)
@@ -1374,7 +1137,7 @@ fn external_edit_with_restored_size_and_timestamp_is_not_overwritten() {
     config.backup.enabled = false;
     let mut core = CoreRuntime::with_targets(config, targets);
 
-    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {
+    let output = merge_with_a_change_between(&mut core, &merge_args(&["file.txt"]), || {
         fs::write(&target, "evil change\n").unwrap();
         fs::OpenOptions::new()
             .write(true)
@@ -1442,7 +1205,7 @@ fn unchanged_destination_is_updated_after_content_recheck() {
     config.backup.enabled = false;
     let mut core = CoreRuntime::with_targets(config, targets);
 
-    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {});
+    let output = merge_with_a_change_between(&mut core, &merge_args(&["file.txt"]), || {});
 
     assert_eq!(output.merged.len(), 1, "{output:?}");
     assert_eq!(fs::read_to_string(target).unwrap(), "new version\n");
@@ -1460,7 +1223,7 @@ fn a_file_created_after_comparison_is_not_overwritten() {
     let mut core = CoreRuntime::with_targets(config, targets);
     let target = destination.path().join("file.txt");
 
-    let output = merge_with_a_change_between(&mut core, &merge_args("file.txt"), || {
+    let output = merge_with_a_change_between(&mut core, &merge_args(&["file.txt"]), || {
         fs::write(&target, "other writer\n").unwrap();
     });
 
@@ -1515,7 +1278,7 @@ fn merge_args_with(paths: &[&str], delete: bool) -> MergeArgs {
     MergeArgs {
         paths: paths.iter().map(|path| path.to_string()).collect(),
         delete,
-        ..merge_args(paths[0])
+        ..merge_args(&[paths[0]])
     }
 }
 
@@ -1523,7 +1286,7 @@ fn merge_args_with(paths: &[&str], delete: bool) -> MergeArgs {
 #[test]
 fn merge_rejects_parent_traversal_before_writing() {
     assert_merge_rejected_without_writing(
-        merge_args("../safe.txt"),
+        merge_args(&["../safe.txt"]),
         "path traversal not allowed: ../safe.txt",
     );
 }
@@ -1536,7 +1299,7 @@ fn merge_rejects_absolute_paths_before_writing() {
     fs::write(&absolute, "outside\n").unwrap();
     let absolute = absolute.to_str().unwrap();
     assert_merge_rejected_without_writing(
-        merge_args(absolute),
+        merge_args(&[absolute]),
         &format!("absolute subpath not allowed: {absolute}"),
     );
 }
@@ -1645,7 +1408,7 @@ fn merging_a_file_does_not_record_its_body_in_diagnostic_logs() {
         remote_merge::telemetry::structured_log::JsonLogLayer::new(CapturedLog(captured.clone())),
     );
     tracing::subscriber::with_default(subscriber, || {
-        let result = execute_merge(merge_args("file.txt"), config, targets).unwrap();
+        let result = execute_merge(merge_args(&["file.txt"]), config, targets).unwrap();
         let MergeCommandOutput::Files(output) = result.output else {
             panic!("expected merge output")
         };
@@ -1671,29 +1434,11 @@ fn merge(
     path: &str,
 ) -> remote_merge::service::types::MergeOutput {
     let (config, targets) = setup(local, destination, backup);
-    let result = execute_merge(merge_args(path), config, targets).unwrap();
+    let result = execute_merge(merge_args(&[path]), config, targets).unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result");
     };
     output
-}
-
-fn merge_args(path: &str) -> MergeArgs {
-    MergeArgs {
-        paths: vec![path.into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
-        force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
-    }
 }
 
 fn setup(

@@ -15,47 +15,18 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::{BackupSession, MergeOutput, RollbackOutput};
 use tempfile::TempDir;
 
+use super::args_support::rollback_args;
+
 pub fn fixed_now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap()
 }
 
-pub fn merge_args(path: &str) -> MergeArgs {
-    MergeArgs {
-        paths: vec![path.into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
-        force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
-    }
-}
-
+/// `target` のセッションの一覧を求める rollback --list の引数
 pub fn rollback_list_args(target: &str) -> RollbackArgs {
     RollbackArgs {
-        target: Some(target.into()),
         list: true,
-        session: None,
-        dry_run: false,
         force: false,
-        format: "json".into(),
-    }
-}
-
-pub fn rollback_args(target: &str, session: Option<&str>) -> RollbackArgs {
-    RollbackArgs {
-        target: Some(target.into()),
-        list: false,
-        session: session.map(str::to_owned),
-        dry_run: false,
-        force: true,
-        format: "json".into(),
+        ..rollback_args(target)
     }
 }
 

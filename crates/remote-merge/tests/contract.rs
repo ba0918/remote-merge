@@ -1,3 +1,5 @@
+#[path = "contract/args_support.rs"]
+mod args_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/backup_cleanup.rs"]
 mod backup_cleanup;

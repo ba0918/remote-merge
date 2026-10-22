@@ -9,7 +9,8 @@ use std::os::unix::net::UnixListener;
 
 use tempfile::TempDir;
 
-use super::backup_support::{config, merge_args, merge_files, restore, rollback_args, targets};
+use super::args_support::{merge_args, rollback_args};
+use super::backup_support::{config, merge_files, restore, targets};
 
 /// "a.txt" と "b.txt" を "original" から "merged" に書き換えたセッションを一つ作る
 fn two_merged_files(local: &TempDir, develop: &TempDir, store: &TempDir) {
@@ -17,7 +18,7 @@ fn two_merged_files(local: &TempDir, develop: &TempDir, store: &TempDir) {
         fs::write(local.path().join(name), format!("merged {name}\n")).unwrap();
         fs::write(develop.path().join(name), format!("original {name}\n")).unwrap();
     }
-    let mut args = merge_args("a.txt");
+    let mut args = merge_args(&["a.txt"]);
     args.paths.push("b.txt".into());
     merge_files(args, config(local, develop, true), targets(develop, store));
 }
@@ -36,7 +37,7 @@ fn a_target_replaced_by_a_socket_fails_as_not_a_regular_file_and_the_rest_is_res
     let _listener = UnixListener::bind(&socket).unwrap();
 
     let (output, code) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -64,7 +65,7 @@ fn a_target_removed_after_the_merge_is_recreated_without_a_pre_rollback_backup()
     fs::remove_file(develop.path().join("a.txt")).unwrap();
 
     let (output, code) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );
@@ -100,7 +101,7 @@ fn a_target_replaced_by_a_directory_is_not_restored() {
     fs::create_dir(develop.path().join("a.txt")).unwrap();
 
     let (output, code) = restore(
-        rollback_args("develop", None),
+        rollback_args("develop"),
         config(&local, &develop, true),
         targets(&develop, &store),
     );

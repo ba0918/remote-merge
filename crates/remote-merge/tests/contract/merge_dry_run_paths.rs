@@ -4,7 +4,8 @@
 //!
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 
-use super::merge_support::{Fixture, args, fixture, sync_args};
+use super::args_support::{merge_args, sync_args};
+use super::merge_support::{Fixture, fixture};
 use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 
@@ -41,7 +42,7 @@ fn merge_previews_a_destination_ancestor_that_is_a_file_as_the_same_failure() {
 
         let (json, code) = fixture.merge_json(MergeArgs {
             dry_run,
-            ..args(&["x/a.txt"])
+            ..merge_args(&["x/a.txt"])
         });
 
         assert_failed_as_not_a_directory(&format!("dry_run={dry_run}"), &json, code);
@@ -114,7 +115,7 @@ fn merge_previews_a_destination_path_that_is_too_long_as_the_same_failure() {
 
         let (json, code) = fixture.merge_json(MergeArgs {
             dry_run,
-            ..args(&["deep"])
+            ..merge_args(&["deep"])
         });
 
         assert_failed_as_path_too_long(&format!("dry_run={dry_run}"), &json, code);
@@ -176,7 +177,7 @@ fn merge_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() 
 
         let (json, code) = fixture.merge_json(MergeArgs {
             dry_run,
-            ..args(&["."])
+            ..merge_args(&["."])
         });
 
         assert_only_the_long_child_failed(&format!("dry_run={dry_run}"), &json, code);

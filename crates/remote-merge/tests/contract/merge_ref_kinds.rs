@@ -4,7 +4,8 @@
 //! 種類のそろわないパスは中身を読まずに扱いを決めるので、ディレクトリの読み込みの失敗で
 //! "three-way comparison incomplete" にならない。
 
-use super::merge_support::{Fixture, args, fixture};
+use super::args_support::merge_args;
+use super::merge_support::{Fixture, fixture};
 
 /// local と develop は中身の違う通常ファイル、参照先 staging だけが同じ名前のディレクトリ
 fn reference_is_a_directory(fixture: &Fixture) {
@@ -15,7 +16,7 @@ fn reference_is_a_directory(fixture: &Fixture) {
 }
 
 fn with_reference(paths: &[&str]) -> remote_merge::cli::merge::MergeArgs {
-    let mut args = args(paths);
+    let mut args = merge_args(paths);
     args.ref_server = Some("staging".into());
     args
 }

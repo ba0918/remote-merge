@@ -9,6 +9,8 @@ use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, sync_args};
+
 struct ScanFixture {
     _config_dir: TempDir,
     source: TempDir,
@@ -115,19 +117,9 @@ fn hunk_merge_scans_with_the_explicit_limit_instead_of_the_configured_one() {
     let fixture = scan_fixture();
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["folder/first.txt".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
             max_entries: Some(1),
             hunks: Some(vec![0]),
-            encodings: Default::default(),
+            ..merge_args(&["folder/first.txt"])
         },
         fixture.config,
         fixture.targets,
@@ -148,16 +140,9 @@ fn a_truncated_source_scan_cannot_start_sync_or_delete() {
     let fixture = scan_fixture();
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["folder".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
             delete: true,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
             max_entries: Some(1),
+            ..sync_args(&["folder"])
         },
         fixture.config,
         fixture.targets,
@@ -249,16 +234,8 @@ fn a_cycle_in_the_destination_blocks_sync_without_delete() {
     .unwrap();
     let result = execute_sync(
         SyncArgs {
-            paths: vec!["folder".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
             max_entries: Some(20),
+            ..sync_args(&["folder"])
         },
         fixture.config,
         fixture.targets,

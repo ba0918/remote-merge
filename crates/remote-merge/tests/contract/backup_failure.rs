@@ -10,26 +10,10 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;
 
-use super::backup_support::{
-    config, fixed_now, merge_args, merge_files, rollback_args, rollback_list_args, targets,
-};
+use super::args_support::{merge_args, rollback_args, sync_args};
+use super::backup_support::{config, fixed_now, merge_files, rollback_list_args, targets};
 
 const LOCATION_ERROR: &str = "backup store location could not be determined";
-
-fn sync_args(path: &str) -> SyncArgs {
-    SyncArgs {
-        paths: vec![path.into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    }
-}
 
 fn sync_output(
     args: SyncArgs,
@@ -82,12 +66,12 @@ fn merge_and_sync_stop_before_writing_when_the_store_cannot_be_created() {
     let config = config(&local, &develop, true);
 
     let merge = execute_merge(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         unusable_store_targets(&develop, &store_parent),
     );
     let sync = execute_sync(
-        sync_args("file.txt"),
+        sync_args(&["file.txt"]),
         config,
         unusable_store_targets(&develop, &store_parent),
     );
@@ -121,7 +105,7 @@ fn delete_reports_a_file_it_cannot_back_up_as_failed_and_keeps_it() {
         .unwrap()
         .set_len(remote_merge_core::op_failure::MAX_FILE_SIZE + 1)
         .unwrap();
-    let mut args = merge_args("obsolete.txt");
+    let mut args = merge_args(&["obsolete.txt"]);
     args.delete = true;
 
     let output = merge_files(
@@ -147,14 +131,14 @@ fn enabled_backup_without_store_location_stops_merge_and_sync_before_writing() {
     let config = config(&local, &develop, true);
 
     let merge_error = execute_merge(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         unlocated_store_targets(&develop),
     )
     .err()
     .expect("merge must stop");
     let sync_error = execute_sync(
-        sync_args("file.txt"),
+        sync_args(&["file.txt"]),
         config,
         unlocated_store_targets(&develop),
     )
@@ -188,11 +172,11 @@ fn ex_backup_033_a_merge_with_nothing_to_write_does_not_stop_without_a_store_loc
     let config = config(&local, &develop, true);
 
     let merged = merge_files(
-        merge_args("x"),
+        merge_args(&["x"]),
         config.clone(),
         unlocated_store_targets(&develop),
     );
-    let synced = sync_output(sync_args("x"), config, unlocated_store_targets(&develop));
+    let synced = sync_output(sync_args(&["x"]), config, unlocated_store_targets(&develop));
 
     assert!(merged.merged.is_empty(), "{merged:?}");
     let skipped: Vec<&str> = merged
@@ -225,12 +209,12 @@ fn disabled_backup_without_store_location_lets_merge_and_sync_write_without_back
     let config = config(&local, &develop, false);
 
     let merged = merge_files(
-        merge_args("merged.txt"),
+        merge_args(&["merged.txt"]),
         config.clone(),
         unlocated_store_targets(&develop),
     );
     let synced = sync_output(
-        sync_args("synced.txt"),
+        sync_args(&["synced.txt"]),
         config,
         unlocated_store_targets(&develop),
     );
@@ -259,9 +243,9 @@ fn rollback_fails_in_every_mode_without_store_location_and_writes_nothing() {
             fs::write(develop.path().join("file.txt"), "current\n").unwrap();
             let args = match mode {
                 "list" => rollback_list_args("develop"),
-                "restore" => rollback_args("develop", None),
+                "restore" => rollback_args("develop"),
                 _ => {
-                    let mut args = rollback_args("develop", None);
+                    let mut args = rollback_args("develop");
                     args.force = false;
                     args.dry_run = true;
                     args

@@ -8,6 +8,7 @@
 
 use std::process::Output;
 
+use super::args_support::sync_args;
 use super::common::CliEnv;
 
 /// 左にだけ "a.txt" があり、"missing.txt" は左右のどちらにもない
@@ -227,16 +228,10 @@ fn sync_x_with_delete(
     right: &[&str],
 ) -> anyhow::Result<remote_merge::cli::sync::SyncCommandResult> {
     let args = remote_merge::cli::sync::SyncArgs {
-        paths: vec!["x.txt".into()],
-        left: Some("local".into()),
         right: right.iter().map(|name| name.to_string()).collect(),
         dry_run: true,
-        force: true,
         delete: true,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
+        ..sync_args(&["x.txt"])
     };
     remote_merge::cli::sync::execute_sync(args, fixture.config.clone(), fixture.targets.clone())
 }

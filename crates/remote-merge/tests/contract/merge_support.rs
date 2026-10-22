@@ -10,13 +10,15 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::SystemTime;
 
-use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::diff::execute_diff;
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
 use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_json, format_merge_text};
 use tempfile::TempDir;
+
+use super::args_support::diff_args;
 
 const SERVERS: [&str; 2] = ["develop", "staging"];
 
@@ -191,19 +193,7 @@ impl Fixture {
 
     /// 関数呼び出しで local と develop の `path` を diff し、--format json と同じ整形の JSON を返す
     pub fn diff_json(&self, path: &str) -> serde_json::Value {
-        let args = DiffArgs {
-            paths: vec![path.to_string()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            format: "json".into(),
-            max_lines: None,
-            max_files: 100,
-            force: false,
-            follow_external_links: false,
-            encodings: Default::default(),
-            max_entries: None,
-        };
+        let args = diff_args(&[path]);
         let (output, _) = execute_diff(args, self.config(), self.runtime_targets()).unwrap();
         serde_json::from_str(&format_json(&output).unwrap()).unwrap()
     }
@@ -227,41 +217,5 @@ impl Fixture {
             .args(args)
             .output()
             .unwrap()
-    }
-}
-
-/// local から develop へ `paths` を書き込む引数（--force も --dry-run もない）
-pub fn args(paths: &[&str]) -> MergeArgs {
-    MergeArgs {
-        paths: paths.iter().map(|path| path.to_string()).collect(),
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
-        force: false,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
-    }
-}
-
-/// local から develop へ `paths` を同期する引数。
-/// 書き込む予定があると確認のプロンプトで標準入力を読むため --force を付ける。
-pub fn sync_args(paths: &[&str]) -> SyncArgs {
-    SyncArgs {
-        paths: paths.iter().map(|path| path.to_string()).collect(),
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
     }
 }

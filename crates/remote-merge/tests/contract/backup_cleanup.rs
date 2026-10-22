@@ -9,6 +9,8 @@ use remote_merge::service::types::BackupSession;
 use remote_merge::side::Side;
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, rollback_args};
+
 struct CleanupFixture {
     _local: TempDir,
     retired: TempDir,
@@ -90,12 +92,9 @@ fn cleanup_fixture() -> CleanupFixture {
 fn listed_sessions(target: &str, config: AppConfig, targets: RuntimeTargets) -> Vec<BackupSession> {
     let result = execute_rollback(
         RollbackArgs {
-            target: Some(target.into()),
             list: true,
-            session: None,
-            dry_run: false,
             force: false,
-            format: "json".into(),
+            ..rollback_args(target)
         },
         config,
         targets,
@@ -110,19 +109,9 @@ fn listed_sessions(target: &str, config: AppConfig, targets: RuntimeTargets) -> 
 fn merge_into_configured_server(fixture: &CleanupFixture) {
     let result = execute_merge(
         MergeArgs {
-            paths: vec!["fresh.txt".into()],
-            left: Some("local".into()),
             right: Some("active".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["fresh.txt"])
         },
         fixture.current_config.clone(),
         fixture.targets.clone(),
@@ -157,12 +146,8 @@ fn cleanup_retains_expired_history_of_a_server_no_longer_configured() {
     );
     let restored = execute_rollback(
         RollbackArgs {
-            target: Some("retired".into()),
-            list: false,
             session: Some(fixture.old_session),
-            dry_run: false,
-            force: true,
-            format: "json".into(),
+            ..rollback_args("retired")
         },
         fixture.original_config,
         fixture.targets,

@@ -2,10 +2,12 @@ use std::fs;
 
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::status::{StatusArgs, execute_status};
-use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
 use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
+
+use super::args_support::{merge_args, sync_args};
 
 struct Fixture {
     source: TempDir,
@@ -62,21 +64,6 @@ fn status_args() -> StatusArgs {
     }
 }
 
-fn sync_args() -> SyncArgs {
-    SyncArgs {
-        paths: vec![".".into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    }
-}
-
 // @kotowari[EX-config-005]
 #[test]
 fn excluded_file_is_absent_from_status_and_unmodified_by_merge() {
@@ -104,19 +91,8 @@ fn excluded_file_is_absent_from_status_and_unmodified_by_merge() {
     );
     let merge = execute_merge(
         MergeArgs {
-            paths: vec![".".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
             force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
+            ..merge_args(&["."])
         },
         fixture.config,
         fixture.targets,
@@ -178,7 +154,7 @@ fn include_restricts_status_and_sync_to_selected_files() {
     assert!(paths.contains("selected/visible.txt"), "{paths:?}");
     assert!(paths.contains("selected/ignored.log"), "{paths:?}");
     assert!(!paths.contains("outside.txt"), "{paths:?}");
-    let sync = execute_sync(sync_args(), fixture.config, fixture.targets).unwrap();
+    let sync = execute_sync(sync_args(&["."]), fixture.config, fixture.targets).unwrap();
     let SyncCommandOutput::Result(output) = sync.output else {
         panic!("expected sync output")
     };

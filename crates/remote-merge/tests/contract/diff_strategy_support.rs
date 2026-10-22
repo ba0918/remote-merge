@@ -22,6 +22,7 @@ use remote_merge::service::output::{format_json, format_multi_diff_text};
 use serde_json::Value;
 use tempfile::TempDir;
 
+use super::args_support::diff_args;
 use super::common::place_files;
 
 /// 全体を走査する経路に切り替わるパスの数（20 個を超える）
@@ -117,16 +118,8 @@ impl Fixture {
             .with_startup_directory(self._config_dir.path().to_path_buf());
         let args = DiffArgs {
             paths: paths.to_vec(),
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            format: "json".into(),
-            max_lines: None,
-            max_files: 100,
-            force: false,
-            follow_external_links: false,
-            encodings: Default::default(),
             max_entries,
+            ..diff_args(&[])
         };
         let (output, code) = execute_diff(args, config, targets).expect("diff failed");
         Run {

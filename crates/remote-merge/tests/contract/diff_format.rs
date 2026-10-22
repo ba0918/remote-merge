@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use remote_merge::service::output::format_multi_diff_text;
 use remote_merge::service::types::MultiDiffOutput;
 
+use super::args_support::diff_args;
 use super::diff_support::*;
 
 // ── REQ-cli-053: JSON の形 ──
@@ -90,7 +91,7 @@ fn req_cli_053_dotenv_and_a_link_to_it_show_their_content_diff_with_or_without_f
         "{json}"
     );
 
-    let mut forced = args(&[".env", "link.txt"]);
+    let mut forced = diff_args(&[".env", "link.txt"]);
     forced.force = true;
     let (forced_output, _) = fixture.run(forced);
     assert_eq!(super::diff_support::json(&forced_output), json);
@@ -136,7 +137,7 @@ fn req_cli_053_json_has_truncated_and_changed_files_total_when_max_files_truncat
         &[("f.txt", b"old\n"), ("g.txt", b"old\n")],
         &[("f.txt", b"new\n"), ("g.txt", b"new\n")],
     );
-    let mut args = args(&["f.txt", "g.txt"]);
+    let mut args = diff_args(&["f.txt", "g.txt"]);
     args.max_files = 1;
 
     let (output, _) = fixture.run(args);
@@ -157,7 +158,7 @@ fn five_changes_after_context() -> DiffFixture {
 }
 
 fn diff_with_max_lines(fixture: &DiffFixture, max_lines: Option<usize>) -> MultiDiffOutput {
-    let mut args = args(&["f.txt"]);
+    let mut args = diff_args(&["f.txt"]);
     args.max_lines = max_lines;
     fixture.run(args).0
 }

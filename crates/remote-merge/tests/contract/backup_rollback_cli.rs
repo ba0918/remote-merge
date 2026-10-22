@@ -5,16 +5,16 @@
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
-use remote_merge::cli::rollback::{RollbackCommandOutput, execute_rollback};
+use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
 use remote_merge::service::output::{
     format_backup_list_text, format_json, format_rollback_dry_run_text, format_rollback_text,
 };
 use remote_merge::service::types::RollbackOutput;
 use tempfile::TempDir;
 
+use super::args_support::{merge_args, rollback_args};
 use super::backup_support::{
-    config, listed_sessions, merge_args, merge_files, restore, rollback_args, rollback_list_args,
-    store_entries, targets,
+    config, listed_sessions, merge_files, restore, rollback_list_args, store_entries, targets,
 };
 use super::common::{permissions_apply, restrict_permissions};
 
@@ -57,7 +57,7 @@ fn restored_skipped_and_failed() -> Option<(RollbackOutput, i32)> {
     fs::write(local.path().join("restored.txt"), "restored after\n").unwrap();
     fs::write(local.path().join("failed.txt"), "failed after\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("restored.txt");
+    let mut args = merge_args(&["restored.txt"]);
     args.paths = vec![
         "restored.txt".into(),
         "failed.txt".into(),
@@ -74,11 +74,7 @@ fn restored_skipped_and_failed() -> Option<(RollbackOutput, i32)> {
         return None;
     }
 
-    let result = execute_rollback(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let result = execute_rollback(rollback_args("develop"), config, targets(&develop, &store));
     fs::set_permissions(&blocked, fs::Permissions::from_mode(0o600)).unwrap();
     let result = result.unwrap();
     let RollbackCommandOutput::Restore(output) = result.output else {
@@ -133,16 +129,12 @@ fn rollback_text_summary_has_no_counts_when_nothing_was_skipped_or_failed() {
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
 
-    let (output, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (output, _) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     let text = format_rollback_text(&output);
     let summary = text.lines().last().unwrap();
@@ -190,7 +182,7 @@ fn rollback_exit_codes_follow_the_result() {
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -201,14 +193,10 @@ fn rollback_exit_codes_follow_the_result() {
         targets(&develop, &store),
     )
     .unwrap();
-    let mut preview = rollback_args("develop", None);
+    let mut preview = rollback_args("develop");
     preview.dry_run = true;
     let previewed = execute_rollback(preview, config.clone(), targets(&develop, &store)).unwrap();
-    let (_, restored) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let (_, restored) = restore(rollback_args("develop"), config, targets(&develop, &store));
 
     assert_eq!(listed.exit_code, 0);
     assert_eq!(previewed.exit_code, 0);
@@ -231,7 +219,7 @@ fn rollback_exits_with_2_when_every_file_is_skipped_or_failed() {
         fs::write(develop.path().join("file.txt"), "old\n").unwrap();
         let config = config(&local, &develop, true);
         merge_files(
-            merge_args("file.txt"),
+            merge_args(&["file.txt"]),
             config.clone(),
             targets(&develop, &store),
         );
@@ -243,11 +231,7 @@ fn rollback_exits_with_2_when_every_file_is_skipped_or_failed() {
             continue;
         }
 
-        let result = execute_rollback(
-            rollback_args("develop", None),
-            config,
-            targets(&develop, &store),
-        );
+        let result = execute_rollback(rollback_args("develop"), config, targets(&develop, &store));
         if !make_skip {
             fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
         }
@@ -281,18 +265,14 @@ fn restore_after_disturbing_one_of_two(
         fs::write(develop.path().join(path), "original\n").unwrap();
     }
     let config = config(&local, &develop, true);
-    let mut args = merge_args("kept.txt");
+    let mut args = merge_args(&["kept.txt"]);
     args.paths = vec!["kept.txt".into(), "sub/disturbed.txt".into()];
     let merged = merge_files(args, config.clone(), targets(&develop, &store));
     assert_eq!(merged.merged.len(), 2, "{merged:?}");
     let disturbed = develop.path().join("sub/disturbed.txt");
     disturb(&disturbed);
 
-    let result = execute_rollback(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
+    let result = execute_rollback(rollback_args("develop"), config, targets(&develop, &store));
     fs::set_permissions(&disturbed, fs::Permissions::from_mode(0o600)).ok();
     let result = result.unwrap();
     let RollbackCommandOutput::Restore(output) = result.output else {
@@ -347,13 +327,13 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
     fs::write(develop.path().join("other.txt"), "other\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
     fs::remove_file(develop.path().join("file.txt")).unwrap();
     symlink("other.txt", develop.path().join("file.txt")).unwrap();
-    let mut args = rollback_args("develop", None);
+    let mut args = rollback_args("develop");
     args.force = false;
     args.dry_run = true;
 
@@ -395,14 +375,14 @@ fn dry_run_with_a_blocked_parent() -> Option<(RollbackOutput, i32)> {
         fs::write(develop.path().join(path), "original\n").unwrap();
     }
     let config = config(&local, &develop, true);
-    let mut merge = merge_args("kept.txt");
+    let mut merge = merge_args(&["kept.txt"]);
     merge.paths = vec!["kept.txt".into(), "sub/blocked.txt".into()];
     let merged = merge_files(merge, config.clone(), targets(&develop, &store));
     assert_eq!(merged.merged.len(), 2, "{merged:?}");
     let blocked = develop.path().join("sub");
     let locks = remote_merge_core::test_tree::PermissionLocks::new();
     locks.lock(&blocked, 0o000);
-    let mut args = rollback_args("develop", None);
+    let mut args = rollback_args("develop");
     args.dry_run = true;
 
     let result = execute_rollback(args, config, targets(&develop, &store));
@@ -469,12 +449,12 @@ fn dry_run_text_marks_the_planned_and_skipped_files_without_a_summary() {
         fs::write(develop.path().join(path), "original\n").unwrap();
     }
     let config = config(&local, &develop, true);
-    let mut merge = merge_args("kept.txt");
+    let mut merge = merge_args(&["kept.txt"]);
     merge.paths = vec!["kept.txt".into(), "gone/skipped.txt".into()];
     let merged = merge_files(merge, config.clone(), targets(&develop, &store));
     assert_eq!(merged.merged.len(), 2, "{merged:?}");
     fs::remove_dir_all(develop.path().join("gone")).unwrap();
-    let mut args = rollback_args("develop", None);
+    let mut args = rollback_args("develop");
     args.dry_run = true;
     let result = execute_rollback(args, config, targets(&develop, &store)).unwrap();
     let RollbackCommandOutput::DryRun { output, .. } = result.output else {
@@ -502,12 +482,12 @@ fn target_is_required_except_for_list_which_defaults_to_local() {
     fs::write(local.path().join("file.txt"), "old local\n").unwrap();
     fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut down = merge_args("file.txt");
+    let mut down = merge_args(&["file.txt"]);
     down.left = Some("develop".into());
     down.right = Some("local".into());
     merge_files(down, config.clone(), targets(&develop, &store));
 
-    let mut restore_args = rollback_args("develop", None);
+    let mut restore_args = rollback_args("develop");
     restore_args.target = None;
     let error = execute_rollback(restore_args, config.clone(), targets(&develop, &store))
         .err()
@@ -545,7 +525,7 @@ fn written_target_lists_its_session_with_file_sizes_in_text_and_json() {
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -587,7 +567,7 @@ fn updated_symlink_is_listed_as_a_symlink_in_text_and_json() {
     symlink("target.txt", develop.path().join("link.txt")).unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("link.txt"),
+        merge_args(&["link.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -629,14 +609,17 @@ fn rollback_treats_a_session_with_missing_content_as_not_found() {
     fs::write(develop.path().join("file.txt"), "unique rollback content\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
     remove_stored_content(&store, b"unique rollback content\n");
 
     let error = execute_rollback(
-        rollback_args("develop", Some("20260914-120000")),
+        RollbackArgs {
+            session: Some("20260914-120000".into()),
+            ..rollback_args("develop")
+        },
         config,
         targets(&develop, &store),
     )
@@ -663,7 +646,7 @@ fn session_with_missing_content_is_omitted_without_failing_the_list() {
     fs::write(develop.path().join("file.txt"), "unique old content\n").unwrap();
     let config = config(&local, &develop, true);
     merge_files(
-        merge_args("file.txt"),
+        merge_args(&["file.txt"]),
         config.clone(),
         targets(&develop, &store),
     );
@@ -684,7 +667,7 @@ fn session_missing_the_content_of_one_of_its_files_is_omitted_from_the_list() {
             fs::write(develop.path().join(path), format!("unique old {path}\n")).unwrap();
         }
         let config = config(&local, &develop, true);
-        let mut args = merge_args("first.txt");
+        let mut args = merge_args(&["first.txt"]);
         args.paths = vec!["first.txt".into(), "second.txt".into()];
         let output = merge_files(args, config.clone(), targets(&develop, &store));
         assert_eq!(output.merged.len(), 2, "{output:?}");

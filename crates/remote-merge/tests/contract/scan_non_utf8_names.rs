@@ -13,14 +13,15 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::Output;
 
-use remote_merge::cli::diff::{DiffArgs, execute_diff};
+use remote_merge::cli::diff::execute_diff;
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
-use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
 use remote_merge::config::{AppConfig, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use serde_json::Value;
 use tempfile::TempDir;
 
+use super::args_support::{diff_args, merge_args, sync_args};
 use super::cli_launch_support::{AgentRootsFixture, status_on_the_remote_server};
 use super::common::{CliEnv, gen_config, place_files};
 
@@ -190,19 +191,7 @@ fn destination_names(fixture: &Fixture) -> Vec<Vec<u8>> {
 #[test]
 fn req_scan_012_diff_reports_a_file_whose_name_is_not_utf8_in_errors() {
     let fixture = fixture();
-    let args = DiffArgs {
-        paths: vec![],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
-        max_files: 100,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
-    };
+    let args = diff_args(&[]);
 
     let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
 
@@ -224,19 +213,8 @@ fn req_scan_012_diff_reports_a_file_whose_name_is_not_utf8_in_errors() {
 fn req_scan_012_merge_reports_a_file_whose_name_is_not_utf8_as_failed() {
     let fixture = fixture();
     let args = MergeArgs {
-        paths: vec![".".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        dry_run: false,
         force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-        hunks: None,
-        encodings: Default::default(),
+        ..merge_args(&["."])
     };
 
     let result = execute_merge(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
@@ -258,18 +236,7 @@ fn req_scan_012_merge_reports_a_file_whose_name_is_not_utf8_as_failed() {
 #[test]
 fn req_scan_012_sync_reports_a_file_whose_name_is_not_utf8_as_failed() {
     let fixture = fixture();
-    let args = SyncArgs {
-        paths: vec![".".into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    };
+    let args = sync_args(&["."]);
 
     let result = execute_sync(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
 
@@ -307,19 +274,7 @@ fn req_scan_012_diff_of_the_root_and_a_named_file_keeps_a_file_whose_name_is_not
     let targets = RuntimeTargets::production()
         .with_local("develop", destination.path())
         .with_startup_directory(config_dir.path().to_path_buf());
-    let args = DiffArgs {
-        paths: vec![".".into(), "app.log".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
-        max_files: 100,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
-    };
+    let args = diff_args(&[".", "app.log"]);
 
     let (output, code) = execute_diff(args, config, targets).unwrap();
 

@@ -15,6 +15,8 @@ use remote_merge::service::output::format_multi_diff_text;
 use remote_merge::service::types::MultiDiffOutput;
 use tempfile::TempDir;
 
+use super::args_support::diff_args;
+
 struct DiffFixture {
     _config_dir: TempDir,
     _left: TempDir,
@@ -89,17 +91,8 @@ fn fixture_with(place_left: impl FnOnce(&Path), place_right: impl FnOnce(&Path))
 
 fn diff(fixture: DiffFixture, paths: &[&str], max_files: usize) -> MultiDiffOutput {
     let args = DiffArgs {
-        paths: paths.iter().map(|path| path.to_string()).collect(),
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
         max_files,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
+        ..diff_args(paths)
     };
     execute_diff(args, fixture.config, fixture.targets)
         .expect("diff failed")
@@ -217,17 +210,8 @@ fn req_cli_055_unchanged_dotenv_file_is_not_counted() {
         |right| place(right, "right\n"),
     );
     let args = DiffArgs {
-        paths: vec!["a.txt".into(), ".env".into()],
-        left: Some("local".into()),
-        right: Some("develop".into()),
-        ref_server: None,
-        format: "json".into(),
-        max_lines: None,
         max_files: 1,
-        force: false,
-        follow_external_links: false,
-        encodings: Default::default(),
-        max_entries: None,
+        ..diff_args(&["a.txt", ".env"])
     };
 
     let output = execute_diff(args, fixture.config, fixture.targets)

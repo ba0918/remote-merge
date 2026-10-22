@@ -3,7 +3,8 @@
 //! 書き込み先 develop と参照先 staging を一時ディレクトリに差し替えて execute_merge を呼び、
 //! 結果を --format json と同じ整形で JSON にして確かめる。
 
-use super::merge_support::{Fixture, args, fixture, fixture_with_backup};
+use super::args_support::merge_args;
+use super::merge_support::{Fixture, fixture, fixture_with_backup};
 
 fn is_non_empty_string(value: &serde_json::Value) -> bool {
     value.as_str().is_some_and(|text| !text.is_empty())
@@ -23,7 +24,7 @@ fn a_merge_without_failed_files_exits_with_zero() {
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("develop", "file.txt", "develop old\n");
 
-    let (json, code) = fixture.merge_json(args(&["file.txt"]));
+    let (json, code) = fixture.merge_json(merge_args(&["file.txt"]));
 
     assert_eq!(json["failed"], serde_json::json!([]), "{json}");
     assert_eq!(code, 0, "{json}");
@@ -34,7 +35,7 @@ fn a_merge_without_failed_files_exits_with_zero() {
 fn a_merge_with_a_failed_file_exits_with_two() {
     let fixture = fixture();
     conflicting_file(&fixture);
-    let mut args = args(&["file.txt"]);
+    let mut args = merge_args(&["file.txt"]);
     args.ref_server = Some("staging".into());
 
     let (json, code) = fixture.merge_json(args);
@@ -50,7 +51,7 @@ fn json_has_the_written_file_with_ok_and_backup_and_every_list_without_ref() {
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("develop", "file.txt", "develop old\n");
 
-    let (json, _) = fixture.merge_json(args(&["file.txt"]));
+    let (json, _) = fixture.merge_json(merge_args(&["file.txt"]));
 
     let merged = &json["merged"][0];
     assert_eq!(merged["path"], "file.txt", "{json}");
@@ -70,7 +71,7 @@ fn dry_run_json_has_the_planned_file_as_would_merge() {
     let fixture = fixture();
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("develop", "file.txt", "develop old\n");
-    let mut args = args(&["file.txt"]);
+    let mut args = merge_args(&["file.txt"]);
     args.dry_run = true;
 
     let (json, _) = fixture.merge_json(args);
@@ -87,7 +88,7 @@ fn json_with_a_reference_has_ref_and_the_ref_badge() {
     fixture.write("local", "file.txt", "incoming\n");
     fixture.write("develop", "file.txt", "develop old\n");
     fixture.write("staging", "file.txt", "develop old\n");
-    let mut args = args(&["file.txt"]);
+    let mut args = merge_args(&["file.txt"]);
     args.ref_server = Some("staging".into());
 
     let (json, _) = fixture.merge_json(args);
@@ -108,7 +109,7 @@ fn json_has_a_dotenv_file_written_without_force_as_ok() {
     fixture.write("local", ".env", "A=incoming\n");
     fixture.write("develop", ".env", "A=develop old\n");
 
-    let (json, _) = fixture.merge_json(args(&[".env"]));
+    let (json, _) = fixture.merge_json(merge_args(&[".env"]));
 
     assert_eq!(json["merged"][0]["path"], ".env", "{json}");
     assert_eq!(json["merged"][0]["status"], "ok", "{json}");
@@ -124,7 +125,7 @@ fn json_has_a_destination_only_dotenv_file_deleted_without_force() {
     fixture.write("local", "file.txt", "same\n");
     fixture.write("develop", "file.txt", "same\n");
     fixture.write("develop", ".env", "A=only on develop\n");
-    let mut args = args(&["."]);
+    let mut args = merge_args(&["."]);
     args.delete = true;
 
     let (json, _) = fixture.merge_json(args);
@@ -146,7 +147,7 @@ fn json_has_skipped_files_with_path_and_reason() {
     fixture.write("develop", "kind.txt", "develop\n");
 
     // 終了コードは確かめない
-    let (json, _) = fixture.merge_json(args(&["kind.txt"]));
+    let (json, _) = fixture.merge_json(merge_args(&["kind.txt"]));
 
     let skipped = &json["skipped"][0];
     assert_eq!(skipped["path"], "kind.txt", "{json}");
@@ -159,7 +160,7 @@ fn json_has_skipped_files_with_path_and_reason() {
 fn json_has_failed_files_with_path_and_error() {
     let fixture = fixture();
     conflicting_file(&fixture);
-    let mut args = args(&["file.txt"]);
+    let mut args = merge_args(&["file.txt"]);
     args.ref_server = Some("staging".into());
 
     let (json, _) = fixture.merge_json(args);
@@ -176,7 +177,7 @@ fn a_conflicting_file_fails_as_a_three_way_conflict_and_other_files_are_written(
     fixture.write("local", "other.txt", "new\n");
     fixture.write("develop", "other.txt", "old\n");
     fixture.write("staging", "other.txt", "old\n");
-    let mut args = args(&["file.txt", "other.txt"]);
+    let mut args = merge_args(&["file.txt", "other.txt"]);
     args.ref_server = Some("staging".into());
 
     let (json, _) = fixture.merge_json(args);
@@ -205,7 +206,7 @@ fn a_binary_changed_only_on_the_source_is_written_and_one_changed_only_on_the_de
         std::fs::write(fixture.root(side).join("a.bin"), a).unwrap();
         std::fs::write(fixture.root(side).join("b.bin"), b).unwrap();
     }
-    let mut args = args(&["a.bin", "b.bin"]);
+    let mut args = merge_args(&["a.bin", "b.bin"]);
     args.ref_server = Some("staging".into());
 
     let (json, code) = fixture.merge_json(args);
@@ -240,7 +241,7 @@ fn a_dry_run_reports_a_file_whose_reference_could_not_be_read_as_incomplete() {
     if !fixture.make_unreadable("staging", "file.txt") {
         return;
     }
-    let mut args = args(&["file.txt"]);
+    let mut args = merge_args(&["file.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
 
@@ -288,7 +289,7 @@ fn a_dry_run_reports_an_unreadable_file_among_readable_files_as_incomplete() {
     if !unreadable_reference_beside_a_readable_file(&fixture) {
         return;
     }
-    let mut args = args(&["file.txt", "other.txt"]);
+    let mut args = merge_args(&["file.txt", "other.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
 
@@ -320,7 +321,7 @@ fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not
     if !fixture.make_unreadable("staging", "file.txt") {
         return;
     }
-    let mut args = args(&["file.txt", "other.txt"]);
+    let mut args = merge_args(&["file.txt", "other.txt"]);
     args.ref_server = Some("staging".into());
     args.dry_run = true;
     args.force = true;
@@ -342,7 +343,7 @@ fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not
 }
 
 fn with_reference(paths: &[&str]) -> remote_merge::cli::merge::MergeArgs {
-    let mut args = args(paths);
+    let mut args = merge_args(paths);
     args.ref_server = Some("staging".into());
     args
 }

@@ -9,12 +9,14 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use remote_merge::cli::diff::{DiffArgs, execute_diff};
-use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
-use remote_merge::cli::sync::{SyncArgs, SyncCommandOutput, execute_sync};
+use remote_merge::cli::merge::{MergeCommandOutput, execute_merge};
+use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
 use remote_merge::config::{AppConfig, StrictHostKeyChecking, load_config_from_paths};
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
+use super::args_support::{diff_args, merge_args, sync_args};
+use super::sync_support::sync_args_to;
 use super::{merge_support, status_support, sync_support};
 
 /// どの設定にも書く [local]（[local] がないときの挙動は FLAG-config-002 の範囲のため避ける）。
@@ -308,21 +310,7 @@ fn merge_creates_a_new_file_with_the_server_then_defaults_then_default_mode() {
     for source in ALL_SOURCES {
         let fixture = WriteFixture::new();
         fs::write(fixture.local.path().join("new.txt"), "new\n").unwrap();
-        let args = MergeArgs {
-            paths: vec!["new.txt".into()],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            dry_run: false,
-            force: false,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-            hunks: None,
-            encodings: Default::default(),
-        };
+        let args = merge_args(&["new.txt"]);
         let result = execute_merge(args, fixture.config(source), fixture.targets()).unwrap();
         let MergeCommandOutput::Files(output) = result.output else {
             panic!("expected per-file result")
@@ -347,18 +335,7 @@ fn sync_creates_a_new_directory_with_the_server_then_defaults_then_default_mode(
         let fixture = WriteFixture::new();
         fs::create_dir(fixture.local.path().join("nested")).unwrap();
         fs::write(fixture.local.path().join("nested/file.txt"), "new\n").unwrap();
-        let args = SyncArgs {
-            paths: vec!["nested/file.txt".into()],
-            left: Some("local".into()),
-            right: vec!["develop".into()],
-            dry_run: false,
-            force: true,
-            delete: false,
-            with_permissions: false,
-            checksum: false,
-            format: "json".into(),
-            max_entries: None,
-        };
+        let args = sync_args(&["nested/file.txt"]);
         let result = execute_sync(args, fixture.config(source), fixture.targets()).unwrap();
         let SyncCommandOutput::Result(output) = result.output else {
             panic!("expected sync result")
@@ -424,17 +401,8 @@ fn diff_max_entries_outside_its_range_stops() {
     let fixture = status_support::fixture();
     for (value, expected) in MAX_ENTRIES_OUTSIDE {
         let args = DiffArgs {
-            paths: vec![],
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            format: "json".into(),
-            max_lines: None,
-            max_files: 100,
-            force: false,
-            follow_external_links: false,
-            encodings: Default::default(),
             max_entries: Some(value),
+            ..diff_args(&[])
         };
         let Err(err) = execute_diff(args, fixture.config.clone(), fixture.targets()) else {
             panic!("expected diff to stop")
@@ -449,7 +417,7 @@ fn merge_max_entries_outside_its_range_stops() {
     let fixture = merge_support::fixture();
     fixture.write("local", "file.txt", "local\n");
     for (value, expected) in MAX_ENTRIES_OUTSIDE {
-        let mut args = merge_support::args(&["file.txt"]);
+        let mut args = merge_args(&["file.txt"]);
         args.max_entries = Some(value);
         assert_eq!(format!("{:#}", fixture.merge_error(args)), expected);
         assert!(!fixture.root("develop").join("file.txt").exists());
@@ -462,7 +430,7 @@ fn sync_max_entries_outside_its_range_stops() {
     let fixture = sync_support::fixture();
     fixture.write("local", "file.txt", "local\n");
     for (value, expected) in MAX_ENTRIES_OUTSIDE {
-        let mut args = sync_support::args(&["file.txt"], &["develop"]);
+        let mut args = sync_args_to(&["file.txt"], &["develop"]);
         args.max_entries = Some(value);
         let Err(err) = fixture.run(args) else {
             panic!("expected sync to stop")

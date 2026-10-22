@@ -16,8 +16,9 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge_core::test_tree::PermissionLocks;
 use tempfile::TempDir;
 
+use super::args_support::merge_args;
 use super::backup_support::{
-    config, fixed_now, merge_args, merge_files, rollback_list_args, store_entries, targets,
+    config, fixed_now, merge_files, rollback_list_args, store_entries, targets,
 };
 
 /// `dir` を書き込めなくする。Drop で、一時ディレクトリを消す前に戻す。この利用者でも書き込めて
@@ -48,7 +49,7 @@ fn two_files(local: &TempDir, develop: &TempDir) -> MergeArgs {
         fs::write(local.path().join(name), "new\n").unwrap();
         fs::write(develop.path().join(name), "old\n").unwrap();
     }
-    let mut args = merge_args("a.txt");
+    let mut args = merge_args(&["a.txt"]);
     args.paths = vec!["a.txt".into(), "b.txt".into()];
     args.force = true;
     args
@@ -127,7 +128,7 @@ fn ex_backup_025_a_session_record_that_cannot_be_parsed_stops_the_list() {
     fs::write(local.path().join("file.txt"), "new\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(&local, &develop, true);
-    let mut args = merge_args("file.txt");
+    let mut args = merge_args(&["file.txt"]);
     args.force = true;
     let merged = merge_files(args, config.clone(), targets(&develop, &store));
     assert_eq!(merged.merged.len(), 1, "{merged:?}");
