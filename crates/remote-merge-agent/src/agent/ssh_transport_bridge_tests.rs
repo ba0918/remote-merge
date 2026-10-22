@@ -41,7 +41,7 @@ impl client::Handler for AcceptTestKey {
 async fn connected_transport() -> Result<(
     client::Handle<AcceptTestKey>,
     server::RunningSession<Peer>,
-    SshAgentTransport,
+    (UnixStream, UnixStream, TransportGuard),
     tokio::sync::mpsc::UnboundedReceiver<ChannelId>,
 )> {
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
@@ -64,7 +64,7 @@ async fn connected_transport() -> Result<(
     assert!(session.authenticate_none("test").await?.success());
     let server = server.await??;
     let channel = session.channel_open_session().await?;
-    let transport = SshAgentTransport::start(
+    let transport = start(
         tokio::runtime::Handle::current(),
         channel,
         Duration::from_secs(3),
@@ -74,8 +74,8 @@ async fn connected_transport() -> Result<(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closing_stdin_sends_one_eof_and_still_forwards_final_stdout() {
-    let (session, server, transport, mut eof_rx) = connected_transport().await.unwrap();
-    let (mut read, write, guard) = transport.into_streams();
+    let (session, server, (mut read, write, guard), mut eof_rx) =
+        connected_transport().await.unwrap();
     drop(write);
     let channel_id = tokio::time::timeout(Duration::from_secs(3), eof_rx.recv())
         .await
@@ -107,8 +107,8 @@ async fn closing_stdin_sends_one_eof_and_still_forwards_final_stdout() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropping_the_guard_joins_a_silent_bridge_after_stdin_eof() {
-    let (session, server, transport, mut eof_rx) = connected_transport().await.unwrap();
-    let (_read, write, mut guard) = transport.into_streams();
+    let (session, server, (_read, write, mut guard), mut eof_rx) =
+        connected_transport().await.unwrap();
     drop(write);
     let channel_id = tokio::time::timeout(Duration::from_secs(3), eof_rx.recv())
         .await
@@ -143,46 +143,5 @@ async fn dropping_the_guard_joins_a_silent_bridge_after_stdin_eof() {
     server.await.unwrap();
     joined_without_remote_output
         .expect("guard must join the silent bridge without waiting for remote output")
-        .unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn dropping_the_transport_joins_a_silent_bridge_after_stdin_eof() {
-    let (session, server, mut transport, mut eof_rx) = connected_transport().await.unwrap();
-    transport
-        .client_write
-        .as_ref()
-        .unwrap()
-        .shutdown(std::net::Shutdown::Write)
-        .unwrap();
-    let channel_id = tokio::time::timeout(Duration::from_secs(3), eof_rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    let bridge = transport.bridge_thread.take().unwrap();
-    let (joined_tx, mut joined_rx) = tokio::sync::oneshot::channel();
-    transport.bridge_thread = Some(std::thread::spawn(move || {
-        let result = bridge.join();
-        let _ = joined_tx.send(result);
-    }));
-    tokio::task::spawn_blocking(move || drop(transport))
-        .await
-        .unwrap();
-    let joined_without_remote_output = joined_rx.try_recv();
-    if joined_without_remote_output.is_err() {
-        server.handle().eof(channel_id).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(3), joined_rx)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-    }
-    session
-        .disconnect(russh::Disconnect::ByApplication, "done", "")
-        .await
-        .unwrap();
-    server.await.unwrap();
-    joined_without_remote_output
-        .expect("transport must join the silent bridge without waiting for remote output")
         .unwrap();
 }

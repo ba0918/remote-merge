@@ -8,7 +8,7 @@ use crate::agent::deploy::{self, VersionCheck};
 #[cfg(unix)]
 use crate::agent::protocol::CLI_VERSION;
 #[cfg(unix)]
-use crate::agent::ssh_transport::SshAgentTransport;
+use crate::agent::ssh_transport;
 #[cfg(unix)]
 use remote_merge_core::route_choice::AgentState;
 
@@ -23,7 +23,7 @@ impl CoreRuntime {
     ///
     /// 1. 配置先のディレクトリの検査 → バージョンチェック → 不一致または未配置なら自動デプロイ
     /// 2. SSH exec チャネルで Agent プロセスを起動
-    /// 3. SshAgentTransport でブリッジスレッドを起動し、UnixStream ペアを取得
+    /// 3. ssh_transport でブリッジスレッドを起動し、UnixStream ペアを取得
     /// 4. AgentClient::connect でハンドシェイク
     ///
     /// 使えなければ、経路の選び方（TBL-ssh-001）に渡すエージェントの状態を返す
@@ -145,9 +145,9 @@ impl CoreRuntime {
         // （大きな走査の間はエージェントが黙って計算するので、短くすると健全な処理を切ってしまう。
         // `接続断` の時間切れ。REQ-ssh-003・REQ-ssh-025）
         let read_timeout = remote_merge_ssh::silence_timeout(self.config.ssh.timeout_sec);
-        let transport = SshAgentTransport::start(handle, channel, read_timeout)
-            .map_err(|error| cannot_start(&error))?;
-        let (read_stream, write_stream, guard) = transport.into_streams();
+        let (read_stream, write_stream, guard) =
+            ssh_transport::start(handle, channel, read_timeout)
+                .map_err(|error| cannot_start(&error))?;
 
         // AgentClient を接続（ハンドシェイク）
         let client = AgentClient::connect(read_stream, write_stream)

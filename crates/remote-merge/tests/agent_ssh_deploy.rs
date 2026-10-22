@@ -2,7 +2,7 @@
 //! Agent SSH E2E テスト (D-5b)
 //!
 //! インプロセス SSH テストサーバーを使って `remote-merge agent` を SSH exec 経由で
-//! 起動し、SshAgentTransport + AgentClient でエンドツーエンドの通信を検証する。
+//! 起動し、ssh_transport + AgentClient でエンドツーエンドの通信を検証する。
 //!
 //! ## アーキテクチャ
 //!
@@ -13,7 +13,7 @@
 //!                                   ├─ stdout → SSHチャネル (Handle.data)
 //!                                   └─ stdin  ← stdin_tx (mpsc)
 //!
-//! SshAgentTransport
+//! ssh_transport
 //!   ├─ bridge スレッド: SshClient channel ↔ UnixStream
 //!   └─ AgentClient (UnixStream)
 //! ```
@@ -50,7 +50,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use remote_merge::agent::client::AgentClient;
-use remote_merge::agent::ssh_transport::SshAgentTransport;
+use remote_merge::agent::ssh_transport;
 use remote_merge::config::{AuthMethod, ServerConfig, SshConfig};
 use remote_merge::ssh::client::SshClient;
 
@@ -360,10 +360,10 @@ fn make_ssh_config(port: u16, key_path: PathBuf) -> (ServerConfig, SshConfig) {
 
 /// SSH exec 経由でハンドシェイクが完了することを確認する。
 ///
-/// `remote-merge agent` を SSH exec で起動し、SshAgentTransport + AgentClient を
+/// `remote-merge agent` を SSH exec で起動し、ssh_transport + AgentClient を
 /// 使ってハンドシェイクを確認する。
 ///
-/// NOTE: SshAgentTransport の bridge_loop は block_on を使うため、
+/// NOTE: ssh_transport の bridge_loop は block_on を使うため、
 /// current_thread ランタイムではデッドロックする。multi_thread が必須。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_ssh_exec_handshake() {
@@ -384,9 +384,9 @@ async fn agent_ssh_exec_handshake() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
-        .expect("transport start failed");
-    let (reader, writer, _guard) = transport.into_streams();
+    let (reader, writer, _guard) =
+        ssh_transport::start(handle, channel, std::time::Duration::from_secs(120))
+            .expect("transport start failed");
 
     let client = AgentClient::connect(reader, writer).expect("AgentClient handshake failed");
 
@@ -425,9 +425,9 @@ async fn agent_ssh_list_tree_roundtrip() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
-        .expect("transport start failed");
-    let (reader, writer, _guard) = transport.into_streams();
+    let (reader, writer, _guard) =
+        ssh_transport::start(handle, channel, std::time::Duration::from_secs(120))
+            .expect("transport start failed");
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
@@ -485,9 +485,9 @@ async fn agent_ssh_read_files_roundtrip() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
-        .expect("transport start failed");
-    let (reader, writer, _guard) = transport.into_streams();
+    let (reader, writer, _guard) =
+        ssh_transport::start(handle, channel, std::time::Duration::from_secs(120))
+            .expect("transport start failed");
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
@@ -533,9 +533,9 @@ async fn agent_ssh_ping_pong() {
         .expect("exec channel open failed");
 
     let handle = tokio::runtime::Handle::current();
-    let transport = SshAgentTransport::start(handle, channel, std::time::Duration::from_secs(120))
-        .expect("transport start failed");
-    let (reader, writer, _guard) = transport.into_streams();
+    let (reader, writer, _guard) =
+        ssh_transport::start(handle, channel, std::time::Duration::from_secs(120))
+            .expect("transport start failed");
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 

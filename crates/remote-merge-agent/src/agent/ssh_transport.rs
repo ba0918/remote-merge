@@ -50,7 +50,7 @@ const RELAY_READ_TIMEOUT_MS: u64 = 200;
 
 /// ブリッジスレッドのライフサイクルを管理するガード。
 ///
-/// `SshAgentTransport::into_streams()` から返され、ストリームとセットで保持する。
+/// [`start`] がストリームと一緒に返し、ストリームとセットで保持する。
 /// Drop 時にスレッドを安全にシャットダウン・join する。
 #[cfg(unix)]
 pub struct TransportGuard {
@@ -86,149 +86,71 @@ impl Drop for TransportGuard {
 }
 
 // ---------------------------------------------------------------------------
-// SshAgentTransport
+// 起動
 // ---------------------------------------------------------------------------
 
-/// SSH exec チャネルと AgentClient の間を中継するトランスポート。
+/// SSH exec チャネルと AgentClient の間を中継するブリッジスレッド（+ writer-relay）を起動し、
+/// AgentClient に渡す (read, write) の UnixStream と、スレッドを管理する `TransportGuard` を返す。
 ///
-/// `start()` でブリッジスレッド（+ writer-relay）を起動し、
-/// `into_streams()` で AgentClient に渡す UnixStream ペアと、
-/// スレッド管理用の `TransportGuard` を取り出す。
+/// チャネルは bridge スレッドが排他所有するため、共有ロックによるデッドロックは原理的に発生しない。
+/// Guard を Drop すればスレッドがシャットダウンされる。ストリームを先に閉じれば、スレッドは自然終了する。
 ///
-/// チャネルは bridge スレッドが排他所有するため、共有ロックによる
-/// デッドロックは原理的に発生しない。
+/// - `handle`: tokio ランタイムハンドル（block_on 用）
+/// - `channel`: SSH exec チャネル（既にコマンド実行済みであること）
+/// - `read_timeout`: 手元が応答を読むときの時間切れ。エージェントが答えないまま接続だけが
+///   生きている場合に、コマンドが返らないままにならないようにする（`接続断` の時間切れ。
+///   docs/ir/ssh/reconnect.md の REQ-ssh-003）
 #[cfg(unix)]
-pub struct SshAgentTransport {
-    client_read: Option<UnixStream>,
-    client_write: Option<UnixStream>,
-    bridge_thread: Option<JoinHandle<()>>,
-    writer_relay_thread: Option<JoinHandle<()>>,
-    shutdown: Arc<AtomicBool>,
-    wakeup: Arc<Notify>,
-}
+pub fn start(
+    handle: tokio::runtime::Handle,
+    channel: russh::Channel<russh::client::Msg>,
+    read_timeout: Duration,
+) -> Result<(UnixStream, UnixStream, TransportGuard)> {
+    // read 方向: bridge → client_read
+    let (client_read, bridge_write) = UnixStream::pair()?;
+    // write 方向: client_write → writer-relay → bridge
+    let (bridge_read, client_write) = UnixStream::pair()?;
 
-#[cfg(unix)]
-impl SshAgentTransport {
-    /// SSH チャネルとブリッジスレッドを起動する。
-    ///
-    /// - `handle`: tokio ランタイムハンドル（block_on 用）
-    /// - `channel`: SSH exec チャネル（既にコマンド実行済みであること）
-    /// - `read_timeout`: 手元が応答を読むときの時間切れ。エージェントが答えないまま接続だけが
-    ///   生きている場合に、コマンドが返らないままにならないようにする（`接続断` の時間切れ。
-    ///   docs/ir/ssh/reconnect.md の REQ-ssh-003）
-    pub fn start(
-        handle: tokio::runtime::Handle,
-        channel: russh::Channel<russh::client::Msg>,
-        read_timeout: Duration,
-    ) -> Result<Self> {
-        // read 方向: bridge → client_read
-        let (client_read, bridge_write) = UnixStream::pair()?;
-        // write 方向: client_write → writer-relay → bridge
-        let (bridge_read, client_write) = UnixStream::pair()?;
+    // writer-relay が shutdown フラグをポーリングできるよう read timeout を設定
+    bridge_read.set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))?;
+    // 手元が読む側の時間切れ（時間切れは応答なしの `接続断` として運ばれる）
+    client_read.set_read_timeout(Some(read_timeout))?;
 
-        // writer-relay が shutdown フラグをポーリングできるよう read timeout を設定
-        bridge_read.set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))?;
-        // 手元が読む側の時間切れ（時間切れは応答なしの `接続断` として運ばれる）
-        client_read.set_read_timeout(Some(read_timeout))?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let wakeup = Arc::new(Notify::new());
+    let (write_tx, write_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let wakeup = Arc::new(Notify::new());
-        let (write_tx, write_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    // Writer relay: UnixStream から読み取り → mpsc で bridge に送信
+    let shutdown2 = shutdown.clone();
+    let writer_relay_thread = std::thread::Builder::new()
+        .name("agent-write-relay".into())
+        .spawn(move || {
+            writer_relay_loop(bridge_read, &write_tx, &shutdown2);
+        })?;
 
-        // Writer relay: UnixStream から読み取り → mpsc で bridge に送信
-        let shutdown2 = shutdown.clone();
-        let writer_relay_thread = std::thread::Builder::new()
-            .name("agent-write-relay".into())
-            .spawn(move || {
-                writer_relay_loop(bridge_read, &write_tx, &shutdown2);
-            })?;
+    // Bridge: channel を排他所有し、select! で双方向中継
+    let shutdown3 = shutdown.clone();
+    let bridge_wakeup = wakeup.clone();
+    let bridge_thread = std::thread::Builder::new()
+        .name("agent-bridge".into())
+        .spawn(move || {
+            bridge_loop(
+                &handle,
+                channel,
+                bridge_write,
+                write_rx,
+                shutdown3,
+                bridge_wakeup,
+            );
+        })?;
 
-        // Bridge: channel を排他所有し、select! で双方向中継
-        let shutdown3 = shutdown.clone();
-        let bridge_wakeup = wakeup.clone();
-        let bridge_thread = std::thread::Builder::new()
-            .name("agent-bridge".into())
-            .spawn(move || {
-                bridge_loop(
-                    &handle,
-                    channel,
-                    bridge_write,
-                    write_rx,
-                    shutdown3,
-                    bridge_wakeup,
-                );
-            })?;
-
-        Ok(Self {
-            client_read: Some(client_read),
-            client_write: Some(client_write),
-            bridge_thread: Some(bridge_thread),
-            writer_relay_thread: Some(writer_relay_thread),
-            shutdown,
-            wakeup,
-        })
-    }
-
-    /// AgentClient に渡す (read, write) ストリームペアと TransportGuard を取り出す。
-    ///
-    /// `TransportGuard` はブリッジスレッドのライフサイクルを管理する。
-    /// Guard を Drop すればスレッドがシャットダウンされる。
-    /// ストリームを先に閉じれば、スレッドは自然終了する。
-    pub fn into_streams(mut self) -> (UnixStream, UnixStream, TransportGuard) {
-        let r = self.client_read.take().expect("client_read already taken");
-        let w = self
-            .client_write
-            .take()
-            .expect("client_write already taken");
-        let guard = TransportGuard {
-            bridge_thread: self.bridge_thread.take(),
-            writer_relay_thread: self.writer_relay_thread.take(),
-            shutdown: self.shutdown.clone(),
-            wakeup: self.wakeup.clone(),
-        };
-        // self の Drop は client_read/write=None, threads=None なので何もしない
-        (r, w, guard)
-    }
-}
-
-#[cfg(unix)]
-impl Drop for SshAgentTransport {
-    fn drop(&mut self) {
-        // into_streams() でスレッドが TransportGuard に移された場合は何もしない
-        let has_threads = self.bridge_thread.is_some() || self.writer_relay_thread.is_some();
-        if !has_threads {
-            return;
-        }
-
-        self.shutdown.store(true, Ordering::Release);
-        self.wakeup.notify_one();
-
-        // UnixStream をシャットダウンしてブリッジスレッドに EOF を通知
-        if let Some(ref s) = self.client_read {
-            let _ = s.shutdown(std::net::Shutdown::Both);
-        }
-        if let Some(ref s) = self.client_write {
-            let _ = s.shutdown(std::net::Shutdown::Both);
-        }
-
-        // タイムアウト付きでスレッド終了を待機（is_finished ポーリング）
-        let deadline = Instant::now() + Duration::from_secs(JOIN_TIMEOUT_SECS);
-        for t in [self.writer_relay_thread.take(), self.bridge_thread.take()]
-            .into_iter()
-            .flatten()
-        {
-            while !t.is_finished() {
-                if Instant::now() >= deadline {
-                    tracing::warn!(target: "remote_merge::agent::ssh_transport", "Bridge thread did not terminate within timeout");
-                    break; // スレッドをリークするが、ハングは回避
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            if t.is_finished() {
-                let _ = t.join();
-            }
-        }
-    }
+    let guard = TransportGuard {
+        bridge_thread: Some(bridge_thread),
+        writer_relay_thread: Some(writer_relay_thread),
+        shutdown,
+        wakeup,
+    };
+    Ok((client_read, client_write, guard))
 }
 
 // ---------------------------------------------------------------------------
@@ -376,50 +298,6 @@ mod bridge_tests;
 #[cfg(unix)]
 mod tests {
     use super::*;
-
-    /// into_streams で取り出したストリームとガードが有効であることを確認
-    #[test]
-    fn into_streams_returns_valid_pair_and_guard() {
-        let (r, w) = UnixStream::pair().unwrap();
-        let transport = SshAgentTransport {
-            client_read: Some(r),
-            client_write: Some(w),
-            bridge_thread: None,
-            writer_relay_thread: None,
-            shutdown: Arc::new(AtomicBool::new(false)),
-            wakeup: Arc::new(Notify::new()),
-        };
-        let (mut read_end, mut write_end, _guard) = transport.into_streams();
-        write_end.write_all(b"test").unwrap();
-        write_end.flush().unwrap();
-        read_end
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
-        let mut buf = [0u8; 16];
-        let n = read_end.read(&mut buf).unwrap();
-        assert_eq!(&buf[..n], b"test");
-    }
-
-    /// into_streams 後の Drop で shutdown が true にならないことを確認
-    #[test]
-    fn into_streams_does_not_set_shutdown() {
-        let (r, w) = UnixStream::pair().unwrap();
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let transport = SshAgentTransport {
-            client_read: Some(r),
-            client_write: Some(w),
-            bridge_thread: None,
-            writer_relay_thread: None,
-            shutdown: shutdown.clone(),
-            wakeup: Arc::new(Notify::new()),
-        };
-        let (_r, _w, guard) = transport.into_streams();
-        // transport の Drop が走った後も shutdown は false のまま
-        assert!(!shutdown.load(Ordering::Acquire));
-        // guard を明示的に drop して shutdown が true になることを確認
-        drop(guard);
-        assert!(shutdown.load(Ordering::Acquire));
-    }
 
     /// writer_relay_loop が EOF で正常終了することを確認
     #[test]
@@ -598,41 +476,6 @@ mod tests {
         let data = b"hello world";
         write_all_with_backpressure(&mut w, data).unwrap();
         assert_eq!(w.written, data);
-    }
-
-    /// Drop がタイムアウト内に完了することを確認（ハング防止）
-    #[test]
-    fn drop_does_not_hang() {
-        let (r, w) = UnixStream::pair().unwrap();
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        // 長時間スリープするスレッド（タイムアウトでリークされるはず）
-        let thread = std::thread::spawn({
-            let shutdown = shutdown.clone();
-            move || {
-                while !shutdown.load(Ordering::Acquire) {
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-            }
-        });
-
-        let transport = SshAgentTransport {
-            client_read: Some(r),
-            client_write: Some(w),
-            bridge_thread: Some(thread),
-            writer_relay_thread: None,
-            shutdown,
-            wakeup: Arc::new(Notify::new()),
-        };
-
-        let start = Instant::now();
-        drop(transport);
-        let elapsed = start.elapsed();
-        // shutdown フラグで終了するので JOIN_TIMEOUT_SECS 以内に完了するはず
-        assert!(
-            elapsed < Duration::from_secs(JOIN_TIMEOUT_SECS + 1),
-            "drop took too long: {elapsed:?}"
-        );
     }
 
     /// TransportGuard の Drop がタイムアウト内に完了することを確認
