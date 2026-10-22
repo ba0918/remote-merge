@@ -1,10 +1,10 @@
 //! similar クレートを使った行単位 diff 計算エンジン。
-//! ファイル内容の比較、ハンク生成、バイナリ判定を担当する。
+//! ファイル内容の比較とハンク生成を担当する。
 
 use std::collections::HashSet;
 use std::ops::Range;
 
-use crate::content::{Content, Interpretation, Text, interpret};
+use crate::content::Text;
 use similar::{ChangeTag, TextDiff};
 
 /// ハンク適用の方向
@@ -88,16 +88,6 @@ pub enum DiffResult {
         lines: Vec<DiffLine>,
         stats: DiffStats,
     },
-    /// バイナリファイル（diff 不可、SHA-256ハッシュ+サイズで比較）
-    Binary {
-        left: Option<super::binary::BinaryInfo>,
-        right: Option<super::binary::BinaryInfo>,
-    },
-    /// シンボリックリンク（リンク先パスの比較）
-    SymlinkDiff {
-        left_target: Option<String>,
-        right_target: Option<String>,
-    },
 }
 
 /// 差分の統計情報
@@ -106,43 +96,6 @@ pub struct DiffStats {
     pub insertions: usize,
     pub deletions: usize,
     pub equal: usize,
-}
-
-/// バイナリファイルかどうかを判定する。
-///
-/// 先頭 8KB に NUL バイトを含むか、全体が正しい UTF-8 でなければバイナリとする。
-/// UTF-8 の正しさを全体で確かめるのは、後ろにだけある不正なバイトを置換文字に
-/// 置き換えて比べたり書き戻したりしないため。NUL は先頭 8KB だけを見るので、
-/// 8KB 以降にのみ NUL があるファイルはテキストとして扱われる。
-pub fn is_binary(content: &[u8]) -> bool {
-    !matches!(
-        interpret(content, Interpretation::Unspecified),
-        Ok(Content::Text(_))
-    )
-}
-
-/// 2つのテキストの行単位 diff を計算する
-pub fn compute_diff(old: &str, new: &str) -> DiffResult {
-    // 同一チェック（高速パス）
-    if old == new {
-        return DiffResult::Equal;
-    }
-
-    // バイナリ判定: どちらかが NUL バイトを含む場合はバイナリとして扱う
-    if is_binary(old.as_bytes()) || is_binary(new.as_bytes()) {
-        return DiffResult::Binary {
-            left: Some(crate::diff::binary::BinaryInfo::from_bytes(old.as_bytes())),
-            right: Some(crate::diff::binary::BinaryInfo::from_bytes(new.as_bytes())),
-        };
-    }
-
-    let Ok(Content::Text(old)) = interpret(old.as_bytes(), Interpretation::Unspecified) else {
-        unreachable!("binary checked above")
-    };
-    let Ok(Content::Text(new)) = interpret(new.as_bytes(), Interpretation::Unspecified) else {
-        unreachable!("binary checked above")
-    };
-    PairScript::new(&old, &new).display()
 }
 
 pub struct PairScript<'a, 'b> {
@@ -357,8 +310,8 @@ pub fn apply_hunk_to_text(
 
 /// all_lines を1回走査して、選択された hunk のみを適用した最終テキストを構築する。
 ///
-/// - `all_lines`: `compute_diff()` で得た全行リスト
-/// - `merge_hunks`: `compute_diff()` で得た操作用ハンク一覧（コンテキスト0行）
+/// - `all_lines`: `PairScript::display()` で得た全行リスト
+/// - `merge_hunks`: `PairScript::display()` で得た操作用ハンク一覧（コンテキスト0行）
 /// - `selected`: 適用する hunk インデックスの集合（0-based）
 /// - `direction`: マージ方向
 /// - `target_trailing_newline`: ターゲットテキストの末尾改行の有無
@@ -504,11 +457,20 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
 
 #[cfg(test)]
 mod tests {
-    #![expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "テストの照合は「Modified を期待」の形で書き、他の結果は panic で示す"
-    )]
     use super::*;
+    use crate::content::{Content, Interpretation, interpret};
+
+    fn text(content: &str) -> Text<'_> {
+        match interpret(content.as_bytes(), Interpretation::Unspecified) {
+            Ok(Content::Text(text)) => text,
+            Ok(Content::Binary) | Err(_) => panic!("{content:?} is text"),
+        }
+    }
+
+    /// 二つのテキストの表示用の差分（diff の出力と --hunks の番号が使うもの）
+    fn display_diff(old: &str, new: &str) -> DiffResult {
+        PairScript::new(&text(old), &text(new)).display()
+    }
 
     #[test]
     fn many_separated_insertions_and_deletions_keep_hunk_positions_and_merge_output() {
@@ -525,7 +487,7 @@ mod tests {
             merge_hunks,
             lines,
             ..
-        } = compute_diff(&old, &new)
+        } = display_diff(&old, &new)
         else {
             panic!("separated changes must produce hunks");
         };
@@ -584,7 +546,7 @@ mod tests {
     #[test]
     fn selected_blank_lines_and_unselected_blank_lines_are_preserved_in_both_directions() {
         for (old, new) in [("\n", ""), ("", "\n"), ("\n\n", "\n"), ("\n", "x\n")] {
-            let diff = compute_diff(old, new);
+            let diff = display_diff(old, new);
             let (hunks, lines) = unwrap_modified(&diff);
             for (direction, source, target) in [
                 (HunkDirection::LeftToRight, old, new),
@@ -612,7 +574,7 @@ mod tests {
 
     #[test]
     fn replacing_a_line_with_a_blank_line_preserves_the_original_last_newline() {
-        let diff = compute_diff("x\n", "\n");
+        let diff = display_diff("x\n", "\n");
         let (hunks, lines) = unwrap_modified(&diff);
         assert_eq!(
             apply_hunk_to_text(
@@ -629,7 +591,7 @@ mod tests {
     #[test]
     fn test_equal_content() {
         let content = "line1\nline2\nline3\n";
-        let result = compute_diff(content, content);
+        let result = display_diff(content, content);
         assert_eq!(result, DiffResult::Equal);
     }
 
@@ -637,7 +599,7 @@ mod tests {
     fn test_detect_additions_deletions_modifications() {
         let old = "line1\nline2\nline3\n";
         let new = "line1\nmodified\nline3\nextra\n";
-        let result = compute_diff(old, new);
+        let result = display_diff(old, new);
 
         match result {
             DiffResult::Modified { stats, lines, .. } => {
@@ -663,14 +625,14 @@ mod tests {
 
     #[test]
     fn test_empty_files() {
-        let result = compute_diff("", "");
+        let result = display_diff("", "");
         assert_eq!(result, DiffResult::Equal);
     }
 
     #[test]
     fn test_one_side_empty() {
         // 左が空
-        let result = compute_diff("", "new content\n");
+        let result = display_diff("", "new content\n");
         match result {
             DiffResult::Modified { stats, .. } => {
                 assert_eq!(stats.insertions, 1);
@@ -680,7 +642,7 @@ mod tests {
         }
 
         // 右が空
-        let result = compute_diff("old content\n", "");
+        let result = display_diff("old content\n", "");
         match result {
             DiffResult::Modified { stats, .. } => {
                 assert_eq!(stats.insertions, 0);
@@ -688,47 +650,6 @@ mod tests {
             }
             other => panic!("Modified を期待したが {:?}", other),
         }
-    }
-
-    #[test]
-    fn test_binary_detection() {
-        // NUL バイト検出
-        assert!(is_binary(b"hello\x00world"));
-        assert!(is_binary(b"\x00"));
-        // 正常テキスト
-        assert!(!is_binary(b"hello world"));
-        assert!(!is_binary(b""));
-        assert!(!is_binary("日本語テキスト".as_bytes()));
-    }
-
-    #[test]
-    fn test_binary_detection_invalid_utf8() {
-        // 不正 UTF-8 バイト列（NUL なし）→ バイナリ判定されるべき
-        assert!(is_binary(&[0xFF, 0xFE, 0x80, 0x90]));
-        assert!(is_binary(&[0x80, 0x81, 0x82])); // 先頭バイトなしの継続バイト
-        assert!(is_binary(b"text\xC0\xAF")); // overlong encoding
-    }
-
-    #[test]
-    fn test_binary_detection_invalid_utf8_only_after_8kb() {
-        let mut content = vec![b'a'; 8192];
-        content.extend_from_slice(b"\xff");
-        assert!(is_binary(&content));
-    }
-
-    #[test]
-    fn test_binary_detection_multibyte_char_across_8kb_boundary_is_text() {
-        let content = format!("{}あ", "a".repeat(8191));
-        assert!(!is_binary(content.as_bytes()));
-    }
-
-    #[test]
-    fn test_binary_detection_valid_utf8_not_affected() {
-        // 有効な UTF-8 がバイナリ判定されないことを確認
-        assert!(!is_binary("Hello, World!".as_bytes()));
-        assert!(!is_binary("こんにちは世界".as_bytes()));
-        assert!(!is_binary("émojis: 🎉🚀".as_bytes()));
-        assert!(!is_binary("mixed: abc日本語def".as_bytes()));
     }
 
     #[test]
@@ -740,7 +661,7 @@ mod tests {
         // 1000行目を変更
         new = new.replace("line 1000\n", "modified 1000\n");
 
-        let result = compute_diff(&old, &new);
+        let result = display_diff(&old, &new);
         match result {
             DiffResult::Modified { hunks, stats, .. } => {
                 assert_eq!(stats.deletions, 2);
@@ -757,7 +678,7 @@ mod tests {
         // 離れた変更はそれぞれ別の merge_hunk になるべき
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified {
             merge_hunks,
@@ -800,7 +721,7 @@ mod tests {
         // 3行間隔の変更でも merge_hunks は分離される
         let old = "a\nb\nc\nd\ne\n";
         let new = "a\nX\nc\nY\ne\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { merge_hunks, .. } = &diff {
             assert_eq!(merge_hunks.len(), 2, "近い変更でも merge_hunk は分離");
@@ -814,7 +735,7 @@ mod tests {
         // 連続した変更行は1つの merge_hunk
         let old = "a\nb\nc\nd\n";
         let new = "a\nX\nY\nd\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { merge_hunks, .. } = &diff {
             assert_eq!(merge_hunks.len(), 1, "連続変更は1つの merge_hunk");
@@ -829,7 +750,7 @@ mod tests {
         // RightToLeft: left に Insert 行(lineX)を取り込む → line2 が lineX に置換される
         let old = "line1\nline2\nline3\n";
         let new = "line1\nlineX\nline3\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
@@ -852,7 +773,7 @@ mod tests {
         // LeftToRight: right に Delete 行(line2)を取り込む → lineX が line2 に戻る
         let old = "line1\nline2\nline3\n";
         let new = "line1\nlineX\nline3\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
@@ -874,7 +795,7 @@ mod tests {
         // コンテキスト行（Equal）が変更されないこと
         let old = "aaa\nbbb\nccc\nddd\neee\n";
         let new = "aaa\nbbb\nXXX\nddd\neee\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             let result = apply_hunk_to_text(
@@ -899,7 +820,7 @@ mod tests {
     fn test_apply_hunk_at_file_start() {
         let old = "first\nsecond\nthird\n";
         let new = "NEW\nsecond\nthird\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             let result = apply_hunk_to_text(
@@ -919,7 +840,7 @@ mod tests {
     fn test_apply_hunk_at_file_end() {
         let old = "first\nsecond\nlast\n";
         let new = "first\nsecond\nNEW_LAST\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             let result = apply_hunk_to_text(
@@ -940,7 +861,7 @@ mod tests {
         // 1ハンク内に複数の挿入/削除がある場合
         let old = "a\nb\nc\nd\n";
         let new = "a\nX\nY\nd\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
 
         if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
@@ -971,7 +892,7 @@ mod tests {
     fn test_line_indices() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nc\n";
-        let result = compute_diff(old, new);
+        let result = display_diff(old, new);
 
         match result {
             DiffResult::Modified { lines, .. } => {
@@ -1000,7 +921,7 @@ mod tests {
         // 2つの離れた変更 → line_range.start が正しい位置を指すこと
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let result = compute_diff(old, new);
+        let result = display_diff(old, new);
 
         if let DiffResult::Modified {
             lines, merge_hunks, ..
@@ -1147,7 +1068,7 @@ mod tests {
 
     // ── apply_selected_hunks_single_pass tests ──
 
-    /// compute_diff の結果から Modified の merge_hunks と lines を取り出すヘルパー。
+    /// display_diff の結果から Modified の merge_hunks と lines を取り出すヘルパー。
     /// Modified でなければ panic する。
     fn unwrap_modified(diff: &DiffResult) -> (&[DiffHunk], &[DiffLine]) {
         match diff {
@@ -1162,7 +1083,7 @@ mod tests {
     fn test_single_pass_empty_selected_returns_target() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let result = apply_selected_hunks_single_pass(
@@ -1179,7 +1100,7 @@ mod tests {
     fn test_single_pass_single_hunk_applied() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         assert_eq!(merge_hunks.len(), 2);
@@ -1198,7 +1119,7 @@ mod tests {
     fn test_single_pass_all_hunks_equals_source() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = (0..merge_hunks.len()).collect();
@@ -1217,7 +1138,7 @@ mod tests {
         // 核心テスト: hunk 0 を適用後、残りを適用して source と一致
         let source = "header\nalpha\nmiddle1\nmiddle2\nmiddle3\nbeta\nfooter\n";
         let target = "header\nALPHA_NEW\nmiddle1\nmiddle2\nmiddle3\nBETA_NEW\nfooter\n";
-        let diff = compute_diff(source, target);
+        let diff = display_diff(source, target);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         assert_eq!(merge_hunks.len(), 2, "2つの変更ブロックがあるはず");
@@ -1237,7 +1158,7 @@ mod tests {
         );
 
         // Step B: partial を元に再 diff → 残りの hunk を全適用
-        let diff2 = compute_diff(source, &partial);
+        let diff2 = display_diff(source, &partial);
         match &diff2 {
             DiffResult::Equal => assert_eq!(partial, source),
             DiffResult::Modified { .. } => {
@@ -1252,7 +1173,6 @@ mod tests {
                 );
                 assert_eq!(final_text, source, "全 hunk 適用後は source と一致すべき");
             }
-            _ => panic!("予期しない diff 結果"),
         }
     }
 
@@ -1260,7 +1180,7 @@ mod tests {
     fn test_single_pass_line_count_change_insert_only() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nY\nZ\nb\nc\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         assert!(!merge_hunks.is_empty());
@@ -1279,7 +1199,7 @@ mod tests {
     fn test_single_pass_line_count_change_delete_only() {
         let old = "a\nb\nc\nd\ne\n";
         let new = "a\ne\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = (0..merge_hunks.len()).collect();
@@ -1297,7 +1217,7 @@ mod tests {
     fn test_single_pass_adjacent_hunks_one_applied() {
         let old = "a\nb\nc\nX\ne\n";
         let new = "a\nB\nc\nD\ne\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         assert_eq!(merge_hunks.len(), 2);
@@ -1316,7 +1236,7 @@ mod tests {
     fn test_single_pass_hunk_at_file_start() {
         let old = "FIRST\nsecond\nthird\n";
         let new = "NEW_FIRST\nsecond\nthird\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
@@ -1334,7 +1254,7 @@ mod tests {
     fn test_single_pass_hunk_at_file_end() {
         let old = "first\nsecond\nLAST\n";
         let new = "first\nsecond\nNEW_LAST\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
@@ -1352,7 +1272,7 @@ mod tests {
     fn test_single_pass_duplicate_in_selected_ignored() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nc\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0, 0].into_iter().collect();
@@ -1370,7 +1290,7 @@ mod tests {
     fn test_single_pass_out_of_range_index_ignored() {
         let old = "a\nb\nc\n";
         let new = "a\nX\nc\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0, 99].into_iter().collect();
@@ -1388,7 +1308,7 @@ mod tests {
     fn test_single_pass_right_to_left_direction() {
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [1].into_iter().collect();
@@ -1406,7 +1326,7 @@ mod tests {
     fn test_single_pass_trailing_newline_preserved() {
         let old = "a\nb\n";
         let new = "a\nX\n";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
@@ -1425,7 +1345,7 @@ mod tests {
     fn test_single_pass_trailing_newline_absent() {
         let old = "a\nb";
         let new = "a\nX";
-        let diff = compute_diff(old, new);
+        let diff = display_diff(old, new);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         let selected: HashSet<usize> = [0].into_iter().collect();
@@ -1444,7 +1364,7 @@ mod tests {
     fn test_single_pass_convergence_with_line_count_change() {
         let source = "line1\nline2\nline3\nline4\nline5\n";
         let target = "line1\nNEW_A\nNEW_B\nNEW_C\nline2\nline3\nCHANGED4\nline5\n";
-        let diff = compute_diff(source, target);
+        let diff = display_diff(source, target);
         let (merge_hunks, lines) = unwrap_modified(&diff);
 
         assert!(!merge_hunks.is_empty());
@@ -1460,7 +1380,7 @@ mod tests {
         );
 
         // Step B: partial から再 diff → 残りを全適用
-        let diff2 = compute_diff(source, &partial);
+        let diff2 = display_diff(source, &partial);
         match &diff2 {
             DiffResult::Equal => {} // 既に収束
             DiffResult::Modified { .. } => {
@@ -1475,12 +1395,11 @@ mod tests {
                 );
                 assert_eq!(final_text, source);
             }
-            _ => panic!("予期しない diff 結果"),
         }
     }
     // ── merge_hunks_in_display_hunks tests ──
 
-    /// compute_diff の結果から表示用と操作用のハンクを取り出すヘルパー
+    /// display_diff の結果から表示用と操作用のハンクを取り出すヘルパー
     fn display_and_merge_hunks(diff: &DiffResult) -> (&[DiffHunk], &[DiffHunk]) {
         match diff {
             DiffResult::Modified {
@@ -1493,7 +1412,7 @@ mod tests {
     #[test]
     fn selecting_a_display_hunk_selects_every_merge_hunk_inside_it() {
         // 変わらない行を 2 行だけ挟んだ二つの変更は一つの表示用ハンクになる
-        let diff = compute_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
+        let diff = display_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
         let (display, merge) = display_and_merge_hunks(&diff);
         assert_eq!((display.len(), merge.len()), (1, 2));
 
@@ -1506,7 +1425,7 @@ mod tests {
     fn selecting_a_display_hunk_leaves_merge_hunks_of_other_display_hunks() {
         // 変わらない行を 7 行挟んだ二つの変更は別々の表示用ハンクになる
         let middle: String = (0..7).map(|i| format!("s{i}\n")).collect();
-        let diff = compute_diff(&format!("a\n{middle}b\n"), &format!("A\n{middle}B\n"));
+        let diff = display_diff(&format!("a\n{middle}b\n"), &format!("A\n{middle}B\n"));
         let (display, merge) = display_and_merge_hunks(&diff);
         assert_eq!((display.len(), merge.len()), (2, 2));
 
@@ -1517,7 +1436,7 @@ mod tests {
 
     #[test]
     fn selecting_no_display_hunk_selects_no_merge_hunk() {
-        let diff = compute_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
+        let diff = display_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
         let (display, merge) = display_and_merge_hunks(&diff);
 
         let selected = merge_hunks_in_display_hunks(display, merge, &HashSet::new());

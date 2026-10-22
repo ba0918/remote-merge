@@ -123,6 +123,16 @@ fn unspecified_invalid_tail_is_binary_but_explicit_utf8_fails() {
     assert!(interpret(&bytes, Interpretation::Text(Encoding::Utf8)).is_err());
 }
 
+// 先頭 8KB の境目をまたぐ文字があっても、UTF-8 の正しさは中身の全体で確かめるのでテキストになる
+#[test]
+fn a_multibyte_character_across_the_first_8_kb_is_still_text() {
+    let content = format!("{}あ", "a".repeat(8191));
+    assert!(matches!(
+        interpret(content.as_bytes(), Interpretation::Unspecified).unwrap(),
+        Content::Text(_)
+    ));
+}
+
 #[test]
 fn nul_boundary_and_bom_preserve_original_line_spans() {
     assert!(matches!(
