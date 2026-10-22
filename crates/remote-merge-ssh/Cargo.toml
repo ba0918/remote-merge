@@ -21,16 +21,19 @@ zeroize = "1"
 remote-merge-core = { path = "../remote-merge-core" }
 tracing = "0.1"
 
+# libc は、テストが利用者の known_hosts を使うことを止める見張り（test-utils とテスト）だけが使う
 [target."cfg(unix)".dependencies]
-libc = "0.2"
+libc = { version = "0.2", optional = true }
 
 [features]
-test-utils = []
+test-utils = ["dep:libc"]
 
 [dev-dependencies]
 rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
-remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
 tempfile = "3"
+
+[target."cfg(unix)".dev-dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true
