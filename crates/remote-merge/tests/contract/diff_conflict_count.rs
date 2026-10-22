@@ -8,7 +8,7 @@
 use serde_json::Value;
 
 use super::common::{CliEnv, stdout_json};
-use super::diff_ref_cli::diff;
+use super::diff_ref_support::diff;
 
 /// 参照先 `base`、左 `left`、右 `right` の "a.txt" を --ref で比べたときの "conflict_count"
 fn conflict_count(base: &str, left: &str, right: &str) -> Value {

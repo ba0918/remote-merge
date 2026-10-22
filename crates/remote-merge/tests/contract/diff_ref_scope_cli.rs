@@ -9,7 +9,7 @@
 use serde_json::Value;
 
 use super::common::{CliEnv, stdout_json};
-use super::diff_ref_cli::{diff, stdout};
+use super::diff_ref_support::{diff, stdout};
 
 const WITH_STAGING_REF: [&str; 6] = ["--left", "local", "--right", "develop", "--ref", "staging"];
 

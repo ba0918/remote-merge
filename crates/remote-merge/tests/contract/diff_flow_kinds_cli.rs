@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 
 use super::common::set_mtime;
 use super::common::{CliEnv, file_entry, make_fifo, place_binary_file, place_symlink, stdout_json};
-use super::diff_flow_cli::{error_reason, run};
+use super::diff_flow_support::{error_reason, run};
 
 // 種類の違いの note は両側に項目があるときだけ、判定に使った両側の種類で出す（E13）
 // @kotowari[REQ-cli-020]

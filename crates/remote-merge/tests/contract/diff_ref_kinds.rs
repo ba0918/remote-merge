@@ -13,7 +13,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::common::{CliEnv, stdout_json};
-use super::diff_ref_cli::diff;
+use super::diff_ref_support::diff;
 
 /// 三つのサーバに中身の違う "file.txt" を置き、`reference` のものだけを `replace` で差し替える
 fn env_with_reference(reference: &str, replace: impl FnOnce(&Path)) -> CliEnv {

@@ -12,18 +12,7 @@ use std::process::Output;
 use serde_json::Value;
 
 use super::common::{CliEnv, file_entry, stdout_json};
-
-/// diff を起動する
-pub(super) fn diff(env: &CliEnv, args: &[&str]) -> Output {
-    env.cmd_with("diff")
-        .args(args)
-        .output()
-        .expect("failed to execute diff")
-}
-
-pub(super) fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
+use super::diff_ref_support::{diff, stdout};
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()

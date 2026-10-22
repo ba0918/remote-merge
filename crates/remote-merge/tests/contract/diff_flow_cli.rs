@@ -5,29 +5,10 @@
 //! local（左）・develop（右）。種類ごとの訳し方は diff_flow_kinds_cli にある。
 
 use std::fs;
-use std::process::Output;
 use std::time::{Duration, SystemTime};
 
-use serde_json::Value;
-
 use super::common::{CliEnv, file_entry, place_files, place_symlink, set_mtime, stdout_json};
-
-pub(super) fn run(env: &CliEnv, command: &str, args: &[&str]) -> Output {
-    env.cmd_with(command)
-        .args(args)
-        .output()
-        .expect("failed to execute remote-merge")
-}
-
-pub(super) fn error_reason(json: &Value, path: &str) -> String {
-    json["errors"]
-        .as_array()
-        .and_then(|errors| errors.iter().find(|error| error["path"] == path))
-        .unwrap_or_else(|| panic!("{path} not in errors: {json}"))["reason"]
-        .as_str()
-        .unwrap()
-        .to_string()
-}
+use super::diff_flow_support::{error_reason, run};
 
 // @kotowari[REQ-compare-007, REQ-cli-080, EX-compare-008]
 #[test]

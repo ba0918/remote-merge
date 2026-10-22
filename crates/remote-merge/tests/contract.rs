@@ -121,6 +121,9 @@ mod diff_flow_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/diff_flow_kinds_cli.rs"]
 mod diff_flow_kinds_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_flow_support.rs"]
+mod diff_flow_support;
 #[path = "contract/diff_format.rs"]
 mod diff_format;
 #[cfg(feature = "test-utils")]
@@ -152,6 +155,9 @@ mod diff_ref_kinds;
 #[cfg(feature = "test-utils")]
 #[path = "contract/diff_ref_scope_cli.rs"]
 mod diff_ref_scope_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_ref_support.rs"]
+mod diff_ref_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/diff_root_link_cli.rs"]
 mod diff_root_link_cli;
@@ -210,6 +216,9 @@ mod merge_filtered_named_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_flow_cli.rs"]
 mod merge_flow_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_flow_support.rs"]
+mod merge_flow_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_force_cli.rs"]
 mod merge_force_cli;

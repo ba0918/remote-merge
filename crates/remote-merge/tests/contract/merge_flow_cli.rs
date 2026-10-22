@@ -7,40 +7,10 @@
 
 use std::fs;
 use std::os::unix::fs::symlink;
-use std::process::Output;
-
-use serde_json::Value;
 
 use super::common::{CliEnv, stdout_json};
+use super::merge_flow_support::{LOCAL_TO_DEVELOP, error_of, merge, paths_in};
 
-pub(super) fn merge(env: &CliEnv, args: &[&str]) -> Output {
-    env.cmd_with("merge")
-        .args(args)
-        .output()
-        .expect("failed to execute merge")
-}
-
-pub(super) fn paths_in(json: &Value, list: &str) -> Vec<String> {
-    json[list]
-        .as_array()
-        .unwrap_or_else(|| panic!("{list} missing: {json}"))
-        .iter()
-        .map(|entry| entry["path"].as_str().unwrap().to_string())
-        .collect()
-}
-
-pub(super) fn error_of(json: &Value, path: &str) -> String {
-    json["failed"]
-        .as_array()
-        .and_then(|failed| failed.iter().find(|entry| entry["path"] == path))
-        .unwrap_or_else(|| panic!("{path} not failed: {json}"))["error"]
-        .as_str()
-        .unwrap()
-        .to_string()
-}
-
-pub(super) const LOCAL_TO_DEVELOP: [&str; 6] =
-    ["--left", "local", "--right", "develop", "--format", "json"];
 const WITH_REF: [&str; 8] = [
     "--left", "develop", "--right", "staging", "--ref", "local", "--format", "json",
 ];
