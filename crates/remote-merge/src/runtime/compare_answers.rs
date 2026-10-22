@@ -13,64 +13,57 @@ use super::core::CoreRuntime;
 use crate::side::Side;
 
 impl CoreRuntime {
-    /// 側ごとに、求めたパスをまとめて一度で尋ねる。求めたのに答えのなかったパスは、問いと合わない
-    /// 答えとして接続断にする。`cache` の側は、前に答えたパスを尋ね直さずに使い、新しい答えを残す
-    pub(super) fn ask_each<T: Clone>(
+    /// 側 `role` の `side` に、求めたパス `paths` をまとめて一度で尋ねる。求めたのに答えのなかった
+    /// パスは、問いと合わない答えとして接続断にする。`known` があれば、前に答えたパスを尋ね直さずに
+    /// 使い、新しい答えを残す
+    pub(super) fn ask_side<T: Clone>(
         &mut self,
-        sides: &BTreeMap<Role, Side>,
-        wanted: &BTreeMap<Role, Vec<String>>,
-        mut cache: Option<(Side, &mut ByPath<T>)>,
+        role: Role,
+        side: &Side,
+        paths: &[String],
+        known: Option<&mut ByPath<T>>,
         mut ask: impl FnMut(&mut Self, &Side, &[EntryPath]) -> anyhow::Result<Vec<PathResult<T>>>,
-    ) -> anyhow::Result<Answers<T>> {
-        let mut answers = BTreeMap::new();
-        for (role, paths) in wanted {
-            let side = &sides[role];
-            let known = match cache.as_mut() {
-                Some((cached, known)) if cached == side => Some(&mut **known),
-                _ => None,
-            };
-            let to_ask: Vec<&String> = paths
-                .iter()
-                .filter(|path| {
-                    known
-                        .as_ref()
-                        .is_none_or(|known| !known.contains_key(*path))
-                })
-                .collect();
-            let entries = to_ask
-                .iter()
-                .map(|path| EntryPath::parse(path))
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut answered: ByPath<T> = if entries.is_empty() {
-                BTreeMap::new()
-            } else {
-                ask(self, side, &entries)?.into_iter().collect()
-            };
-            if let Some(known) = known {
-                known.extend(
-                    answered
-                        .iter()
-                        .map(|(path, answer)| (path.clone(), answer.clone())),
-                );
-                for path in paths {
-                    if !answered.contains_key(path)
-                        && let Some(answer) = known.get(path)
-                    {
-                        answered.insert(path.clone(), answer.clone());
-                    }
+    ) -> anyhow::Result<ByPath<T>> {
+        let to_ask: Vec<&String> = paths
+            .iter()
+            .filter(|path| {
+                known
+                    .as_ref()
+                    .is_none_or(|known| !known.contains_key(*path))
+            })
+            .collect();
+        let entries = to_ask
+            .iter()
+            .map(|path| EntryPath::parse(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut answered: ByPath<T> = if entries.is_empty() {
+            BTreeMap::new()
+        } else {
+            ask(self, side, &entries)?.into_iter().collect()
+        };
+        if let Some(known) = known {
+            known.extend(
+                answered
+                    .iter()
+                    .map(|(path, answer)| (path.clone(), answer.clone())),
+            );
+            for path in paths {
+                if !answered.contains_key(path)
+                    && let Some(answer) = known.get(path)
+                {
+                    answered.insert(path.clone(), answer.clone());
                 }
             }
-            if let Some(path) = paths.iter().find(|path| !answered.contains_key(*path)) {
-                return Err(disconnected(path, unanswered(*role)));
-            }
-            answers.insert(*role, answered);
         }
-        Ok(answers)
+        if let Some(path) = paths.iter().find(|path| !answered.contains_key(*path)) {
+            return Err(disconnected(path, unanswered(role)));
+        }
+        Ok(answered)
     }
 }
 
 impl CoreRuntime {
-    /// 側ごとに [`ask_each`](Self::ask_each) で尋ねる。書き込み先へのまとめた問いが、つなぎ直しても
+    /// 側ごとに [`ask_side`](Self::ask_side) で尋ねる。書き込み先へのまとめた問いが、つなぎ直しても
     /// `接続断` でその書き込み先を止め、コマンドがそのまとめのパスを failed にして続けるなら、ほかの側の
     /// 答えと、失った側の失敗を返す（ハッシュと中身のどちらの問いも同じ。REQ-ssh-003）
     pub(super) fn ask_by_role<T: Clone>(
@@ -84,13 +77,16 @@ impl CoreRuntime {
         let mut answers = Answers::new();
         let mut lost = None;
         for (role, paths) in wanted {
-            let one = BTreeMap::from([(*role, paths.clone())]);
-            let cached = cache
-                .as_mut()
-                .map(|(side, known)| (side.clone(), &mut **known));
-            match self.ask_each(sides, &one, cached, &mut ask) {
-                Ok(answered) => answers.extend(answered),
-                Err(error) => match self.lost_destination(request, *role, &sides[role], &error) {
+            let side = &sides[role];
+            let known = match cache.as_mut() {
+                Some((cached, known)) if cached == side => Some(&mut **known),
+                _ => None,
+            };
+            match self.ask_side(*role, side, paths, known, &mut ask) {
+                Ok(answered) => {
+                    answers.insert(*role, answered);
+                }
+                Err(error) => match self.lost_destination(request, *role, side, &error) {
                     Some(failed) => lost = Some(failed),
                     None => return Err(error),
                 },
@@ -159,15 +155,15 @@ mod tests {
     #[test]
     fn cached_source_answers_are_a_snapshot_and_only_new_paths_are_read() {
         let mut runtime = CoreRuntime::new_for_test();
-        let sides = BTreeMap::from([(Role::Left, Side::Local)]);
-        let wanted = BTreeMap::from([(Role::Left, vec!["old".into(), "new".into()])]);
+        let wanted = ["old".to_string(), "new".to_string()];
         let mut cache = BTreeMap::from([("old".into(), Ok(b"snapshot".to_vec()))]);
         let mut reads = 0;
         let answers = runtime
-            .ask_each(
-                &sides,
+            .ask_side(
+                Role::Left,
+                &Side::Local,
                 &wanted,
-                Some((Side::Local, &mut cache)),
+                Some(&mut cache),
                 |_, _, paths| {
                     reads += 1;
                     assert_eq!(
@@ -179,14 +175,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(reads, 1);
-        assert_eq!(answers[&Role::Left], cache);
+        assert_eq!(answers, cache);
         assert_eq!(cache["old"].as_ref().unwrap(), b"snapshot");
         assert_eq!(cache["new"].as_ref().unwrap(), b"fresh");
         let again = runtime
-            .ask_each(
-                &sides,
+            .ask_side(
+                Role::Left,
+                &Side::Local,
                 &wanted,
-                Some((Side::Local, &mut cache)),
+                Some(&mut cache),
                 |_, _, _| panic!("a cached source must not be read again"),
             )
             .unwrap();
@@ -196,14 +193,13 @@ mod tests {
     #[test]
     fn unexpected_answers_are_retained_but_do_not_replace_a_missing_answer() {
         let mut runtime = CoreRuntime::new_for_test();
-        let sides = BTreeMap::from([(Role::Left, Side::Local)]);
-        let wanted = BTreeMap::from([(Role::Left, vec!["wanted".into()])]);
         let mut cache: ByPath<Vec<u8>> = BTreeMap::new();
         let error = runtime
-            .ask_each(
-                &sides,
-                &wanted,
-                Some((Side::Local, &mut cache)),
+            .ask_side(
+                Role::Left,
+                &Side::Local,
+                &["wanted".to_string()],
+                Some(&mut cache),
                 |_, _, _| Ok(vec![("unexpected".into(), Ok(b"extra".to_vec()))]),
             )
             .unwrap_err();
