@@ -23,7 +23,7 @@ fn times(scan: Result<Listing, String>) -> Result<Times, String> {
 }
 
 /// 走査の結果の、経路で比べる値の文字列
-pub(super) fn times_text(scan: Result<Listing, String>) -> String {
+fn times_text(scan: Result<Listing, String>) -> String {
     format!("{:?}", times(scan))
 }
 

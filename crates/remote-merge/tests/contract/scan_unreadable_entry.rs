@@ -11,7 +11,7 @@ use remote_merge::agent::protocol::{AgentRequest, AgentResponse};
 use remote_merge_core::scan::outcome::{ReadCause, ScanFailure, ScanRequest, ScanScope};
 
 /// エージェントの受け取り口で root_dir 全体を走査した応答
-pub(super) fn agent_scan(root: &Path) -> Vec<AgentResponse> {
+fn agent_scan(root: &Path) -> Vec<AgentResponse> {
     let mut dispatcher = Dispatcher::new(root.to_path_buf(), MetadataConfig::default());
     let request = AgentRequest::ListTree {
         request: ScanRequest {

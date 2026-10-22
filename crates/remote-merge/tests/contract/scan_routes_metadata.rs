@@ -54,7 +54,7 @@ fn place_tree(root: &Path) {
 }
 
 /// 走査の結果を比べられる形の JSON の文字列にする
-pub(super) fn tree_json(scan: Result<Listing, String>) -> String {
+fn tree_json(scan: Result<Listing, String>) -> String {
     match scan {
         Ok(listing) => {
             let nodes: BTreeMap<String, Value> = listing
