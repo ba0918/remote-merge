@@ -157,28 +157,6 @@ fn assert_kept_with_truncation(output: &std::process::Output, route: &str) {
     assert_eq!(output.status.code(), Some(2), "{route}: {output:?}");
 }
 
-// SSH の経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
-// @kotowari[REQ-cli-084]
-#[test]
-fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_on_the_remote_server()
- {
-    let files = over_the_limit();
-    let remote: Vec<(&str, &str)> = files
-        .iter()
-        .map(|(path, body)| (path.as_str(), *body))
-        .collect();
-    let env = super::common::CliEnv::new(&[], &remote);
-
-    let output = env
-        .cmd_with("diff")
-        .args(["--left", "local", "--right", "develop", "--format", "json"])
-        .args(["--max-entries", "5"])
-        .output()
-        .unwrap();
-
-    assert_kept_with_truncation(&output, "ssh");
-}
-
 // エージェントの経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
 // @kotowari[REQ-cli-084]
 #[tokio::test(flavor = "multi_thread")]

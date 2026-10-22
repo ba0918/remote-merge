@@ -5,10 +5,8 @@
 
 use remote_merge::service::types::exit_code;
 
-use super::agent_support::{self, AgentFixture, Setup};
 use super::common::{CliEnv, place_files};
 use super::diff_strategy_support::{Fixture, strings};
-use super::server_faults::Faults;
 
 // ── REQ-cli-085: 通常のディレクトリと通常ファイルの組は両方を示す ──
 
@@ -183,23 +181,5 @@ fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body_on_
             assert_kind_and_body(&json, &context);
             assert_eq!(output.status.code(), Some(1), "{context}: {output:?}");
         }
-    }
-}
-
-// エージェントの経路でも、子のないディレクトリとファイルの組は種類の差とファイル側の本文を示す
-// @kotowari[REQ-cli-085]
-#[tokio::test(flavor = "multi_thread")]
-async fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body_via_the_agent() {
-    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
-    fixture.disable_backup();
-    std::fs::create_dir_all(fixture.remote().join("x")).unwrap();
-    fixture.put("x", Some("body\n"), None);
-
-    for paths in [&["diff", "x"][..], &["diff"]] {
-        let output = fixture.run(paths);
-
-        let json = agent_support::json(&output);
-        assert_kind_and_body(&json, &format!("{paths:?}"));
-        assert_eq!(output.status.code(), Some(1), "{paths:?}: {output:?}");
     }
 }

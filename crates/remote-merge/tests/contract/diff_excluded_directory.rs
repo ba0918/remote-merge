@@ -2,16 +2,11 @@
 //! 配下がすべて exclude に当たるディレクトリを指定した CLI diff が、比べる経路の組とパスの数に
 //! よらず差分なしになること（docs/ir/cli/diff-strategy.md の REQ-cli-082）の契約テスト。
 //!
-//! ローカルどうしは diff_strategy_support の組み方で関数を呼ぶ。ローカルと SSH・SSH どうしは
-//! 実行ファイルを試験 SSH サーバに対して起動し、ローカルとエージェントはエージェントを置いた
-//! 試験サーバに対して起動する。
+//! ローカルどうしは diff_strategy_support の組み方で関数を呼ぶ。ローカルとサーバ・サーバどうしは
+//! 実行ファイルを試験 SSH サーバ（エージェントの経路）に対して起動する。
 
-use std::fs;
-
-use super::agent_support::{self, AgentFixture, Setup};
 use super::common::{CliEnv, place_files};
 use super::diff_strategy_support::{Fixture, strings};
-use super::server_faults::Faults;
 
 // ── REQ-cli-082: 子がすべて除外されるディレクトリは差分なしとする ──
 
@@ -68,27 +63,16 @@ fn ex_cli_075_a_directory_whose_children_are_all_excluded_has_no_diff_on_the_rem
                 output.status.code(),
                 &format!("{left}-{right} {path}: {output:?}"),
             );
+
+            let output = env
+                .cmd_with("diff")
+                .args([path, "--left", left, "--right", right, "--format", "json"])
+                .output()
+                .unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+            assert_eq!(json["files"], serde_json::json!([]), "{path}: {output:?}");
+            assert_eq!(output.status.code(), Some(0), "{path}: {output:?}");
         }
-    }
-}
-
-// @kotowari[REQ-cli-082, EX-cli-075]
-#[tokio::test(flavor = "multi_thread")]
-async fn ex_cli_075_a_directory_whose_children_are_all_excluded_has_no_diff_via_the_agent() {
-    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
-    fixture.disable_backup();
-    let mut config = fs::read_to_string(&fixture.config).unwrap();
-    config.push_str("[filter]\nexclude = [\"target\"]\n");
-    fs::write(&fixture.config, config).unwrap();
-    for ((path, left), (_, right)) in UNDER_TARGET_LEFT.iter().zip(UNDER_TARGET_RIGHT.iter()) {
-        fixture.put(path, Some(left), Some(right));
-    }
-
-    for path in ["target", "target/"] {
-        let output = fixture.run(&["diff", path]);
-
-        let json = agent_support::json(&output);
-        assert_eq!(json["files"], serde_json::json!([]), "{path}: {output:?}");
-        assert_eq!(output.status.code(), Some(0), "{path}: {output:?}");
     }
 }
