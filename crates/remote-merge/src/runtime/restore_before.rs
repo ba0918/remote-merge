@@ -4,10 +4,10 @@
 //! 書き戻しの最中の `接続断` の後の確かめ（`confirm`）が「書く前」に使う。取ったものは保存しない。
 //! 選んだ経路でまとめてハッシュを取り、ハッシュの道具がないサーバでは中身をまとめて読む。
 
+use remote_merge_core::change_check::Before;
 use remote_merge_core::relative_path::EntryPath;
 use std::collections::HashMap;
 
-use super::change_check::Before;
 use super::core::CoreRuntime;
 
 impl CoreRuntime {

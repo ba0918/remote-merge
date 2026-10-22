@@ -146,7 +146,7 @@ impl TargetIo for RootWatch {
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, crate::runtime::change_check::Before>> {
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>> {
         self.inner.states_before_restore(rt, paths)
     }
 }

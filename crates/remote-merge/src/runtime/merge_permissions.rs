@@ -1,10 +1,10 @@
 //! merge と sync が書いた後の権限（docs/ir/merge/permissions.md の REQ-merge-012・013・036・037）。
 //! 経路の権限の変更の結果は `settle_change` に渡し、`接続断` の後は書き込み先を確かめる
 
+use remote_merge_core::change_check::Change;
 use remote_merge_core::compare::{Role, SideState};
 use remote_merge_core::relative_path::EntryPath;
 
-use super::change_check::Change;
 use super::core::CoreRuntime;
 use super::merge_apply::{ApplyOptions, ChangeKind, PlannedChange};
 use super::merge_inspect::Inspected;

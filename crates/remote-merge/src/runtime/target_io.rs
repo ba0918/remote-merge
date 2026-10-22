@@ -78,7 +78,7 @@ pub(crate) trait TargetIo {
         &mut self,
         runtime: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, super::change_check::Before>>;
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>>;
 }
 
 /// `side` の比較先。処理を止めた側（ローカルの側とローカルに置き換えたサーバを含む）は、どの操作も

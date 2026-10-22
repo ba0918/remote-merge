@@ -102,7 +102,7 @@ impl TargetIo for LocalTargetIo {
         &mut self,
         _: &mut CoreRuntime,
         _: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>> {
         Ok(HashMap::new())
     }
 }

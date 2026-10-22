@@ -76,7 +76,7 @@ impl TargetIo for StoppedTargetIo {
         &mut self,
         rt: &mut CoreRuntime,
         _: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>> {
         self.refuse(rt)
     }
 }

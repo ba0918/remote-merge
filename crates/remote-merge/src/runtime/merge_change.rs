@@ -4,12 +4,12 @@
 
 use std::path::Path;
 
+use remote_merge_core::change_check::{Before, Change};
 use remote_merge_core::compare::{PathComparison, Role, SideState};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::EntryPath;
 
 use super::backup_store::SymlinkBackup;
-use super::change_check::{Before, Change};
 use super::core::CoreRuntime;
 use super::merge_apply::{ChangeKind, PlannedChange};
 use super::merge_inspect::{BackupContent, Inspected};

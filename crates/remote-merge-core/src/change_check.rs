@@ -1,9 +1,9 @@
 //! 変更の最中の `接続断` の後に、書き込み先を読んで確かめた結果の判定
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022）。読み書きはしない。
 
-use remote_merge_core::operations::resulting_mode;
-use remote_merge_core::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
-use remote_merge_core::sha256::hex_of_bytes;
+use crate::operations::resulting_mode;
+use crate::scan::outcome::{LinkPoint, ListedEntry, ListedKind};
+use crate::sha256::hex_of_bytes;
 
 /// 変更の前の、そのパスの状態。書き込みの確かめに使う
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,11 +88,11 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
         Change::Symlink { target } => match observed {
             Observed::Link(now) if now == target => Outcome::Done,
             Observed::Absent => Outcome::NotDone,
-            _ => Outcome::Partial,
+            Observed::Link(_) | Observed::File(_) | Observed::Mode { .. } => Outcome::Partial,
         },
         Change::Remove => match observed {
             Observed::Absent => Outcome::Done,
-            _ => Outcome::NotDone,
+            Observed::File(_) | Observed::Link(_) | Observed::Mode { .. } => Outcome::NotDone,
         },
         Change::Chmod { mode } => match observed {
             // ディレクトリはすでに付いていた setuid・setgid を残す（REQ-paths-018）
@@ -100,7 +100,9 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
                 mode: now,
                 directory,
             } if resulting_mode(*now, *mode, *directory) == *now => Outcome::Done,
-            _ => Outcome::NotDone,
+            Observed::Absent | Observed::File(_) | Observed::Link(_) | Observed::Mode { .. } => {
+                Outcome::NotDone
+            }
         },
     }
 }
@@ -145,7 +147,9 @@ pub fn describe(change: &Change<'_>, outcome: Outcome, observed: &Observed, caus
             Observed::Mode { mode: now, .. } => format!(
                 "permissions not changed: after reconnecting, the mode was confirmed to be {now:o}"
             ),
-            _ => "permissions not changed: after reconnecting, the path was not found".to_string(),
+            Observed::Absent | Observed::File(_) | Observed::Link(_) => {
+                "permissions not changed: after reconnecting, the path was not found".to_string()
+            }
         },
     };
     format!("{what} (the connection was lost: {cause})")

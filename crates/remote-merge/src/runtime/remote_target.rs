@@ -124,7 +124,7 @@ impl TargetIo for RemoteTargetIo {
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>> {
         rt.remote_states_before_restore(&self.name, paths)
     }
 }

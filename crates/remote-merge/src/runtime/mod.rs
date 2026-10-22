@@ -9,7 +9,6 @@ mod agent_start;
 #[cfg(unix)]
 mod agent_target;
 mod backup_store;
-pub mod change_check;
 mod command_sides;
 mod compare_answers;
 mod compare_checks;

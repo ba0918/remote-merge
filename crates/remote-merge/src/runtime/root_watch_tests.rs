@@ -65,7 +65,7 @@ impl TargetIo for Asked {
         &mut self,
         _: &mut CoreRuntime,
         _: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, crate::runtime::change_check::Before>> {
+    ) -> anyhow::Result<HashMap<String, remote_merge_core::change_check::Before>> {
         unreachable!()
     }
     fn scan_listing(

@@ -1,6 +1,7 @@
 #![warn(clippy::wildcard_enum_match_arm)]
 #![warn(clippy::unwrap_used)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
+pub mod change_check;
 pub mod compare;
 pub mod content;
 pub mod diff;

@@ -191,7 +191,7 @@ fn is_partially_written(error: &anyhow::Error) -> bool {
         cause
             .downcast_ref::<super::confirm::ConfirmedChange>()
             .is_some_and(|confirmed| {
-                confirmed.outcome == Some(super::change_check::Outcome::Partial)
+                confirmed.outcome == Some(remote_merge_core::change_check::Outcome::Partial)
             })
     })
 }

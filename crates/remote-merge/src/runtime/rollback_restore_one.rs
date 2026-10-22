@@ -4,12 +4,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
+use remote_merge_core::change_check::{Before, Change};
 use remote_merge_core::compare::SideState;
 use remote_merge_core::op_failure::{OpFailure, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
 use super::backup_store::{BackupRecord, SymlinkBackup};
-use super::change_check::{Before, Change};
 use super::core::CoreRuntime;
 use super::rollback_apply::{RestoreOutcome, Restoring};
 use crate::side::Side;
