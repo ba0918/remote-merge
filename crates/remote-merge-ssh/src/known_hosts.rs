@@ -7,6 +7,10 @@ use russh::client;
 use russh::keys::PublicKeyOrCertificate;
 use sha1::Sha1;
 
+use std::path::{Path, PathBuf};
+
+use tokio::sync::oneshot;
+
 use super::host_key_verifier::UnknownHostInfo;
 use super::known_hosts_io;
 
@@ -23,39 +27,77 @@ struct KnownHost<'a> {
     line_number: usize,
 }
 
+/// 提示されたホスト鍵のうち、どれを受け入れるか
+enum KeyAcceptance {
+    /// 確かめずに受け入れる（テスト用の接続だけ）
+    #[cfg(any(test, feature = "test-utils"))]
+    AnyKey,
+    /// known_hosts で確かめる。登録のない鍵は `unknown_host` に知らせて接続をいったん断り、
+    /// 承認を尋ねるのは接続の側に任せる
+    KnownHosts {
+        /// 使う known_hosts。None なら利用者の ~/.ssh/known_hosts
+        known_hosts: Option<PathBuf>,
+        /// 未知の鍵の知らせ先。知らせた後は None
+        unknown_host: Option<oneshot::Sender<UnknownHostInfo>>,
+    },
+    /// 利用者が承認した鍵（種別と base64）と完全に一致する鍵だけを受け入れる
+    ApprovedKey {
+        key_type: String,
+        key_base64: String,
+    },
+}
+
 /// russh の Handler 実装
 pub(crate) struct SshHandler {
-    pub host: String,
-    pub port: u16,
-    /// テスト用: known_hosts チェックをスキップするフラグ
-    pub skip_host_key_check: bool,
-    /// 未知ホスト検出時にフィンガープリント情報を送信するチャネル
-    pub unknown_host_sender: Option<tokio::sync::oneshot::Sender<UnknownHostInfo>>,
-    /// 利用者が承認した鍵（種別と base64）。あるときはこの鍵と完全に一致する鍵だけを受け入れる
-    approved_key: Option<(String, String)>,
-    /// 使う known_hosts。None なら利用者の ~/.ssh/known_hosts
-    pub known_hosts: Option<std::path::PathBuf>,
+    host: String,
+    port: u16,
+    acceptance: KeyAcceptance,
 }
 
 impl SshHandler {
-    pub fn new(host: String, port: u16) -> Self {
+    /// ホスト鍵を確かめずに受け入れるハンドラ（テスト用の接続だけ）
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) fn accepting_any_key(host: String, port: u16) -> Self {
         Self {
             host,
             port,
-            skip_host_key_check: false,
-            unknown_host_sender: None,
-            approved_key: None,
-            known_hosts: None,
+            acceptance: KeyAcceptance::AnyKey,
+        }
+    }
+
+    /// known_hosts で確かめるハンドラ。登録のない鍵は `unknown_host` に知らせて接続を断る
+    pub(crate) fn checking_known_hosts(
+        host: String,
+        port: u16,
+        known_hosts: Option<PathBuf>,
+        unknown_host: oneshot::Sender<UnknownHostInfo>,
+    ) -> Self {
+        Self {
+            host,
+            port,
+            acceptance: KeyAcceptance::KnownHosts {
+                known_hosts,
+                unknown_host: Some(unknown_host),
+            },
         }
     }
 
     /// 利用者が承認した鍵での再接続用のハンドラ。
     ///
     /// known_hosts を読み直すと別プロセスの変更と食い違い得るため、承認した鍵そのものと比べる。
-    pub fn for_approved_key(host: String, port: u16, key_type: &str, key_base64: &str) -> Self {
+    pub(crate) fn for_approved_key(
+        host: String,
+        port: u16,
+        key_type: &str,
+        key_base64: &str,
+    ) -> Self {
         Self {
-            approved_key: Some((key_type.to_string(), key_base64.to_string())),
-            ..Self::new(host, port)
+            host,
+            port,
+            acceptance: KeyAcceptance::ApprovedKey {
+                key_type: key_type.to_string(),
+                key_base64: key_base64.to_string(),
+            },
         }
     }
 }
@@ -67,97 +109,131 @@ impl client::Handler for SshHandler {
         &mut self,
         server_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
-        if self.skip_host_key_check {
-            tracing::debug!(target: "remote_merge::ssh::known_hosts", "Skipping known_hosts check: {}", self.host);
-            return Ok(true);
-        }
-
-        let server_public_key = match server_key {
-            PublicKeyOrCertificate::PublicKey { key, .. } => key,
-            // 接続はホスト証明書の方式を申し出ないので、russh は証明書を渡してこない。証明書を
-            // 信じるには known_hosts の @cert-authority で認証局を確かめる必要があり、中の鍵を
-            // 取り出して素の鍵として照合すると、認証局を確かめずに信じることになる
-            PublicKeyOrCertificate::Certificate(_) => {
-                tracing::warn!(target: "remote_merge::ssh::known_hosts", "Server presented a host certificate, which is not supported: {}", self.host);
-                return Ok(false);
-            }
-        };
-
-        let openssh_str = server_public_key
-            .to_openssh()
-            .map_err(|e| anyhow::anyhow!("Failed to serialize public key: {}", e))?;
-
-        let Some((server_key_type, server_key_base64)) = openssh_str.split_once(' ') else {
-            return Err(anyhow::anyhow!(
-                "Invalid public key format: {}",
-                openssh_str
-            ));
-        };
-
-        if let Some((approved_type, approved_base64)) = &self.approved_key {
-            let matches = approved_type == server_key_type && approved_base64 == server_key_base64;
-            if !matches {
-                tracing::warn!(target: "remote_merge::ssh::known_hosts", "Reconnection presented a host key different from the approved one: {}", self.host);
-            }
-            return Ok(matches);
-        }
-
-        let known_hosts_content = match known_hosts_io::read_known_hosts(
-            self.known_hosts.as_deref(),
-        ) {
-            Ok(Some(content)) => content,
-            Err(error) => {
-                return Err(anyhow::anyhow!(
-                    "Failed to read ~/.ssh/known_hosts: {error}. Refusing to verify the host key for {}.",
-                    self.host
-                ));
-            }
-            Ok(None) => {
-                // known_hosts ファイルが無い → 未知ホスト
-                return self.handle_unknown_host(server_key_type, server_key_base64);
-            }
-        };
-
-        match judge_host_key(
-            &known_hosts_content,
-            &self.host,
-            self.port,
-            server_key_type,
-            server_key_base64,
-        ) {
-            HostKeyJudgement::Trusted => {
-                tracing::debug!(target: "remote_merge::ssh::known_hosts", "known_hosts: host key matched: {}", self.host);
+        match &mut self.acceptance {
+            #[cfg(any(test, feature = "test-utils"))]
+            KeyAcceptance::AnyKey => {
+                tracing::debug!(target: "remote_merge::ssh::known_hosts", "Skipping known_hosts check: {}", self.host);
                 Ok(true)
             }
-            HostKeyJudgement::Changed { line } => {
-                let host_entry = format_host_entry(&self.host, self.port);
-                Err(anyhow::anyhow!(
-                    "\n\
-                    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
-                    @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
-                    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
-                    IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n\
-                    Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n\
-                    It is also possible that a host key has just been changed.\n\
-                    The {key_type} host key for {host} has changed (line {line} in ~/.ssh/known_hosts).\n\
-                    To fix this, run:\n\
-                    \n  ssh-keygen -R {host_entry}\n",
-                    key_type = server_key_type,
-                    host = self.host,
-                    line = line,
-                    host_entry = host_entry,
-                ))
+            KeyAcceptance::KnownHosts {
+                known_hosts,
+                unknown_host,
+            } => {
+                let Some(presented) = openssh_key(server_key, &self.host)? else {
+                    return Ok(false);
+                };
+                let (key_type, key_base64) = split_openssh_key(&presented)?;
+                check_known_hosts(
+                    &self.host,
+                    self.port,
+                    known_hosts.as_deref(),
+                    unknown_host,
+                    key_type,
+                    key_base64,
+                )
             }
-            HostKeyJudgement::Revoked { line } => Err(anyhow::anyhow!(
-                "The {key_type} host key for {host} is marked as revoked (line {line} in ~/.ssh/known_hosts). Refusing to connect.",
-                key_type = server_key_type,
-                host = self.host,
-            )),
-            // 別の鍵種別でだけ登録されたホストも、提示された鍵は確かめられていないので未知として扱う
-            HostKeyJudgement::Unknown => {
-                self.handle_unknown_host(server_key_type, server_key_base64)
+            KeyAcceptance::ApprovedKey {
+                key_type,
+                key_base64,
+            } => {
+                let Some(presented) = openssh_key(server_key, &self.host)? else {
+                    return Ok(false);
+                };
+                let matches =
+                    split_openssh_key(&presented)? == (key_type.as_str(), key_base64.as_str());
+                if !matches {
+                    tracing::warn!(target: "remote_merge::ssh::known_hosts", "Reconnection presented a host key different from the approved one: {}", self.host);
+                }
+                Ok(matches)
             }
         }
+    }
+}
+
+/// 提示された鍵を OpenSSH の形の一行（"種別 base64"）にする。証明書は受け入れないので None
+fn openssh_key(server_key: &PublicKeyOrCertificate, host: &str) -> anyhow::Result<Option<String>> {
+    match server_key {
+        PublicKeyOrCertificate::PublicKey { key, .. } => key
+            .to_openssh()
+            .map(Some)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize public key: {}", e)),
+        // 接続はホスト証明書の方式を申し出ないので、russh は証明書を渡してこない。証明書を
+        // 信じるには known_hosts の @cert-authority で認証局を確かめる必要があり、中の鍵を
+        // 取り出して素の鍵として照合すると、認証局を確かめずに信じることになる
+        PublicKeyOrCertificate::Certificate(_) => {
+            tracing::warn!(target: "remote_merge::ssh::known_hosts", "Server presented a host certificate, which is not supported: {}", host);
+            Ok(None)
+        }
+    }
+}
+
+/// OpenSSH の形の鍵を種別と base64 に分ける
+fn split_openssh_key(openssh: &str) -> anyhow::Result<(&str, &str)> {
+    openssh
+        .split_once(' ')
+        .ok_or_else(|| anyhow::anyhow!("Invalid public key format: {}", openssh))
+}
+
+/// 提示された鍵を known_hosts に照らす。登録がなければ `unknown_host` に知らせて断る
+fn check_known_hosts(
+    host: &str,
+    port: u16,
+    known_hosts: Option<&Path>,
+    unknown_host: &mut Option<oneshot::Sender<UnknownHostInfo>>,
+    key_type: &str,
+    key_base64: &str,
+) -> anyhow::Result<bool> {
+    let known_hosts_content = match known_hosts_io::read_known_hosts(known_hosts) {
+        Ok(Some(content)) => content,
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "Failed to read ~/.ssh/known_hosts: {error}. Refusing to verify the host key for {}.",
+                host
+            ));
+        }
+        Ok(None) => {
+            // known_hosts ファイルが無い → 未知ホスト
+            return Ok(notify_unknown_host(
+                unknown_host,
+                host,
+                port,
+                key_type,
+                key_base64,
+            ));
+        }
+    };
+
+    match judge_host_key(&known_hosts_content, host, port, key_type, key_base64) {
+        HostKeyJudgement::Trusted => {
+            tracing::debug!(target: "remote_merge::ssh::known_hosts", "known_hosts: host key matched: {}", host);
+            Ok(true)
+        }
+        HostKeyJudgement::Changed { line } => {
+            let host_entry = format_host_entry(host, port);
+            Err(anyhow::anyhow!(
+                "\n\
+                @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
+                @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n\
+                Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n\
+                It is also possible that a host key has just been changed.\n\
+                The {key_type} host key for {host} has changed (line {line} in ~/.ssh/known_hosts).\n\
+                To fix this, run:\n\
+                \n  ssh-keygen -R {host_entry}\n",
+            ))
+        }
+        HostKeyJudgement::Revoked { line } => Err(anyhow::anyhow!(
+            "The {key_type} host key for {host} is marked as revoked (line {line} in ~/.ssh/known_hosts). Refusing to connect.",
+        )),
+        // 別の鍵種別でだけ登録されたホストも、提示された鍵は確かめられていないので未知として扱う
+        HostKeyJudgement::Unknown => Ok(notify_unknown_host(
+            unknown_host,
+            host,
+            port,
+            key_type,
+            key_base64,
+        )),
     }
 }
 
@@ -208,50 +284,35 @@ pub(crate) fn judge_host_key(
     HostKeyJudgement::Unknown
 }
 
-impl SshHandler {
-    /// 未知ホストを検出した場合のハンドリング。
-    ///
-    /// `unknown_host_sender` があれば情報を送信して false を返す（接続を中断）。
-    /// sender がなければ既存動作（自動追加して true）。
-    fn handle_unknown_host(
-        &mut self,
-        key_type: &str,
-        key_base64: &str,
-    ) -> Result<bool, anyhow::Error> {
-        if let Some(sender) = self.unknown_host_sender.take() {
-            let fingerprint = known_hosts_io::format_fingerprint(key_base64);
-            let info = UnknownHostInfo {
-                host: self.host.clone(),
-                port: self.port,
-                key_type: key_type.to_string(),
-                fingerprint,
-                key_base64: key_base64.to_string(),
-            };
-            // 送信失敗（receiver が drop 済み）は無視して false を返す
-            let _ = sender.send(info);
-            tracing::debug!(
-                target: "remote_merge::ssh::known_hosts",
-                "Unknown host info sent via channel, rejecting connection: {}",
-                self.host
-            );
-            Ok(false)
-        } else {
-            // sender がない = 旧来の自動承認モード
-            tracing::info!(
-                target: "remote_merge::ssh::known_hosts",
-                "known_hosts: unknown host. TOFU: adding host key: {}",
-                self.host
-            );
-            known_hosts_io::append_known_hosts_entry(
-                self.known_hosts.as_deref(),
-                &self.host,
-                self.port,
-                key_type,
-                key_base64,
-            );
-            Ok(true)
-        }
-    }
+/// 未知の鍵を `unknown_host` に知らせ、接続をいったん断る（false を返す）。
+///
+/// russh は最初の鍵交換でだけ鍵を確かめるので、知らせるのは一つの接続で一度になる。知らせ先が
+/// もうないときも、確かめていない鍵なので受け入れない。
+fn notify_unknown_host(
+    unknown_host: &mut Option<oneshot::Sender<UnknownHostInfo>>,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    key_base64: &str,
+) -> bool {
+    let Some(sender) = unknown_host.take() else {
+        return false;
+    };
+    let info = UnknownHostInfo {
+        host: host.to_string(),
+        port,
+        key_type: key_type.to_string(),
+        fingerprint: known_hosts_io::format_fingerprint(key_base64),
+        key_base64: key_base64.to_string(),
+    };
+    // 送信失敗（receiver が drop 済み）は無視して false を返す
+    let _ = sender.send(info);
+    tracing::debug!(
+        target: "remote_merge::ssh::known_hosts",
+        "Unknown host info sent via channel, rejecting connection: {}",
+        host
+    );
+    false
 }
 
 /// known_hosts のテキスト内容をパースする（"@" で始まる印付きの行は除く）
@@ -713,9 +774,12 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         let dir = tempfile::tempdir().unwrap();
         let known_hosts = dir.path().join("known_hosts");
         let (sender, mut receiver) = tokio::sync::oneshot::channel();
-        let mut handler = SshHandler::new("example.invalid".into(), 2222);
-        handler.unknown_host_sender = Some(sender);
-        handler.known_hosts = Some(known_hosts.clone());
+        let mut handler = SshHandler::checking_known_hosts(
+            "example.invalid".into(),
+            2222,
+            Some(known_hosts.clone()),
+            sender,
+        );
 
         let accepted = handler
             .check_server_key(&presented.clone().into())
@@ -761,9 +825,12 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         );
         std::fs::write(&known_hosts, &content).unwrap();
         let (sender, mut receiver) = tokio::sync::oneshot::channel();
-        let mut handler = SshHandler::new("example.invalid".into(), 22);
-        handler.unknown_host_sender = Some(sender);
-        handler.known_hosts = Some(known_hosts.clone());
+        let mut handler = SshHandler::checking_known_hosts(
+            "example.invalid".into(),
+            22,
+            Some(known_hosts.clone()),
+            sender,
+        );
 
         let error = handler
             .check_server_key(&presented.into())

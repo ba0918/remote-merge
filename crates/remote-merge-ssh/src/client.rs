@@ -41,6 +41,15 @@ pub struct SshClient {
     channel_timeout_sec: u64,
 }
 
+/// 接続でホスト鍵をどう確かめるか
+enum HostKeyCheck<'a> {
+    /// 確かめない（テスト用の接続だけ）
+    #[cfg(any(test, feature = "test-utils"))]
+    Skip,
+    /// known_hosts で確かめ、登録のない鍵は `verifier` に承認を尋ねる
+    Verify(&'a dyn HostKeyVerifier),
+}
+
 /// SSH チャネルの data 送信チャンクサイズ（32KB）。
 ///
 /// SSH チャネルのウィンドウサイズ（デフォルト64KB）より小さく設定し、
@@ -60,8 +69,7 @@ impl SshClient {
             server_name,
             server_config,
             ssh_config,
-            false,
-            Some(verifier),
+            HostKeyCheck::Verify(verifier),
             passphrase_provider,
         )
         .await
@@ -76,7 +84,14 @@ impl SshClient {
         server_config: &ServerConfig,
         ssh_config: &SshConfig,
     ) -> crate::error::Result<Self> {
-        Self::connect_inner(server_name, server_config, ssh_config, true, None, None).await
+        Self::connect_inner(
+            server_name,
+            server_config,
+            ssh_config,
+            HostKeyCheck::Skip,
+            None,
+        )
+        .await
     }
 
     /// 接続の内部実装
@@ -84,25 +99,30 @@ impl SshClient {
         server_name: &str,
         server_config: &ServerConfig,
         ssh_config: &SshConfig,
-        skip_host_key_check: bool,
-        verifier: Option<&dyn HostKeyVerifier>,
+        host_key_check: HostKeyCheck<'_>,
         passphrase_provider: Option<&dyn PassphraseProvider>,
     ) -> crate::error::Result<Self> {
         let config = Self::build_client_config(ssh_config, server_config);
         let addr = (server_config.host.as_str(), server_config.port);
 
-        // oneshot チャネルを作成（verifier がある場合のみ）
-        let (tx, rx) = if verifier.is_some() && !skip_host_key_check {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
+        // 未知の鍵はハンドラから知らせを受け、接続が断られた後で verifier に尋ねる
+        let (handler, unknown_host) = match host_key_check {
+            #[cfg(any(test, feature = "test-utils"))]
+            HostKeyCheck::Skip => (
+                SshHandler::accepting_any_key(server_config.host.clone(), server_config.port),
+                None,
+            ),
+            HostKeyCheck::Verify(verifier) => {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                let handler = SshHandler::checking_known_hosts(
+                    server_config.host.clone(),
+                    server_config.port,
+                    ssh_config.known_hosts.clone(),
+                    tx,
+                );
+                (handler, Some((rx, verifier)))
+            }
         };
-
-        let mut handler = SshHandler::new(server_config.host.clone(), server_config.port);
-        handler.skip_host_key_check = skip_host_key_check;
-        handler.unknown_host_sender = tx;
-        handler.known_hosts = ssh_config.known_hosts.clone();
 
         let connect_result = tokio::time::timeout(
             Duration::from_secs(ssh_config.timeout_sec),
@@ -139,7 +159,7 @@ impl SshClient {
             }
             Err(e) => {
                 // 接続失敗 → 未知ホストが原因かチェック
-                if let (Some(mut rx), Some(verifier)) = (rx, verifier)
+                if let Some((mut rx, verifier)) = unknown_host
                     && let Ok(info) = rx.try_recv()
                 {
                     return Self::handle_unknown_host_verification(
