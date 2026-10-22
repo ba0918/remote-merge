@@ -1,12 +1,12 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 
 use tempfile::TempDir;
 
-use super::common::isolated_command;
-use super::ssh_server::TestServer;
+use super::agent_support::{AgentFixture, Setup, json};
+use super::server_faults::Faults;
 
 fn verify_local_external_link() {
     use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
@@ -77,24 +77,21 @@ fn assert_old_content_was_backed_up(backup_root: &std::path::Path) {
     );
 }
 
+// @kotowari[EX-merge-007]
+#[test]
+fn an_external_parent_link_is_backed_up_and_updated_locally() {
+    verify_local_external_link();
+}
+
 // @kotowari[EX-merge-007, EX-merge-058]
 #[tokio::test(flavor = "multi_thread")]
-async fn external_parent_links_are_backed_up_and_updated_locally_and_through_the_agent() {
-    std::thread::spawn(verify_local_external_link)
-        .join()
-        .unwrap();
+async fn an_external_parent_link_is_backed_up_and_updated_through_the_agent() {
     // ファイルを直接指定しても root 全体を指定しても、書き込み先のディレクトリへの symlink の中を比べて書く
     for requested in ["linked/file.txt", "."] {
-        // 配置先とその祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
-        let home = tempfile::Builder::new()
-            .permissions(fs::Permissions::from_mode(0o700))
-            .tempdir()
-            .unwrap();
-        let local = home.path().join("local");
-        let remote = home.path().join("remote");
-        let shared = home.path().join("shared");
+        let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
+        let (local, remote) = (fixture.local(), fixture.remote());
+        let shared = fixture.home.path().join("shared");
         fs::create_dir_all(local.join("linked")).unwrap();
-        fs::create_dir_all(&remote).unwrap();
         fs::create_dir_all(&shared).unwrap();
         // 大きさを変え、root 全体の比較で大きさと更新時刻だけで同じと判定される回を作らない
         fs::write(local.join("linked/file.txt"), "incoming contents\n").unwrap();
@@ -102,32 +99,9 @@ async fn external_parent_links_are_backed_up_and_updated_locally_and_through_the
         fs::write(&actual, "existing\n").unwrap();
         symlink(&shared, remote.join("linked")).unwrap();
 
-        let agent_dir = home.path().join("agent");
-        let binary = agent_dir.join("remote-merge-testuser/remote-merge");
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(binary.parent().unwrap())
-            .unwrap();
-        symlink(env!("CARGO_BIN_EXE_remote-merge"), &binary).unwrap();
-        let agent_binary = binary.clone();
-        let server = TestServer::filesystem_with_agent(home.path()).await;
-        let config_path = home.path().join("config.toml");
-        fs::write(&config_path, format!(
-            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
-            local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
-        )).unwrap();
-        let output = isolated_command(home.path())
-            .env("REMOTE_MERGE_AGENT_BINARY", agent_binary)
-            .args([
-                "merge", requested, "--left", "local", "--right", "fixture", "--format", "json",
-            ])
-            .arg("--config")
-            .arg(&config_path)
-            .output()
-            .unwrap();
+        let output = fixture.run(&["merge", requested]);
         assert!(output.status.success(), "{requested}: {output:?}");
-        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let result = json(&output);
         assert_eq!(result["merged"][0]["path"], "linked/file.txt", "{result}");
         assert!(result["merged"][0]["backup"].as_str().is_some(), "{result}");
         assert!(
@@ -140,7 +114,7 @@ async fn external_parent_links_are_backed_up_and_updated_locally_and_through_the
         );
         assert_eq!(fs::read(&actual).unwrap(), b"incoming contents\n");
         assert_eq!(fs::read_link(remote.join("linked")).unwrap(), shared);
-        let backup_root = home.path().join("data/remote-merge/backups");
+        let backup_root = fixture.home.path().join("data/remote-merge/backups");
         assert_old_content_was_backed_up(&backup_root);
     }
 }
