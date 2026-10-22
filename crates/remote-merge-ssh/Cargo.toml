@@ -30,7 +30,6 @@ test-utils = []
 [dev-dependencies]
 rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
-serial_test = "3"
 tempfile = "3"
 
 [lints]

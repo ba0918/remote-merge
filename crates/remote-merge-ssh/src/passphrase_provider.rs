@@ -1,8 +1,8 @@
 //! パスフレーズ取得を UI 層に委譲するための trait と実装。
 //!
 //! SSH 鍵がパスフレーズで保護されている場合、russh の `load_secret_key` に
-//! パスフレーズを渡す必要がある。取得方法（CLI入力 / 環境変数）を
-//! trait で抽象化し、テスタビリティと拡張性を確保する。
+//! パスフレーズを渡す必要がある。取得方法を trait で抽象化し、
+//! テスタビリティと拡張性を確保する。
 
 use zeroize::Zeroizing;
 
@@ -15,43 +15,6 @@ pub trait PassphraseProvider: Send + Sync {
     ///
     /// `None` を返すとパスフレーズ入力をスキップ（= 認証失敗）。
     fn get_passphrase(&self, key_path: &str) -> Option<Zeroizing<String>>;
-}
-
-/// パスフレーズなし（既存動作互換）。
-///
-/// `get_passphrase` は常に `None` を返す。
-pub struct NoneProvider;
-
-impl PassphraseProvider for NoneProvider {
-    fn get_passphrase(&self, _key_path: &str) -> Option<Zeroizing<String>> {
-        None
-    }
-}
-
-/// 環境変数からパスフレーズを取得する。
-///
-/// 環境変数名: `REMOTE_MERGE_KEY_PASSPHRASE_{NORMALIZED_SERVER_NAME}`
-/// サーバ名の正規化: ハイフン → アンダースコア、大文字化。
-pub struct EnvPassphraseProvider {
-    server_name: String,
-}
-
-impl EnvPassphraseProvider {
-    pub fn new(server_name: &str) -> Self {
-        Self {
-            server_name: server_name.to_string(),
-        }
-    }
-}
-
-impl PassphraseProvider for EnvPassphraseProvider {
-    fn get_passphrase(&self, _key_path: &str) -> Option<Zeroizing<String>> {
-        let env_key = passphrase_env_key(&self.server_name);
-        std::env::var(&env_key)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(Zeroizing::new)
-    }
 }
 
 /// CLI（ターミナル）からマスク入力でパスフレーズを取得する。
@@ -101,11 +64,6 @@ pub fn build_default_provider() -> CliPassphraseProvider {
 
 #[cfg(test)]
 mod tests {
-    #![expect(
-        unsafe_code,
-        reason = "テスト専用の名前の環境変数を、serial 実行の下で置き換える"
-    )]
-
     use super::*;
 
     // ── passphrase_env_key テスト ──
@@ -161,72 +119,5 @@ mod tests {
     #[test]
     fn test_passphrase_env_key_empty() {
         assert_eq!(passphrase_env_key(""), "REMOTE_MERGE_KEY_PASSPHRASE_");
-    }
-
-    // ── NoneProvider テスト ──
-
-    #[test]
-    fn test_none_provider_always_returns_none() {
-        let provider = NoneProvider;
-        assert_eq!(provider.get_passphrase("/path/to/key"), None);
-        assert_eq!(provider.get_passphrase(""), None);
-    }
-
-    // ── EnvPassphraseProvider テスト ──
-
-    #[test]
-    #[serial_test::serial]
-    fn test_env_provider_returns_value_when_set() {
-        let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_ENVTEST";
-        // safety: テスト用に環境変数をセット（シリアル実行前提）
-        unsafe { std::env::set_var(env_key, "test-passphrase") };
-
-        let provider = EnvPassphraseProvider::new("envtest");
-        assert_eq!(
-            provider.get_passphrase("/any/key"),
-            Some(Zeroizing::new("test-passphrase".to_string()))
-        );
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    fn test_env_provider_returns_none_when_not_set() {
-        // 環境変数が存在しない場合
-        let provider = EnvPassphraseProvider::new("nonexistent-env-test-server");
-        assert_eq!(provider.get_passphrase("/any/key"), None);
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_env_provider_returns_none_when_empty() {
-        // W3: 空文字列の環境変数は None として扱う
-        let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_EMPTYTEST";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "") };
-
-        let provider = EnvPassphraseProvider::new("emptytest");
-        assert_eq!(provider.get_passphrase("/any/key"), None);
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn test_env_provider_normalizes_server_name() {
-        let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER";
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::set_var(env_key, "secret") };
-
-        let provider = EnvPassphraseProvider::new("my-server");
-        assert_eq!(
-            provider.get_passphrase("/any/key"),
-            Some(Zeroizing::new("secret".to_string()))
-        );
-
-        // SAFETY: このテスト専用の名前の環境変数で、このテストは serial に走る
-        unsafe { std::env::remove_var(env_key) };
     }
 }
