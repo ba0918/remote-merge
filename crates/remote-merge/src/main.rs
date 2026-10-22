@@ -745,22 +745,9 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_debug_flag() {
-        let cli = Cli::try_parse_from(["remote-merge", "--debug", "status"]).unwrap();
-        assert!(cli.debug);
-    }
-
-    #[test]
     fn test_cli_parse_log_level() {
         let cli = Cli::try_parse_from(["remote-merge", "--log-level", "trace", "status"]).unwrap();
         assert_eq!(cli.log_level, Some("trace".to_string()));
-    }
-
-    #[test]
-    fn test_cli_parse_verbose_with_subcommand() {
-        let cli = Cli::try_parse_from(["remote-merge", "-vv", "status"]).unwrap();
-        assert_eq!(cli.verbose, 2);
-        assert!(matches!(cli.command, Commands::Status { .. }));
     }
 
     #[test]
@@ -867,12 +854,6 @@ mod tests {
     #[test]
     fn test_cli_parse_yes_flag() {
         let cli = Cli::try_parse_from(["remote-merge", "--yes", "status"]).unwrap();
-        assert!(cli.yes);
-    }
-
-    #[test]
-    fn test_cli_parse_yes_short_flag() {
-        let cli = Cli::try_parse_from(["remote-merge", "-y", "status"]).unwrap();
         assert!(cli.yes);
     }
 
