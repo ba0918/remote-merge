@@ -137,22 +137,6 @@ fn test_format_status_text_no_agent() {
 }
 
 #[test]
-fn test_status_json_agent_field() {
-    let mut output = sample_status();
-    output.agent = Some(AgentStatus::Connected);
-    let json = format_json(&output).unwrap();
-    assert!(json.contains("\"agent\""));
-    assert!(json.contains("\"connected\""));
-}
-
-#[test]
-fn test_status_json_no_agent_field_when_none() {
-    let output = sample_status();
-    let json = format_json(&output).unwrap();
-    assert!(!json.contains("\"agent\""));
-}
-
-#[test]
 fn test_format_diff_text() {
     let output = DiffOutput {
         right: SourceInfo {
@@ -629,48 +613,6 @@ fn test_format_diff_text_binary_no_hashes_fallback() {
     assert!(!text.contains("sha256="));
 }
 
-#[test]
-fn test_diff_output_binary_hash_serialization() {
-    let output = DiffOutput {
-        left: SourceInfo {
-            label: "l".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "r".into(),
-            root: "/r".into(),
-        },
-        binary: true,
-        left_hash: Some("aaa".into()),
-        right_hash: Some("bbb".into()),
-        ..plain_diff("image.png")
-    };
-    let json = format_json(&output).unwrap();
-    assert!(json.contains("\"left_hash\""));
-    assert!(json.contains("\"aaa\""));
-    assert!(json.contains("\"right_hash\""));
-    assert!(json.contains("\"bbb\""));
-}
-
-#[test]
-fn test_diff_output_text_no_hash_in_json() {
-    // テキストファイルの diff では left_hash/right_hash は None → JSON に含まれない
-    let output = DiffOutput {
-        left: SourceInfo {
-            label: "l".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "r".into(),
-            root: "/r".into(),
-        },
-        ..plain_diff("a.rs")
-    };
-    let json = format_json(&output).unwrap();
-    assert!(!json.contains("left_hash"));
-    assert!(!json.contains("right_hash"));
-}
-
 // ── MergeOutcome formatter tests ──
 
 #[test]
@@ -769,24 +711,6 @@ fn test_format_multi_diff_text_no_conflicts() {
     };
     let text = format_multi_diff_text(&output);
     assert!(!text.contains("conflict(s) detected"));
-}
-
-#[test]
-fn test_diff_output_conflict_count_zero_omitted_in_json() {
-    let output = DiffOutput {
-        left: SourceInfo {
-            label: "l".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "r".into(),
-            root: "/r".into(),
-        },
-        ..plain_diff("a.rs")
-    };
-    let json = format_json(&output).unwrap();
-    assert!(!json.contains("conflict_count"));
-    assert!(!json.contains("conflict_regions"));
 }
 
 // ── backup list / rollback text tests ──
@@ -898,32 +822,6 @@ fn test_format_rollback_text_with_failures() {
     let text = format_rollback_text(&output);
     assert!(text.contains("\u{2717} b.rs (error: permission denied)"));
     assert!(text.contains("Restored 1 file(s), failed 1."));
-}
-
-#[test]
-fn test_diff_output_conflict_count_nonzero_in_json() {
-    use crate::diff::conflict::ConflictRegion;
-
-    let output = DiffOutput {
-        left: SourceInfo {
-            label: "l".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "r".into(),
-            root: "/r".into(),
-        },
-        conflict_count: 1,
-        conflict_regions: vec![crate::service::types::ConflictArea::Lines(ConflictRegion {
-            ref_range: 10..15,
-            left_lines: vec!["changed left".into()],
-            right_lines: vec!["changed right".into()],
-        })],
-        ..plain_diff("a.rs")
-    };
-    let json = format_json(&output).unwrap();
-    assert!(json.contains("\"conflict_count\""));
-    assert!(json.contains("\"conflict_regions\""));
 }
 
 // ── format_merge_text: dry-run のバックアップ表示 ──

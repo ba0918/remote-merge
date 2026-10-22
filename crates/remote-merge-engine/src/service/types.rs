@@ -610,6 +610,40 @@ mod tests {
         );
     }
 
+    /// 左右だけで、一覧も参照先もない status の出力
+    fn plain_status() -> StatusOutput {
+        StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            agent: None,
+            files: None,
+            summary: StatusSummary::default(),
+            errors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_status_json_agent_field() {
+        let mut output = plain_status();
+        output.agent = Some(AgentStatus::Connected);
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"agent\""));
+        assert!(json.contains("\"connected\""));
+    }
+
+    #[test]
+    fn test_status_json_no_agent_field_when_none() {
+        let json = serde_json::to_string(&plain_status()).unwrap();
+        assert!(!json.contains("\"agent\""));
+    }
+
     // ── ref field serialization ──
 
     #[test]
@@ -836,6 +870,29 @@ mod tests {
         assert!(json.contains("\"right_lines\":[\"C\"]"), "{json}");
         assert!(!json.contains("diff_range"), "{json}");
         assert!(!json.contains("file_lines"), "{json}");
+    }
+
+    #[test]
+    fn test_diff_output_binary_hash_serialization() {
+        let output = DiffOutput {
+            binary: true,
+            left_hash: Some("aaa".into()),
+            right_hash: Some("bbb".into()),
+            ..plain_diff("image.png")
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"left_hash\""));
+        assert!(json.contains("\"aaa\""));
+        assert!(json.contains("\"right_hash\""));
+        assert!(json.contains("\"bbb\""));
+    }
+
+    #[test]
+    fn test_diff_output_text_no_hash_in_json() {
+        // テキストファイルの diff では left_hash/right_hash は None → JSON に含まれない
+        let json = serde_json::to_string(&plain_diff("a.rs")).unwrap();
+        assert!(!json.contains("left_hash"));
+        assert!(!json.contains("right_hash"));
     }
 
     // ── rollback types ──
