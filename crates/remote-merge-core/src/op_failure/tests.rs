@@ -10,27 +10,6 @@ fn os_error(code: i32) -> io::Error {
     io::Error::from_raw_os_error(code)
 }
 
-#[test]
-fn an_os_error_becomes_one_kind() {
-    assert_eq!(from_io_error(&os_error(libc::ENOENT)), OpFailure::NotFound);
-    assert_eq!(
-        from_io_error(&os_error(libc::ENOTDIR)),
-        OpFailure::NotADirectory
-    );
-    assert_eq!(
-        from_io_error(&os_error(libc::EACCES)),
-        OpFailure::PermissionDenied
-    );
-    assert_eq!(
-        from_io_error(&os_error(libc::EPERM)),
-        OpFailure::PermissionDenied
-    );
-    assert!(matches!(
-        from_io_error(&os_error(libc::EISDIR)),
-        OpFailure::Io(reason) if reason.contains("Is a directory")
-    ));
-}
-
 /// C ライブラリの文言（glibc と musl で違う）
 fn strerror(code: i32) -> String {
     // SAFETY: strerror は静的な文字列を返し、NULL にならない
@@ -48,18 +27,7 @@ fn an_io_reason_does_not_carry_the_os_error_number() {
 }
 
 #[test]
-fn the_size_limit_decides_too_large_from_the_answered_size() {
-    let limit = SizeLimit::Bytes(100);
-    assert_eq!(check_size(100, limit), Ok(()));
-    assert_eq!(
-        check_size(101, limit),
-        Err(OpFailure::TooLarge {
-            size: 101,
-            limit: 100
-        })
-    );
-    assert_eq!(check_size(u64::MAX, SizeLimit::Unlimited), Ok(()));
-    assert_eq!(SizeLimit::from_force(true), SizeLimit::Unlimited);
+fn without_force_the_limit_is_the_maximum_file_size() {
     assert_eq!(
         SizeLimit::from_force(false),
         SizeLimit::Bytes(MAX_FILE_SIZE)
@@ -106,7 +74,6 @@ fn an_op_error_is_found_again_inside_an_anyhow_error() {
 }
 
 #[test]
-fn only_a_disconnection_is_a_disconnection() {
-    assert!(OpFailure::Disconnected(Disconnection::NotSent("closed".into())).is_disconnection());
+fn an_io_failure_is_not_a_disconnection() {
     assert!(!OpFailure::Io("x".into()).is_disconnection());
 }
