@@ -126,6 +126,129 @@ mod tests {
         assert_eq!(lasts, [false, true]);
     }
 
+    fn split(listing: &Listing) -> Vec<AgentResponse> {
+        chunks(listing)
+    }
+
+    fn listing_of(count: usize) -> Listing {
+        Listing {
+            entries: (0..count)
+                .map(|index| remote_merge_core::scan::outcome::ListedEntry {
+                    path: format!("f{index}"),
+                    kind: remote_merge_core::scan::outcome::ListedKind::File,
+                    size: index as u64,
+                    mtime_secs: 0,
+                    mtime_nanos: 0,
+                    mtime_digits: 0,
+                    permissions: 0o644,
+                })
+                .collect(),
+            unreadable_names: vec!["u".into()],
+            truncated: true,
+            cycle: Some("c".into()),
+            unresolvable_names: vec!["r".into()],
+            counted: count + 1,
+        }
+    }
+
+    /// 一つの TreeChunk の項目の数と、最後の応答だけが運ぶ欄
+    #[derive(Debug, PartialEq)]
+    struct Chunk {
+        entries: usize,
+        is_last: bool,
+        unreadable_names: Vec<String>,
+        truncated: bool,
+        cycle: Option<String>,
+        unresolvable_names: Vec<String>,
+        counted: usize,
+    }
+
+    impl Chunk {
+        fn middle(entries: usize) -> Self {
+            Self {
+                entries,
+                is_last: false,
+                unreadable_names: Vec::new(),
+                truncated: false,
+                cycle: None,
+                unresolvable_names: Vec::new(),
+                counted: 0,
+            }
+        }
+
+        /// `listing_of` の一覧の最後の応答
+        fn last(entries: usize, counted: usize) -> Self {
+            Self {
+                entries,
+                is_last: true,
+                unreadable_names: vec!["u".into()],
+                truncated: true,
+                cycle: Some("c".into()),
+                unresolvable_names: vec!["r".into()],
+                counted,
+            }
+        }
+    }
+
+    fn shape(responses: &[AgentResponse]) -> Vec<Chunk> {
+        responses
+            .iter()
+            .map(|response| match response {
+                AgentResponse::TreeChunk {
+                    entries,
+                    is_last,
+                    unreadable_names,
+                    truncated,
+                    cycle,
+                    unresolvable_names,
+                    counted,
+                } => Chunk {
+                    entries: entries.len(),
+                    is_last: *is_last,
+                    unreadable_names: unreadable_names.clone(),
+                    truncated: *truncated,
+                    cycle: cycle.clone(),
+                    unresolvable_names: unresolvable_names.clone(),
+                    counted: *counted,
+                },
+                other => panic!("expected TreeChunk, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_listing_is_split_into_chunks_in_order_and_only_the_last_carries_the_summary() {
+        let listing = listing_of(2 * ENTRIES_PER_CHUNK + 1);
+        let responses = split(&listing);
+        let carried: Vec<_> = responses
+            .iter()
+            .flat_map(|response| match response {
+                AgentResponse::TreeChunk { entries, .. } => entries.clone(),
+                other => panic!("expected TreeChunk, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(carried, listing.entries);
+        assert_eq!(
+            shape(&responses),
+            [
+                Chunk::middle(ENTRIES_PER_CHUNK),
+                Chunk::middle(ENTRIES_PER_CHUNK),
+                Chunk::last(1, 2 * ENTRIES_PER_CHUNK + 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_listing_of_exactly_one_chunk_or_of_nothing_is_one_last_chunk() {
+        for count in [ENTRIES_PER_CHUNK, 0] {
+            assert_eq!(
+                shape(&split(&listing_of(count))),
+                [Chunk::last(count, count + 1)],
+                "{count} entries"
+            );
+        }
+    }
+
     /// 問いに答えない（答えの数が合わない）集め方
     struct Silent;
 
