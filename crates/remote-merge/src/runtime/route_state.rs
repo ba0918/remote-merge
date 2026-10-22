@@ -126,11 +126,6 @@ impl CoreRuntime {
         self.connect(server_name)
     }
 
-    /// 指定サーバの SSH クライアントを取得する
-    pub fn get_client(&mut self, server_name: &str) -> anyhow::Result<&mut SshClient> {
-        require_ssh_client(&mut self.ssh_clients, server_name)
-    }
-
     /// 指定サーバの SSH クライアントが存在するか
     pub fn has_client(&self, server_name: &str) -> bool {
         self.ssh_clients.contains_key(server_name)

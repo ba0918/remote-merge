@@ -99,24 +99,6 @@ impl CoreRuntime {
         )
     }
 
-    /// テスト用: Agent 無効の最小ランタイムを作成する
-    #[cfg(test)]
-    pub fn new_for_test_no_agent() -> Self {
-        let mut config = AppConfig {
-            servers: std::collections::BTreeMap::new(),
-            local: crate::config::LocalConfig::default(),
-            filter: crate::config::FilterConfig::default(),
-            ssh: crate::config::SshConfig::default(),
-            backup: crate::config::BackupConfig::default(),
-            agent: crate::config::AgentConfig::default(),
-            defaults: crate::config::DefaultsConfig::default(),
-            max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
-            content: Default::default(),
-        };
-        config.agent.enabled = false;
-        Self::with_targets(config, super::RuntimeTargets::for_test())
-    }
-
     /// サーバ `server_name` の代わりに相手にするローカルのディレクトリ
     pub(crate) fn local_override(&self, server_name: &str) -> Option<&std::path::Path> {
         self.local_overrides

@@ -75,7 +75,7 @@ fn test_start_agent_via_ssh_no_server_config() {
 
 #[test]
 fn test_start_agent_via_ssh_no_ssh_connection() {
-    // サーバー設定はあるが SSH 未接続 → get_client でエラー
+    // サーバー設定はあるが SSH 未接続ならエラー
     use std::path::PathBuf;
     let mut runtime = CoreRuntime::new_for_test();
     runtime.config.servers.insert(
@@ -168,15 +168,6 @@ fn test_get_server_config_multiple_servers() {
 }
 
 #[test]
-fn test_get_client_not_connected() {
-    let mut rt = CoreRuntime::new_for_test();
-    let result = rt.get_client("develop");
-    assert!(result.is_err());
-    let err = result.err().unwrap();
-    assert!(err.to_string().contains("not connected"));
-}
-
-#[test]
 fn test_has_client_returns_false_for_multiple_names() {
     let rt = CoreRuntime::new_for_test();
     assert!(!rt.has_client("develop"));
@@ -221,7 +212,7 @@ fn test_require_ssh_client_empty_name() {
     assert!(result.is_err());
 }
 
-// ── new_for_test / new_for_test_no_agent 設定検証 ──
+// ── new_for_test 設定検証 ──
 
 #[test]
 fn test_new_for_test_has_default_config() {
@@ -230,20 +221,6 @@ fn test_new_for_test_has_default_config() {
     assert!(rt.config.filter.exclude.is_empty());
     assert!(rt.ssh_clients.is_empty());
     assert!(rt.agent_clients.is_empty());
-}
-
-#[test]
-fn test_new_for_test_agent_enabled_by_default() {
-    let rt = CoreRuntime::new_for_test();
-    assert!(
-        rt.config.agent.enabled,
-        "new_for_test should have agent enabled by default"
-    );
-    let rt_no = CoreRuntime::new_for_test_no_agent();
-    assert!(
-        !rt_no.config.agent.enabled,
-        "new_for_test_no_agent should have agent disabled"
-    );
 }
 
 #[test]
