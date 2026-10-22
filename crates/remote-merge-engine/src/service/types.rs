@@ -1,7 +1,4 @@
-//! Service層の入出力型定義。
-//!
-//! CLI/MCP 双方で共通に使える構造体。
-//! Serialize/Deserialize 対応で JSON 出力が可能。
+//! コマンドの出力の型と終了コード。JSON の形は各型の Serialize で決まる。
 
 use serde::{Deserialize, Serialize};
 
@@ -9,14 +6,14 @@ use serde::{Deserialize, Serialize};
 
 /// Agent 接続状態。リモートの操作はエージェントだけで行い、使えないサーバは比べる前に止まるので、
 /// 比べ終えた右のリモートはいつもつながっている（docs/ir/cli/status-output.md の REQ-cli-070）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     Connected,
 }
 
 /// status コマンドの出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct StatusOutput {
     pub left: SourceInfo,
     pub right: SourceInfo,
@@ -29,26 +26,26 @@ pub struct StatusOutput {
     pub files: Option<Vec<FileStatus>>,
     pub summary: StatusSummary,
     /// 中身を読めなかったファイル（docs/ir/cli/unreadable.md の REQ-cli-088）
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<UnreadableFile>,
 }
 
 /// 中身を読めなかったファイルと、その理由
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnreadableFile {
     pub path: String,
     pub reason: String,
 }
 
 /// ソース情報（左右のどちらか）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SourceInfo {
     pub label: String,
     pub root: String,
 }
 
 /// ファイル差分ステータス
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FileStatus {
     pub path: String,
     pub status: FileStatusKind,
@@ -57,7 +54,7 @@ pub struct FileStatus {
 }
 
 /// ファイル差分の種別
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileStatusKind {
     Modified,
@@ -67,7 +64,7 @@ pub enum FileStatusKind {
 }
 
 /// status の集計
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct StatusSummary {
     pub modified: usize,
     pub left_only: usize,
@@ -80,7 +77,7 @@ pub struct StatusSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_missing: Option<usize>,
     /// errors に出した、中身を読めなかったファイルの数
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(skip_serializing_if = "is_zero")]
     pub unreadable: usize,
 }
 
@@ -91,11 +88,11 @@ fn is_zero(n: &usize) -> bool {
 // ── diff ──
 
 /// diff コマンドの出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiffOutput {
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub encodings: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub byte_only_difference: bool,
     pub path: String,
     pub left: SourceInfo,
@@ -121,7 +118,7 @@ pub struct DiffOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_hash: Option<String>,
     /// バイナリファイルの参照先の SHA-256 ハッシュ（--ref のとき。docs/ir/cli/reference.md の REQ-cli-100）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_hash: Option<String>,
     /// 補足情報（中身を比べなかった理由・type mismatch 時等）
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -134,12 +131,12 @@ pub struct DiffOutput {
     pub conflict_regions: Vec<ConflictArea>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LinkTargets {
     pub left: Option<String>,
     pub right: Option<String>,
     /// 参照先のリンク文字列（--ref のときだけ出し、参照先が symlink でなければ null。REQ-cli-100）
-    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<Option<String>>,
 }
 
@@ -170,7 +167,7 @@ pub struct WholeFile {
 }
 
 /// diff のハンク
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiffHunk {
     pub index: usize,
     pub left_start: usize,
@@ -179,7 +176,7 @@ pub struct DiffHunk {
 }
 
 /// diff の行
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiffLine {
     #[serde(rename = "type")]
     pub line_type: DiffLineType,
@@ -187,7 +184,7 @@ pub struct DiffLine {
 }
 
 /// diff 行の種別
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffLineType {
     Context,
@@ -226,7 +223,7 @@ pub struct MultiDiffSummary {
 // ── merge ──
 
 /// merge コマンドの出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MergeOutput {
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
@@ -237,7 +234,7 @@ pub struct MergeOutput {
 }
 
 /// hunk merge 時のメタデータ（常にセットで使用される3フィールドを凝集）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HunkMergeInfo {
     /// 適用された hunk インデックス
     pub hunks_applied: Vec<usize>,
@@ -248,16 +245,13 @@ pub struct HunkMergeInfo {
 }
 
 /// マージ成功結果
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct MergeFileResult {
     pub path: String,
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_badge: Option<String>,
     /// hunk merge 時のメタデータ（全体マージ時は None）
-    #[serde(skip_serializing_if = "Option::is_none", flatten)]
     pub hunk_info: Option<HunkMergeInfo>,
 }
 
@@ -293,14 +287,14 @@ impl Serialize for MergeFileResult {
 }
 
 /// マージスキップ
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MergeSkipped {
     pub path: String,
     pub reason: String,
 }
 
 /// マージ失敗
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MergeFailure {
     pub path: String,
     pub error: String,
@@ -320,19 +314,19 @@ pub enum MergeOutcome {
 // ── rollback ──
 
 /// rollback --list の出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BackupListOutput {
     pub target: SourceInfo,
     pub sessions: Vec<BackupSession>,
 }
 
 /// バックアップセッション（= 1回のマージ操作）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BackupSession {
     pub session_id: String,
     pub file_count: usize,
     pub files: Vec<BackupEntry>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub expired: bool,
 }
 
@@ -350,7 +344,7 @@ impl BackupSession {
 }
 
 /// バックアップエントリ（セッション内の1ファイル）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BackupEntry {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -360,7 +354,7 @@ pub struct BackupEntry {
 }
 
 /// rollback 実行結果の出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RollbackOutput {
     pub target: SourceInfo,
     pub session_id: String,
@@ -371,20 +365,20 @@ pub struct RollbackOutput {
     pub failed: Vec<RollbackFailure>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RollbackFileResult {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pre_rollback_backup: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RollbackSkipped {
     pub path: String,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RollbackFailure {
     pub path: String,
     pub error: String,
@@ -393,7 +387,7 @@ pub struct RollbackFailure {
 // ── sync ──
 
 /// sync コマンドの出力
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SyncOutput {
     pub left: SourceInfo,
     pub targets: Vec<SyncTargetResult>,
@@ -401,7 +395,7 @@ pub struct SyncOutput {
 }
 
 /// 各ターゲットサーバの同期結果
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SyncTargetResult {
     pub target: SourceInfo,
     pub merged: Vec<MergeFileResult>,
@@ -412,7 +406,7 @@ pub struct SyncTargetResult {
 }
 
 /// 削除結果
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DeleteFileResult {
     pub path: String,
     pub status: DeleteStatus,
@@ -421,7 +415,7 @@ pub struct DeleteFileResult {
 }
 
 /// 削除ステータス
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DeleteStatus {
     Ok,
@@ -432,7 +426,7 @@ pub enum DeleteStatus {
 }
 
 /// 各ターゲットの最終ステータス
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncTargetStatus {
     Success,
@@ -441,7 +435,7 @@ pub enum SyncTargetStatus {
 }
 
 /// sync サマリー
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SyncSummary {
     pub total_servers: usize,
     pub successful_servers: usize,
@@ -639,12 +633,6 @@ mod tests {
         let connected = AgentStatus::Connected;
         let json = serde_json::to_string(&connected).unwrap();
         assert_eq!(json, "\"connected\"");
-    }
-
-    #[test]
-    fn test_agent_status_deserialize() {
-        let connected: AgentStatus = serde_json::from_str("\"connected\"").unwrap();
-        assert_eq!(connected, AgentStatus::Connected);
     }
 
     // ── ref field serialization ──
