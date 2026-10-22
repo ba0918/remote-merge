@@ -70,6 +70,12 @@ fn paths_in(json: &serde_json::Value, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// 失敗の理由が権限か。ローカルの経路は OS の文言（"Permission denied"）、エージェントの経路は
+/// 小文字の "permission denied" で答える
+fn names_permission(error: &str) -> bool {
+    error.to_lowercase().contains("permission denied")
+}
+
 /// `merge big.bin` の失敗の項目を確かめる。右の理由が上限で、権限の理由でないこと
 fn assert_merge_refused_without_reading(output: &Output) {
     let json = json_of(output);
@@ -393,4 +399,74 @@ fn req_cli_079_force_backs_up_a_file_over_the_limit_before_rollback_restores_it(
         .find(|entry| entry["path"] == "a.txt")
         .unwrap_or_else(|| panic!("a.txt not restored: {json}"));
     assert!(restored["pre_rollback_backup"].is_string(), "{json}");
+}
+
+// ── --force のない sync と rollback: 上限を超える中身は読まずに止める ──
+
+// 上限を超える読み込み元のファイルは、--force がなければ読まずに失敗にし、書き込まない
+// @kotowari[REQ-cli-079]
+#[test]
+fn req_cli_079_sync_without_force_does_not_write_a_source_file_over_the_limit() {
+    let env = CliEnv::new(&[], &[]);
+    let local = env.local_dir.join("big.bin");
+    place_sparse(&local, LIMIT + 1, b'l');
+    if !make_unreadable(&local) {
+        eprintln!("skipped: the file is readable without permission (running as root)");
+        return;
+    }
+
+    let output = env
+        .cmd_with("sync")
+        .args([
+            ".", "--left", "local", "--right", "develop", "--format", "json",
+        ])
+        .output()
+        .unwrap();
+    set_mode(&local, 0o644);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let target = &json_of(&output)["targets"][0];
+    assert_eq!(target["status"], "failed", "{target}");
+    assert_eq!(paths_in(target, "failed"), vec!["big.bin"], "{target}");
+    let error = target["failed"][0]["error"].as_str().unwrap();
+    assert!(!names_permission(error), "{target}");
+    assert!(!env.remote_dir.join("big.bin").exists(), "{output:?}");
+}
+
+// 書き込み先の今の中身が上限を超えると、--force がなければ読まずに退避の失敗にし、書き戻さない
+// @kotowari[REQ-cli-079]
+#[test]
+fn req_cli_079_rollback_without_force_keeps_a_file_over_the_limit_it_cannot_back_up() {
+    let env = CliEnv::new(&[("a.txt", "new\n")], &[("a.txt", "old\n")]);
+    let merged = merge_against_develop(&env, &["a.txt"]);
+    assert_eq!(merged.status.code(), Some(0), "{merged:?}");
+    let remote = env.remote_dir.join("a.txt");
+    fs::remove_file(&remote).unwrap();
+    place_sparse(&remote, LIMIT + 1, b'r');
+    if !make_unreadable(&remote) {
+        eprintln!("skipped: the file is readable without permission (running as root)");
+        return;
+    }
+
+    let mut rollback = env
+        .cmd_with("rollback")
+        .args(["--target", "develop", "--format", "json"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // --force がないので書き戻すかを尋ねる
+    rollback.stdin.take().unwrap().write_all(b"y\n").unwrap();
+    let output = rollback.wait_with_output().unwrap();
+    set_mode(&remote, 0o644);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let json = json_of(&output);
+    assert!(paths_in(&json, "restored").is_empty(), "{json}");
+    assert_eq!(paths_in(&json, "failed"), vec!["a.txt"], "{json}");
+    let error = json["failed"][0]["error"].as_str().unwrap();
+    assert!(error.starts_with("backup failed"), "{json}");
+    assert!(!names_permission(error), "{json}");
+    assert_eq!(fs::metadata(&remote).unwrap().len(), LIMIT + 1);
 }
