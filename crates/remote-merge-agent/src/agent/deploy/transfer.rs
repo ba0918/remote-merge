@@ -2,8 +2,6 @@ use std::path::{Path, PathBuf};
 
 use crate::ssh::quote::shell_escape;
 
-use super::DeployCommands;
-
 /// デプロイ先のリモートパスを計算する。
 /// Format: `{deploy_dir}/remote-merge-{user}/remote-merge`
 pub fn remote_binary_path(deploy_dir: &str, user: &str) -> PathBuf {
@@ -45,36 +43,6 @@ pub fn installed_checksum_command(remote_path: &Path, sudo: bool) -> String {
     format!(
         "{pfx}sha256sum {escaped} 2>/dev/null || {pfx}shasum -a 256 {escaped} 2>/dev/null || echo __UNSUPPORTED__"
     )
-}
-
-/// デプロイに必要なコマンド群を生成する。
-/// 各コマンドは個別に SSH exec で実行されることを想定。
-/// chmod / verify / checksum は `.tmp` パスに対して実行し、
-/// 検証完了後に `mv` で本番パスへ atomic に移動する。
-///
-/// `sudo` が true の場合、mkdir/chmod/mv/rm 等の特権コマンドに `sudo` prefix を付与する。
-pub fn build_deploy_commands(remote_path: &Path, sudo: bool) -> DeployCommands {
-    let escaped = shell_escape(&remote_path.to_string_lossy());
-    let parent = remote_path.parent().unwrap_or(Path::new("/"));
-    let escaped_parent = shell_escape(&parent.to_string_lossy());
-
-    let tmp_path = format!("{}.tmp", remote_path.display());
-    let escaped_tmp = shell_escape(&tmp_path);
-
-    let pfx = sudo_prefix(sudo);
-
-    DeployCommands {
-        mkdir_cmd: format!("{pfx}mkdir -p {escaped_parent}"),
-        symlink_check_cmd: format!("test -L {escaped} && echo SYMLINK || echo OK"),
-        chmod_cmd: format!("{pfx}chmod 700 {escaped_tmp}"),
-        verify_cmd: format!("{escaped_tmp} --version"),
-        checksum_cmd: format!(
-            "sha256sum {escaped_tmp} 2>/dev/null || shasum -a 256 {escaped_tmp} 2>/dev/null || echo __UNSUPPORTED__"
-        ),
-        tmp_path,
-        mv_cmd: format!("{pfx}mv {escaped_tmp} {escaped}"),
-        rm_tmp_cmd: format!("{pfx}rm -f {escaped_tmp}"),
-    }
 }
 
 /// `.tmp` 書き込み前に実行する1つの複合コマンドを生成する。

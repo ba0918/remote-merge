@@ -5,44 +5,6 @@ use tracing::{info, warn};
 
 use super::remote_target::current_target;
 
-/// バイナリパスを解決する。
-///
-/// `override_path` が `Some` の場合はそのパスを検証して返す。
-/// - ファイルが存在すること
-/// - 実行可能であること（Unix のみ）
-/// - パストラバーサル（`../`）を含まないこと
-///
-/// `None` の場合は `current_exe` をそのまま返す。
-pub fn resolve_binary_path(override_path: Option<&str>, current_exe: &Path) -> Result<PathBuf> {
-    let Some(raw) = override_path else {
-        return Ok(current_exe.to_path_buf());
-    };
-
-    let path = PathBuf::from(raw);
-
-    // パストラバーサル防止
-    if path.components().any(|c| c == Component::ParentDir) {
-        bail!("binary path contains path traversal component (..): {raw}");
-    }
-
-    // ファイル存在確認
-    if !path.is_file() {
-        bail!("binary path not found or is not a file: {raw}");
-    }
-
-    // Unix: 実行ビット確認
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let meta = std::fs::metadata(&path)?;
-        if meta.permissions().mode() & 0o111 == 0 {
-            bail!("binary path is not executable: {raw}");
-        }
-    }
-
-    Ok(path)
-}
-
 /// 解決されたバイナリの情報
 #[derive(Debug)]
 pub struct ResolvedBinary {
@@ -276,89 +238,9 @@ pub fn validate_agent_binary(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// ローカルの実行バイナリパスを取得する。
-///
-/// 環境変数 `REMOTE_MERGE_AGENT_BINARY` が設定されている場合はそのパスを使用する。
-pub fn local_binary_path() -> Result<PathBuf> {
-    let override_path = std::env::var("REMOTE_MERGE_AGENT_BINARY").ok();
-    let exe = std::env::current_exe()?;
-    resolve_binary_path(override_path.as_deref(), &exe)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn local_binary_path_returns_valid_path() {
-        let path = local_binary_path().unwrap();
-        assert!(path.is_absolute());
-    }
-
-    // --- resolve_binary_path (D-2) ---
-
-    #[test]
-    fn resolve_binary_path_without_override_returns_current_exe() {
-        let fake_exe = PathBuf::from("/usr/bin/remote-merge");
-        let result = resolve_binary_path(None, &fake_exe).unwrap();
-        assert_eq!(result, fake_exe);
-    }
-
-    #[test]
-    fn resolve_binary_path_nonexistent_path_returns_error() {
-        let fake_exe = PathBuf::from("/usr/bin/remote-merge");
-        let err = resolve_binary_path(Some("/nonexistent/path/binary"), &fake_exe).unwrap_err();
-        assert!(
-            err.to_string().contains("not found"),
-            "expected 'not found' in error: {err}"
-        );
-    }
-
-    #[test]
-    fn resolve_binary_path_parent_dir_traversal_returns_error() {
-        let fake_exe = PathBuf::from("/usr/bin/remote-merge");
-        let err = resolve_binary_path(Some("../something"), &fake_exe).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("path traversal") || msg.contains(".."),
-            "expected traversal error in: {msg}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolve_binary_path_with_override_returns_that_path() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let bin_path = dir.path().join("fake-binary");
-        std::fs::write(&bin_path, b"#!/bin/sh\n").unwrap();
-        let mut perms = std::fs::metadata(&bin_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&bin_path, perms).unwrap();
-
-        let fake_exe = PathBuf::from("/usr/bin/remote-merge");
-        let result = resolve_binary_path(Some(bin_path.to_str().unwrap()), &fake_exe).unwrap();
-        assert_eq!(result, bin_path);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolve_binary_path_non_executable_returns_error() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let bin_path = dir.path().join("not-executable");
-        std::fs::write(&bin_path, b"data").unwrap();
-        let mut perms = std::fs::metadata(&bin_path).unwrap().permissions();
-        perms.set_mode(0o644);
-        std::fs::set_permissions(&bin_path, perms).unwrap();
-
-        let fake_exe = PathBuf::from("/usr/bin/remote-merge");
-        let err = resolve_binary_path(Some(bin_path.to_str().unwrap()), &fake_exe).unwrap_err();
-        assert!(
-            err.to_string().contains("not executable"),
-            "expected 'not executable' in error: {err}"
-        );
-    }
 
     // --- agent_dir_candidates ---
 

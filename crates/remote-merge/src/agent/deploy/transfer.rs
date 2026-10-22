@@ -3,8 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 pub use remote_merge_agent::agent::deploy::{
-    build_agent_command, build_deploy_commands, build_pre_write_command, check_version_command,
-    remote_binary_path,
+    build_agent_command, build_pre_write_command, check_version_command, remote_binary_path,
 };
 
 /// `remote-merge --version` の期待出力を生成する。
@@ -89,152 +88,6 @@ mod tests {
         let cmd = check_version_command(&path, false);
         assert!(cmd.starts_with("'/opt/my dir/remote-merge'"));
         assert!(cmd.contains("__NOT_FOUND__"));
-    }
-
-    // --- build_deploy_commands ---
-
-    #[test]
-    fn build_deploy_commands_basic() {
-        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/var/tmp/remote-merge-user'");
-        assert_eq!(
-            cmds.symlink_check_cmd,
-            "test -L '/var/tmp/remote-merge-user/remote-merge' && echo SYMLINK || echo OK"
-        );
-        assert_eq!(
-            cmds.chmod_cmd,
-            "chmod 700 '/var/tmp/remote-merge-user/remote-merge.tmp'"
-        );
-        assert_eq!(
-            cmds.verify_cmd,
-            "'/var/tmp/remote-merge-user/remote-merge.tmp' --version"
-        );
-        assert!(
-            cmds.checksum_cmd
-                .contains("sha256sum '/var/tmp/remote-merge-user/remote-merge.tmp'")
-        );
-        assert_eq!(cmds.tmp_path, "/var/tmp/remote-merge-user/remote-merge.tmp");
-        assert_eq!(
-            cmds.mv_cmd,
-            "mv '/var/tmp/remote-merge-user/remote-merge.tmp' '/var/tmp/remote-merge-user/remote-merge'"
-        );
-        assert_eq!(
-            cmds.rm_tmp_cmd,
-            "rm -f '/var/tmp/remote-merge-user/remote-merge.tmp'"
-        );
-    }
-
-    #[test]
-    fn build_deploy_commands_custom_dir() {
-        let path = PathBuf::from("/opt/tools/bin/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/opt/tools/bin'");
-        assert_eq!(cmds.tmp_path, "/opt/tools/bin/remote-merge.tmp");
-    }
-
-    #[test]
-    fn build_deploy_commands_checksum_format() {
-        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert!(cmds.checksum_cmd.contains("sha256sum"));
-        assert!(cmds.checksum_cmd.contains("remote-merge.tmp"));
-        assert!(cmds.checksum_cmd.contains("shasum -a 256"));
-        assert!(cmds.checksum_cmd.contains("__UNSUPPORTED__"));
-    }
-
-    #[test]
-    fn build_deploy_commands_has_tmp_path() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(cmds.tmp_path, "/var/tmp/rm-user/remote-merge.tmp");
-    }
-
-    #[test]
-    fn build_deploy_commands_has_mv_cmd() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(
-            cmds.mv_cmd,
-            "mv '/var/tmp/rm-user/remote-merge.tmp' '/var/tmp/rm-user/remote-merge'"
-        );
-    }
-
-    #[test]
-    fn build_deploy_commands_has_rm_tmp_cmd() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(cmds.rm_tmp_cmd, "rm -f '/var/tmp/rm-user/remote-merge.tmp'");
-    }
-
-    #[test]
-    fn build_deploy_commands_chmod_targets_tmp() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert!(cmds.chmod_cmd.contains(".tmp"));
-        assert_eq!(
-            cmds.chmod_cmd,
-            "chmod 700 '/var/tmp/rm-user/remote-merge.tmp'"
-        );
-    }
-
-    #[test]
-    fn build_deploy_commands_verify_targets_tmp() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert!(cmds.verify_cmd.contains(".tmp"));
-        assert_eq!(
-            cmds.verify_cmd,
-            "'/var/tmp/rm-user/remote-merge.tmp' --version"
-        );
-    }
-
-    #[test]
-    fn build_deploy_commands_checksum_has_fallback() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        // sha256sum || shasum -a 256 || echo __UNSUPPORTED__
-        assert!(cmds.checksum_cmd.contains("sha256sum"));
-        assert!(cmds.checksum_cmd.contains("shasum -a 256"));
-        assert!(cmds.checksum_cmd.contains("echo __UNSUPPORTED__"));
-    }
-
-    #[test]
-    fn build_deploy_commands_existing_tests_still_pass() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        // mkdir_cmd と symlink_check_cmd は本番パスのまま
-        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/var/tmp/rm-user'");
-        assert_eq!(
-            cmds.symlink_check_cmd,
-            "test -L '/var/tmp/rm-user/remote-merge' && echo SYMLINK || echo OK"
-        );
-    }
-
-    #[test]
-    fn build_deploy_commands_with_spaces_in_path() {
-        let path = PathBuf::from("/var/tmp/my dir/remote merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert_eq!(cmds.tmp_path, "/var/tmp/my dir/remote merge.tmp");
-        assert!(
-            cmds.chmod_cmd
-                .contains("'/var/tmp/my dir/remote merge.tmp'")
-        );
-        assert!(
-            cmds.verify_cmd
-                .contains("'/var/tmp/my dir/remote merge.tmp'")
-        );
-        assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge.tmp'"));
-        assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge'"));
-        assert!(
-            cmds.rm_tmp_cmd
-                .contains("'/var/tmp/my dir/remote merge.tmp'")
-        );
-        assert!(cmds.mkdir_cmd.contains("'/var/tmp/my dir'"));
-        assert!(
-            cmds.symlink_check_cmd
-                .contains("'/var/tmp/my dir/remote merge'")
-        );
     }
 
     // --- build_pre_write_command ---
@@ -461,45 +314,6 @@ mod tests {
         assert!(!cmd.contains("--dir-permissions"), "cmd={cmd}");
     }
 
-    // --- build_deploy_commands: sudo ---
-
-    #[test]
-    fn build_deploy_commands_sudo_true_has_sudo_prefix() {
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, true);
-        assert!(
-            cmds.mkdir_cmd.starts_with("sudo "),
-            "mkdir should have sudo: {}",
-            cmds.mkdir_cmd
-        );
-        assert!(
-            cmds.chmod_cmd.starts_with("sudo "),
-            "chmod should have sudo: {}",
-            cmds.chmod_cmd
-        );
-        assert!(
-            cmds.mv_cmd.starts_with("sudo "),
-            "mv should have sudo: {}",
-            cmds.mv_cmd
-        );
-        assert!(
-            cmds.rm_tmp_cmd.starts_with("sudo "),
-            "rm should have sudo: {}",
-            cmds.rm_tmp_cmd
-        );
-        // symlink_check と verify は sudo 不要
-        assert!(
-            !cmds.symlink_check_cmd.starts_with("sudo "),
-            "symlink_check should NOT have sudo: {}",
-            cmds.symlink_check_cmd
-        );
-        assert!(
-            !cmds.verify_cmd.starts_with("sudo "),
-            "verify should NOT have sudo: {}",
-            cmds.verify_cmd
-        );
-    }
-
     // --- build_pre_write_command: sudo ---
 
     #[test]
@@ -556,18 +370,6 @@ mod tests {
             "symlink check should be grouped with {{ }}"
         );
         assert!(cmd.ends_with("; }"), "grouping should end with '; }}'");
-    }
-
-    #[test]
-    fn build_deploy_commands_symlink_check_no_parentheses() {
-        // build_deploy_commands の symlink_check_cmd も括弧不使用であること
-        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
-        let cmds = build_deploy_commands(&path, false);
-        assert!(
-            !cmds.symlink_check_cmd.contains('(') && !cmds.symlink_check_cmd.contains(')'),
-            "symlink_check_cmd should not contain parentheses: {}",
-            cmds.symlink_check_cmd
-        );
     }
 
     // --- build_post_write_script: sudo ---
