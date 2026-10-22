@@ -66,14 +66,6 @@ fn with_the_first_and_third_changes() -> String {
     format!("new first\n{middle}old mid\n{middle}new last\n")
 }
 
-fn write_bytes(fixture: &Fixture, side: &str, path: &str, bytes: &[u8]) {
-    fs::write(fixture.root(side).join(path), bytes).unwrap();
-}
-
-fn read_bytes(fixture: &Fixture, side: &str, path: &str) -> Vec<u8> {
-    fs::read(fixture.root(side).join(path)).unwrap()
-}
-
 /// 実行ファイルが終了コード 2 で止まり、標準エラーに `message` を出したことを確かめる
 fn assert_cli_stops_with(fixture: &Fixture, cli_args: &[&str], message: &str) {
     let output = fixture.run_cli(cli_args);
@@ -168,7 +160,7 @@ const BINARY_ERROR: &str = "Hunk merge is not supported for binary files: 'file.
 #[test]
 fn hunks_on_a_binary_source_stops_without_writing() {
     let fixture = fixture();
-    write_bytes(&fixture, "local", PATH, b"binary\0source\n");
+    fixture.write_bytes("local", PATH, b"binary\0source\n");
     fixture.write("develop", PATH, "destination\n");
 
     let error = fixture.merge_error(hunk_args(PATH, &[0]));
@@ -184,12 +176,12 @@ fn hunks_on_a_destination_that_is_not_utf8_stops_without_writing() {
     // NUL を含まず、UTF-8 として正しくないバイト列
     let destination = b"latin1 caf\xe9\n";
     fixture.write("local", PATH, "source\n");
-    write_bytes(&fixture, "develop", PATH, destination);
+    fixture.write_bytes("develop", PATH, destination);
 
     let error = fixture.merge_error(hunk_args(PATH, &[0]));
 
     assert_eq!(error.to_string(), BINARY_ERROR);
-    assert_eq!(read_bytes(&fixture, "develop", PATH), destination);
+    assert_eq!(fixture.read_bytes("develop", PATH), destination);
 }
 
 // 先頭の 8,192 バイトは正しい UTF-8 で、その後ろにだけ不正なバイトがある読み込み元
@@ -199,7 +191,7 @@ fn hunks_on_a_source_with_invalid_utf8_only_after_8192_bytes_stops_without_writi
     let fixture = fixture();
     let mut source = "a\n".repeat(4096).into_bytes();
     source.extend_from_slice(b"tail \xff\n");
-    write_bytes(&fixture, "local", PATH, &source);
+    fixture.write_bytes("local", PATH, &source);
     fixture.write("develop", PATH, "destination\n");
 
     let error = fixture.merge_error(hunk_args(PATH, &[0]));

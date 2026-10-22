@@ -6,13 +6,11 @@
 //! 書き込み先 develop を一時ディレクトリに差し替えて execute_merge と execute_sync を呼ぶ。
 
 use super::args_support::{merge_args, sync_args};
-use super::merge_support::{Fixture, fixture};
+use super::merge_support::{
+    DESTINATION_FILE, Fixture, NOT_A_DIRECTORY, PATH_TOO_LONG, deep_directory, fixture,
+};
 use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
-
-const NOT_A_DIRECTORY: &str = "cannot resolve path: not a directory";
-const PATH_TOO_LONG: &str = "cannot resolve path: path too long";
-const DESTINATION_FILE: &str = "a regular file\n";
 
 /// 読み込み元の "x/lnk" を symlink にし、書き込み先の "x" を通常ファイルにする
 fn link_under_a_destination_file() -> Fixture {
@@ -68,18 +66,6 @@ fn sync_fails_a_new_link_under_a_destination_file_as_not_a_directory() {
         assert_only_failed(&label, &json["targets"][0], code, "x/lnk", NOT_A_DIRECTORY);
         assert_eq!(fixture.read("develop", "x"), DESTINATION_FILE);
     }
-}
-
-/// `base` の下に、実パスがちょうど `length` バイトになるまでディレクトリを重ねて作る
-fn deep_directory(base: &std::path::Path, length: usize) -> std::path::PathBuf {
-    let mut path = base.to_path_buf();
-    while path.as_os_str().len() < length {
-        let room = length - path.as_os_str().len() - 1;
-        path.push("d".repeat(room.min(200)));
-    }
-    std::fs::create_dir_all(&path).unwrap();
-    assert_eq!(path.as_os_str().len(), length);
-    path
 }
 
 /// 書き込み先の "deep" を、実パスが 4085 バイトのディレクトリへの symlink にし、

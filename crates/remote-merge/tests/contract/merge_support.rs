@@ -30,6 +30,13 @@ pub struct Fixture {
     config_path: PathBuf,
 }
 
+/// 書き込み先の祖先が通常ファイルのときのパスの確認の誤り
+pub const NOT_A_DIRECTORY: &str = "cannot resolve path: not a directory";
+/// 実パスが長すぎるときのパスの確認の誤り
+pub const PATH_TOO_LONG: &str = "cannot resolve path: path too long";
+/// 書き込み先に置く、祖先にあたる通常ファイルの中身
+pub const DESTINATION_FILE: &str = "a regular file\n";
+
 /// バックアップを無効にした構成
 pub fn fixture() -> Fixture {
     build(false)
@@ -218,4 +225,16 @@ impl Fixture {
             .output()
             .unwrap()
     }
+}
+
+/// `base` の下に、実パスがちょうど `length` バイトになるまでディレクトリを重ねて作る
+pub fn deep_directory(base: &std::path::Path, length: usize) -> std::path::PathBuf {
+    let mut path = base.to_path_buf();
+    while path.as_os_str().len() < length {
+        let room = length - path.as_os_str().len() - 1;
+        path.push("d".repeat(room.min(200)));
+    }
+    std::fs::create_dir_all(&path).unwrap();
+    assert_eq!(path.as_os_str().len(), length);
+    path
 }
