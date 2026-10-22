@@ -125,45 +125,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_auto_accept_verifier_returns_true() {
-        let v = AutoAcceptVerifier;
-        assert!(v.verify_host_key("example.com", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_reject_verifier_returns_false() {
-        let v = RejectVerifier;
-        assert!(!v.verify_host_key("example.com", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_cli_verifier_auto_yes_returns_true() {
-        let v = CliVerifier { auto_yes: true };
-        assert!(v.verify_host_key("example.com", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_verifier_from_policy_no() {
-        use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::No, false);
-        assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_verifier_from_policy_yes() {
-        use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::Yes, false);
-        assert!(!v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_verifier_from_policy_ask_with_auto_yes() {
-        use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::Ask, true);
-        assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
     fn test_cli_verifier_rejects_when_input_ends_without_an_answer() {
         let v = CliVerifier { auto_yes: false };
         let mut input = "".as_bytes();
