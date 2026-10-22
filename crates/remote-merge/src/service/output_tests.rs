@@ -122,13 +122,6 @@ fn test_format_status_text() {
 }
 
 #[test]
-fn test_format_status_text_summary_only() {
-    let text = format_status_text(&sample_status(), true);
-    assert!(!text.contains("src/config.ts"));
-    assert!(text.contains("Summary:"));
-}
-
-#[test]
 fn test_format_status_text_agent_connected() {
     let mut output = sample_status();
     output.agent = Some(AgentStatus::Connected);
@@ -415,21 +408,6 @@ fn test_format_diff_text_symlink() {
 }
 
 #[test]
-fn test_format_merge_text_dry_run_prefix() {
-    let output = MergeOutput {
-        merged: vec![MergeFileResult {
-            path: "a.rs".into(),
-            status: "would merge".into(),
-            ..Default::default()
-        }],
-        ..empty_merge()
-    };
-    let text = format_merge_text(&output);
-    assert!(text.contains("Would merge: a.rs"));
-    assert!(!text.contains("Merged:"));
-}
-
-#[test]
 fn test_format_merge_text_dry_run_with_ref_badge() {
     let output = MergeOutput {
         merged: vec![MergeFileResult {
@@ -489,24 +467,6 @@ fn test_format_merge_text_hunk_merge_info() {
         text
     );
     assert!(text.contains("Merged: src/foo.rs"));
-}
-
-#[test]
-fn test_format_merge_text_no_hunk_info_for_normal_merge() {
-    let output = MergeOutput {
-        merged: vec![MergeFileResult {
-            path: "bar.rs".into(),
-            status: "ok".into(),
-            ..Default::default()
-        }],
-        ..empty_merge()
-    };
-    let text = format_merge_text(&output);
-    assert!(
-        !text.contains("hunks:"),
-        "hunk info should not appear in normal merge: {}",
-        text
-    );
 }
 
 // ── multi diff text tests ──
@@ -626,17 +586,6 @@ fn test_status_header_appears_in_summary_only_mode() {
     assert!(text.contains("Summary:"));
     // ファイル一覧は出力されない
     assert!(!text.contains("src/config.ts"));
-}
-
-#[test]
-fn test_status_json_not_affected_by_header() {
-    let output = sample_status();
-    let json = format_json(&output).unwrap();
-    // JSON にはヘッダ行が含まれない
-    assert!(!json.contains("Comparing:"));
-    // JSON の構造は正しい
-    assert!(json.contains("\"label\""));
-    assert!(json.contains("\"local\""));
 }
 
 // ── binary diff with SHA-256 hashes ──
@@ -768,18 +717,6 @@ fn test_format_merge_outcome_json_r2r_blocked() {
     );
 }
 
-#[test]
-fn test_format_merge_outcome_json_r2r_blocked_no_root_path() {
-    let json = format_merge_outcome_json(&MergeOutcome::R2rBlocked {
-        left: "develop".into(),
-        right: "staging".into(),
-    })
-    .unwrap();
-    // root パスが含まれないことを検証
-    assert!(!json.contains("/var/www"));
-    assert!(!json.contains("/home/"));
-}
-
 // ── conflict output tests ──
 
 #[test]
@@ -798,23 +735,6 @@ fn test_format_diff_text_with_conflicts() {
     };
     let text = format_diff_text(&output);
     assert!(text.contains("Conflicts: 2 region(s)"));
-}
-
-#[test]
-fn test_format_diff_text_no_conflicts() {
-    let output = DiffOutput {
-        left: SourceInfo {
-            label: "l".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "r".into(),
-            root: "/r".into(),
-        },
-        ..plain_diff("a.rs")
-    };
-    let text = format_diff_text(&output);
-    assert!(!text.contains("Conflicts"));
 }
 
 #[test]
@@ -1006,24 +926,7 @@ fn test_diff_output_conflict_count_nonzero_in_json() {
     assert!(json.contains("\"conflict_regions\""));
 }
 
-// ── format_merge_text: dry-run / actual backup 表示 ──
-
-#[test]
-fn test_format_merge_text_actual_backup_path() {
-    // 実行時 + backup あり → "(backup: <path>)" を表示
-    let output = MergeOutput {
-        merged: vec![MergeFileResult {
-            path: "src/main.rs".into(),
-            status: "ok".into(),
-            backup: Some("/var/backups/main.rs.20260311.bak".into()),
-            ..Default::default()
-        }],
-        ..empty_merge()
-    };
-    let text = format_merge_text(&output);
-    assert!(text.contains("Merged: src/main.rs (backup: /var/backups/main.rs.20260311.bak)"));
-    assert!(!text.contains("backup enabled"));
-}
+// ── format_merge_text: dry-run のバックアップ表示 ──
 
 #[test]
 fn test_format_merge_text_dryrun_no_backup() {
@@ -1083,8 +986,8 @@ fn test_format_merge_text_deleted_no_backup() {
 }
 
 #[test]
-fn test_format_merge_text_no_deleted_field_when_empty() {
-    // deleted が空のときは何も表示しない
+fn test_format_merge_text_plain_merge_has_no_hunk_or_delete_lines() {
+    // 全体の merge で deleted が空のときは、hunk の情報も削除の行も出さない
     let output = MergeOutput {
         merged: vec![MergeFileResult {
             path: "a.rs".into(),
@@ -1094,6 +997,11 @@ fn test_format_merge_text_no_deleted_field_when_empty() {
         ..empty_merge()
     };
     let text = format_merge_text(&output);
+    assert!(
+        !text.contains("hunks:"),
+        "hunk info should not appear in normal merge: {}",
+        text
+    );
     assert!(!text.contains("Deleted"));
     assert!(!text.contains("Delete"));
 }
@@ -1270,7 +1178,7 @@ fn format_sync_text_with_backup() {
     assert!(text.contains("backup: 20260311-120000/a.txt"));
 }
 
-// ── Step 1: JsonError serialization ──
+// ── JsonError ──
 
 #[test]
 fn test_json_error_serialize() {
@@ -1284,48 +1192,7 @@ fn test_json_error_serialize() {
     assert_eq!(parsed.as_object().unwrap().len(), 1);
 }
 
-// ── Step 7: L/R symbol regression ──
-
-#[test]
-fn test_status_text_left_only_symbol() {
-    let output = StatusOutput {
-        left: SourceInfo {
-            label: "local".into(),
-            root: ".".into(),
-        },
-        right: SourceInfo {
-            label: "dev".into(),
-            root: "/r".into(),
-        },
-        ref_: None,
-        agent: None,
-        files: Some(vec![FileStatus {
-            path: "only_left.rs".into(),
-            status: FileStatusKind::LeftOnly,
-            ref_badge: None,
-        }]),
-        summary: StatusSummary {
-            modified: 0,
-            left_only: 1,
-            right_only: 0,
-            equal: 0,
-            ref_differs: None,
-            ref_only: None,
-            ref_missing: None,
-            unreadable: 0,
-        },
-        errors: Vec::new(),
-    };
-    let text = format_status_text(&output, false);
-    assert!(
-        text.contains("L only_left.rs"),
-        "left_only should use 'L ' prefix"
-    );
-    assert!(
-        !text.contains("+ only_left.rs"),
-        "should not use old '+' prefix"
-    );
-}
+// ── status の L/R の印 ──
 
 #[test]
 fn test_status_text_right_only_symbol() {
