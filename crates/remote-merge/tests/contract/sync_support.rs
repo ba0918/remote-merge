@@ -13,6 +13,8 @@ use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;
 
+use super::common::ClosedPort;
+
 const TARGETS: [&str; 3] = ["develop", "staging", "production"];
 
 pub struct Fixture {
@@ -21,6 +23,7 @@ pub struct Fixture {
     backup: TempDir,
     config_dir: TempDir,
     config: AppConfig,
+    _offline: ClosedPort,
 }
 
 pub fn fixture() -> Fixture {
@@ -40,9 +43,10 @@ pub fn fixture() -> Fixture {
             )
         })
         .collect();
+    let closed_port = ClosedPort::new();
     let offline = format!(
         "[servers.offline]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"unused\"\nroot_dir = \"/unused\"\n",
-        closed_port()
+        closed_port.port()
     );
     fs::write(
         &config_path,
@@ -59,13 +63,8 @@ pub fn fixture() -> Fixture {
         backup: TempDir::new().unwrap(),
         config_dir,
         config,
+        _offline: closed_port,
     }
-}
-
-/// 待ち受けを閉じたローカルのポート。接続は拒否される
-fn closed_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
 }
 
 impl Fixture {

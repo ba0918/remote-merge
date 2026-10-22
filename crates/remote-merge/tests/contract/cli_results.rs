@@ -757,13 +757,11 @@ fn every_successful_sync_target_returns_a_zero_exit_code() {
 #[test]
 fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
     let fixture = sync_fixture();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let closed_port = listener.local_addr().unwrap().port();
-    drop(listener);
+    let closed_port = super::common::ClosedPort::new();
     let mut config = fixture.config;
     let second = config.servers.get_mut("second").unwrap();
     second.host = "127.0.0.1".into();
-    second.port = closed_port;
+    second.port = closed_port.port();
     let targets = RuntimeTargets::production()
         .with_local("first", fixture.first.path())
         .with_backup_store(None)
