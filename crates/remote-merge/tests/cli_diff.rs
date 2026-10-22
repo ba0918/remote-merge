@@ -736,6 +736,21 @@ fn directory_spelling_with_or_without_slash_finds_same_child_diff() {
     );
 }
 
+// 中身のない同じファイルは差分なしで、終了コード 0
+// @kotowari[REQ-cli-056]
+#[test]
+fn two_empty_files_have_no_diff_and_exit_with_0() {
+    let env = CliEnv::new(&[("empty.txt", "")], &[("empty.txt", "")]);
+
+    let output = env.cmd_with("diff").arg("empty.txt").output().unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("0 file(s) with changes"),
+        "{output:?}"
+    );
+}
+
 // @kotowari[EX-cli-052]
 #[test]
 fn matching_directory_contents_have_no_diff_with_either_spelling() {
