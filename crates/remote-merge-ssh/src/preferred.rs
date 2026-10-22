@@ -55,8 +55,6 @@ pub fn build_preferred(opts: &SshOptions) -> Preferred {
 ///
 /// 全て不明な場合は None を返す（デフォルトを維持）。
 fn resolve_kex_names(user_list: &[String]) -> Option<Vec<kex::Name>> {
-    let default_kex: &[kex::Name] = Preferred::DEFAULT.kex.as_ref();
-
     let user_names: Vec<kex::Name> = user_list
         .iter()
         .filter_map(|s| {
@@ -66,19 +64,21 @@ fn resolve_kex_names(user_list: &[String]) -> Option<Vec<kex::Name>> {
             })
         })
         .collect();
+    prepend_to(user_names, Preferred::DEFAULT.kex.as_ref())
+}
 
+/// 利用者の指定 `user_names` を書かれた順に（重ねて書いたものもそのまま）並べ、その後ろに
+/// 既定のうちまだ並んでいないものを既定の順に足す。指定が一つもなければ None（既定を使う）
+fn prepend_to<T: PartialEq + Clone>(user_names: Vec<T>, defaults: &[T]) -> Option<Vec<T>> {
     if user_names.is_empty() {
         return None;
     }
-
-    // ユーザー指定を先頭に、デフォルトから重複を除いて末尾に追加
-    let mut result = user_names.clone();
-    for &name in default_kex {
-        if !result.contains(&name) {
-            result.push(name);
+    let mut result = user_names;
+    for name in defaults {
+        if !result.contains(name) {
+            result.push(name.clone());
         }
     }
-
     Some(result)
 }
 
@@ -117,22 +117,11 @@ fn resolve_key_names(user_list: &[String]) -> Option<Vec<Algorithm>> {
             }
         })
         .collect();
-    if user_names.is_empty() {
-        return None;
-    }
-    let mut result = user_names;
-    for name in Preferred::DEFAULT.key.iter() {
-        if !result.contains(name) {
-            result.push(name.clone());
-        }
-    }
-    Some(result)
+    prepend_to(user_names, Preferred::DEFAULT.key.as_ref())
 }
 
 /// ユーザー指定の cipher アルゴリズム名を解決する。
 fn resolve_cipher_names(user_list: &[String]) -> Option<Vec<cipher::Name>> {
-    let default_cipher: &[cipher::Name] = Preferred::DEFAULT.cipher.as_ref();
-
     let user_names: Vec<cipher::Name> = user_list
         .iter()
         .filter_map(|s| {
@@ -142,19 +131,7 @@ fn resolve_cipher_names(user_list: &[String]) -> Option<Vec<cipher::Name>> {
             })
         })
         .collect();
-
-    if user_names.is_empty() {
-        return None;
-    }
-
-    let mut result = user_names.clone();
-    for &name in default_cipher {
-        if !result.contains(&name) {
-            result.push(name);
-        }
-    }
-
-    Some(result)
+    prepend_to(user_names, Preferred::DEFAULT.cipher.as_ref())
 }
 
 /// 既定の MAC。russh の既定の後ろに SHA-1 の MAC を置く。
@@ -173,8 +150,6 @@ fn default_macs() -> Vec<mac::Name> {
 
 /// ユーザー指定の MAC アルゴリズム名を解決する。
 fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
-    let default_mac = default_macs();
-
     let user_names: Vec<mac::Name> = user_list
         .iter()
         .filter_map(|s| {
@@ -184,19 +159,7 @@ fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
             })
         })
         .collect();
-
-    if user_names.is_empty() {
-        return None;
-    }
-
-    let mut result = user_names.clone();
-    for name in default_mac {
-        if !result.contains(&name) {
-            result.push(name);
-        }
-    }
-
-    Some(result)
+    prepend_to(user_names, &default_macs())
 }
 
 #[cfg(test)]
