@@ -139,14 +139,11 @@ pub(crate) fn merge_configs(
         .or(global.backup.as_ref());
     let backup = convert_backup_config(backup_raw);
 
-    let agent = if let Some(ref proj) = project {
-        proj.agent.as_ref().map_or_else(
-            || convert_agent_config(global.agent.as_ref()),
-            |a| convert_agent_config(Some(a)),
-        )
-    } else {
-        convert_agent_config(global.agent.as_ref())
-    };
+    let agent_raw = project
+        .as_ref()
+        .and_then(|p| p.agent.as_ref())
+        .or(global.agent.as_ref());
+    let agent = convert_agent_config(agent_raw);
 
     let defaults = {
         let global_defaults = global.defaults.as_ref();
@@ -191,25 +188,17 @@ pub(crate) fn merge_raw_defaults(
     global: Option<&RawDefaultsConfig>,
     project: Option<&RawDefaultsConfig>,
 ) -> Option<RawDefaultsConfig> {
-    match (global, project) {
-        (None, None) => None,
-        (Some(g), None) => Some(RawDefaultsConfig {
-            file_permissions: g.file_permissions.clone(),
-            dir_permissions: g.dir_permissions.clone(),
-        }),
-        (None, Some(p)) => Some(RawDefaultsConfig {
-            file_permissions: p.file_permissions.clone(),
-            dir_permissions: p.dir_permissions.clone(),
-        }),
-        (Some(g), Some(p)) => Some(RawDefaultsConfig {
-            file_permissions: p
-                .file_permissions
-                .clone()
-                .or_else(|| g.file_permissions.clone()),
-            dir_permissions: p
-                .dir_permissions
-                .clone()
-                .or_else(|| g.dir_permissions.clone()),
-        }),
+    if global.is_none() && project.is_none() {
+        return None;
     }
+    let file_permissions = project
+        .and_then(|p| p.file_permissions.clone())
+        .or_else(|| global.and_then(|g| g.file_permissions.clone()));
+    let dir_permissions = project
+        .and_then(|p| p.dir_permissions.clone())
+        .or_else(|| global.and_then(|g| g.dir_permissions.clone()));
+    Some(RawDefaultsConfig {
+        file_permissions,
+        dir_permissions,
+    })
 }
