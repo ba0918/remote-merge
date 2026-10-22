@@ -511,8 +511,8 @@ impl SshClient {
 
     /// リモートでコマンドを実行し、非ゼロ終了コードをエラーとして返す
     ///
-    /// ファイル読み込みなど、失敗を検知すべき操作に使う。
-    pub(crate) async fn exec_strict(&mut self, command: &str) -> crate::error::Result<String> {
+    /// sudo の確認やエージェントの配置の仕上げのように、失敗を検知すべき操作に使う。
+    pub async fn exec_strict(&mut self, command: &str) -> crate::error::Result<String> {
         let result = self.run_command(command).await?;
 
         if result.exit_code != 0 {

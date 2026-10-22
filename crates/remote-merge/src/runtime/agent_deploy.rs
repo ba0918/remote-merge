@@ -72,10 +72,7 @@ impl CoreRuntime {
         // sudo NOPASSWD チェック
         let sudo_cmd = deploy::build_sudo_check_command();
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        if let Err(error) = self
-            .rt
-            .block_on(crate::ssh::exec_strict(ssh_client, sudo_cmd))
-        {
+        if let Err(error) = self.rt.block_on(ssh_client.exec_strict(sudo_cmd)) {
             // 接続が使えなかった失敗は sudo の設定の誤りではないので、種類を残して返す
             // （起動し直しが再接続に進めるように）
             if super::connection::classify(&error).is_disconnection() {
@@ -195,7 +192,7 @@ impl CoreRuntime {
             deploy::build_post_write_script(remote_path, &tmp_path, &local_hash, sudo)?;
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
-            .block_on(crate::ssh::exec_strict(ssh_client, &post_script))
+            .block_on(ssh_client.exec_strict(&post_script))
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Agent deploy post-write script failed: server={}, path={}, error={}",

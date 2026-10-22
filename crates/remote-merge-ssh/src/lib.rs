@@ -23,13 +23,6 @@ mod config {
     };
 }
 
-pub async fn exec_strict(
-    client: &mut client::SshClient,
-    command: &str,
-) -> remote_merge_core::error::Result<String> {
-    client.exec_strict(command).await
-}
-
 /// リモートが黙っていてよい時間の下限（120 秒）を当てた時間切れ。ssh の接続の時間切れ
 /// （`timeout_sec`）が短くても、keepalive の間隔と、エージェントが黙って計算する時間（大きな
 /// 走査・ハッシュ）で切らないようにする。セッションの inactivity_timeout と、手元がエージェントの
