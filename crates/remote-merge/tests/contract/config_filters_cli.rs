@@ -4,13 +4,13 @@
 //! 警告は設定の読み込み時に標準エラーに出るため、実行ファイルを SSH の試験サーバに対して起動して確かめる。
 //! 先頭の "./" の取り除きは、設定を読むときに整えるので remote-merge-core の単体テストで確かめる。
 //! 設定は `gen_config` の [filter] の exclude の行を include の行に置き換えるだけで、
-//! 既存の隔離の確認（`TestDirs::assert_isolated_config_at`）を通してから起動する。
+//! 既存の隔離の確認（`CliEnv::assert_isolated_config_at`）を通してから起動する。
 
 use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, isolated_command, strip_ansi};
+use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
 
 /// `gen_config` の [filter] の exclude の行を `include_line` に置き換えた設定
 pub(super) fn with_include(config: &str, include_line: &str) -> String {
@@ -21,7 +21,7 @@ pub(super) fn with_include(config: &str, include_line: &str) -> String {
 
 /// `config` を書き、隔離を確かめてから `status --left local --right develop` を `extra_args` を足して
 /// [`isolated_command`] で起動する
-pub(super) fn status(dirs: &mut TestDirs, config: &str, extra_args: &[&str]) -> Output {
+pub(super) fn status(dirs: &CliEnv, config: &str, extra_args: &[&str]) -> Output {
     let config_path = dirs.temp.path().join("filters-config.toml");
     fs::write(&config_path, config).unwrap();
     let local_root = dirs.local_dir.clone();
@@ -51,7 +51,7 @@ fn toml_string(path: &Path) -> String {
 // @kotowari[REQ-config-024]
 #[test]
 fn absolute_traversal_and_glob_include_values_each_warn_with_the_value() {
-    let mut dirs = TestDirs::new_2way(&[("src/a.txt", "local\n")], &[("src/a.txt", "remote\n")]);
+    let dirs = CliEnv::new(&[("src/a.txt", "local\n")], &[("src/a.txt", "remote\n")]);
     // 無効な値は有効な "src" と一緒に書き、どれも一時ディレクトリの中を指すものにする
     // （全て無効な include はエラーで止まる。整え方が壊れても走査が一時ディレクトリの外に向かわないようにする）
     let absolute = dirs.local_dir.join("src");
@@ -66,7 +66,7 @@ fn absolute_traversal_and_glob_include_values_each_warn_with_the_value() {
             globs.map(|glob| format!("{glob:?}")).join(", ")
         ),
     );
-    let output = status(&mut dirs, &config, &[]);
+    let output = status(&dirs, &config, &[]);
     let text = combined(&output);
     let glob_warnings = globs
         .iter()

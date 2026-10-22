@@ -17,7 +17,7 @@ use std::process::Output;
 
 use tempfile::TempDir;
 
-use super::common::{TestDirs, isolated_command, place_files, place_symlink};
+use super::common::{CliEnv, assert_owned_server, isolated_command, place_files, place_symlink};
 use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
@@ -56,7 +56,7 @@ pub(super) fn launch_status(temp: &Path, config_path: &Path, extra_args: &[&str]
 
 /// `config` を書き、既存の隔離の確認を通してから status を起動する
 pub(super) fn status_on_the_remote_server(
-    dirs: &mut TestDirs,
+    dirs: &CliEnv,
     config: &str,
     local_root: &Path,
     extra_args: &[&str],
@@ -158,7 +158,7 @@ const AGENT_USER: &str = "fixture-user";
 /// エージェントを有効にした試験サーバと一時ディレクトリ
 ///
 /// 試験サーバが受けたコマンドを読み、エージェントの経路を通ったことを確かめるため、
-/// `TestServer::filesystem_with_agent` を直接使う（`TestDirs` も同じエージェントの経路を通るが、
+/// `TestServer::filesystem_with_agent` を直接使う（`CliEnv` も同じエージェントの経路を通るが、
 /// 受けたコマンドを読めない）。
 pub(super) struct AgentFixture {
     pub(super) temp: TempDir,
@@ -234,17 +234,7 @@ impl AgentFixture {
             .expect("fixture servers missing");
         assert!(!servers.is_empty());
         for server in servers.values() {
-            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
-            let port = server["port"].as_integer().expect("fixture port missing");
-            assert!(
-                port > 0 && port != 22,
-                "refusing to connect to an unowned SSH port"
-            );
-            assert_eq!(
-                port,
-                i64::from(self.server.port()),
-                "fixture port is not owned"
-            );
+            assert_owned_server(server, self.server.port());
             assert_eq!(server["auth"].as_str(), Some("password"));
             assert!(server.get("key").is_none(), "refusing a HOME key path");
             assert!(

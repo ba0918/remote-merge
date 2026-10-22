@@ -3,13 +3,13 @@
 //!
 //! strict_host_key_checking の警告は標準エラーに出るため、パスワードと鍵のパスは SSH の接続で初めて使われるため、
 //! 実行ファイルを SSH の試験サーバに対して起動して確かめる。
-//! 設定は既存の隔離の確認を通らない値を含むため、起動の前に `TestDirs::assert_isolated_values_config` をかける。
+//! 設定は既存の隔離の確認を通らない値を含むため、起動の前に `CliEnv::assert_isolated_values_config` をかける。
 
 use std::fs;
 use std::path::PathBuf;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, isolated_command, strip_ansi};
+use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
 
 /// ローカルの側にだけ置くファイル。接続できたときに status の JSON の "files" に出る
 const LOCAL_ONLY: &str = "only-local.txt";
@@ -18,12 +18,12 @@ const LOCAL_ONLY: &str = "only-local.txt";
 ///
 /// 環境変数は全て消し、HOME・XDG の変数・PATH と、テストが渡すものだけを設定する。
 struct Workspace {
-    dirs: TestDirs,
+    dirs: CliEnv,
 }
 
 impl Workspace {
     fn new() -> Self {
-        let dirs = TestDirs::new_2way(&[(LOCAL_ONLY, "only on the local side\n")], &[]);
+        let dirs = CliEnv::new(&[(LOCAL_ONLY, "only on the local side\n")], &[]);
         let workspace = Self { dirs };
         fs::create_dir_all(workspace.home()).unwrap();
         workspace

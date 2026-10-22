@@ -516,12 +516,7 @@ fn two_synchronous_cli_sessions_compare_and_write_only_their_own_remote_files() 
             .parse()
             .unwrap();
         let server = &config["servers"]["develop"];
-        assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
-        let port = server["port"].as_integer().expect("fixture port missing");
-        assert!(
-            port > 0 && port != 22,
-            "refusing an unowned SSH port: {port}"
-        );
+        common::assert_owned_server(server, env.server_port());
         assert_eq!(server["auth"].as_str(), Some("password"));
         assert!(server.get("key").is_none(), "refusing a HOME key path");
         assert_eq!(config["local"]["root_dir"].as_str(), env.local_dir.to_str());

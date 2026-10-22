@@ -13,7 +13,7 @@ use std::process::Output;
 
 use remote_merge_core::test_tree::PermissionLocks;
 
-use super::common::{TestDirs, gen_config, place_files};
+use super::common::{CliEnv, gen_config, place_files};
 use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 読めるファイルと、中にファイルのある読めないディレクトリ "locked"
@@ -51,12 +51,12 @@ fn assert_scan_stopped(output: &Output) {
 
 /// ローカルの側に読めないディレクトリを置いて status を起動する。読めなくできなければ None
 fn status_with_a_locked_local_directory() -> Option<Output> {
-    let mut dirs = TestDirs::new_2way(&WITH_LOCKED, &READABLE);
+    let dirs = CliEnv::new(&WITH_LOCKED, &READABLE);
     let _locked = lock(&dirs.local_dir)?;
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     Some(status_on_the_remote_server(
-        &mut dirs,
+        &dirs,
         &config,
         &local_root,
         &[],

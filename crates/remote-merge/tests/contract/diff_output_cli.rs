@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, isolated_command};
+use super::common::{CliEnv, gen_config, isolated_command};
 
 const NOT_FOUND: &str = "specified path(s) not found on either side";
 
@@ -34,7 +34,7 @@ pub(super) fn launch_diff(temp: &Path, config_path: &Path, args: &[&str]) -> Out
 fn diff_on_the_remote_server(files: &[&str], args: &[&str]) -> Output {
     let left: Vec<(&str, &str)> = files.iter().map(|path| (*path, "left\n")).collect();
     let right: Vec<(&str, &str)> = files.iter().map(|path| (*path, "right\n")).collect();
-    let mut dirs = TestDirs::new_2way(&left, &right);
+    let dirs = CliEnv::new(&left, &right);
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     let config_path = dirs.temp.path().join("diff-output-config.toml");
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());

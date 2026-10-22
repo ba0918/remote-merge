@@ -70,7 +70,7 @@ pub fn strip_ansi(input: &[u8]) -> String {
 /// 簡易 ANSI ストリッパー（正規表現クレート不要版）
 ///
 /// CSI シーケンス (ESC [ ... letter) と OSC シーケンス (ESC ] ... BEL) を除去する。
-pub fn regex_lite_strip(s: &str) -> String {
+fn regex_lite_strip(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -213,28 +213,108 @@ pub fn deploy_agent_for(base: &Path, user: &str) {
     unix_fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
 }
 
-// ─── TestDirs（共通ディレクトリ構成） ─────────────────────
+// ─── CliEnv（試験 SSH サーバと一時ディレクトリ） ─────────────────────
 
-/// テスト環境のディレクトリ構成。E2eEnv と CliEnv の共通ロジックを集約する。
-pub struct TestDirs {
-    _server: ssh_server::TestServer,
+/// エージェントを置いた試験 SSH サーバと、local と書き込み先の root_dir を持つ一時ディレクトリ。
+/// 設定ファイル `config_path` はこのサーバだけにつなぎ、CLI のサブコマンドをその設定で起動する
+pub struct CliEnv {
+    server: ssh_server::TestServer,
     _runtime: tokio::runtime::Runtime,
     pub temp: TempDir,
     pub config_path: String,
     pub local_dir: PathBuf,
+    /// develop の root_dir
     pub remote_dir: PathBuf,
 }
 
-impl TestDirs {
+/// 設定のサーバの一つが、このテスト自身の試験サーバ（ポート `port`）を指すことを確かめる
+pub fn assert_owned_server(server: &toml::Value, port: u16) {
+    assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
+    let configured = server["port"].as_integer().expect("fixture port missing");
+    assert!(
+        configured > 0 && configured != 22,
+        "refusing to connect to an unowned SSH port"
+    );
+    assert_eq!(configured, i64::from(port), "fixture port is not owned");
+}
+
+impl CliEnv {
+    /// 2サーバー構成: local <-> develop(remote)
+    pub fn new(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
+        Self::start(local_files, ("remote", remote_files), None)
+    }
+
+    /// 3サーバー構成: local(ref) + develop(left) + staging(right)
+    ///
+    /// `remote_dir` は develop の root_dir を指す。
+    pub fn new_3way(
+        local_files: &[(&str, &str)],
+        develop_files: &[(&str, &str)],
+        staging_files: &[(&str, &str)],
+    ) -> Self {
+        Self::start(local_files, ("develop", develop_files), Some(staging_files))
+    }
+
+    /// 一時ディレクトリの下に local、`develop`（ディレクトリの名前と置くファイル）、`staging_files` が
+    /// あれば staging の root_dir を作ってファイルを置き、エージェントを置いた試験サーバを起動して
+    /// 設定を書く
+    fn start(
+        local_files: &[(&str, &str)],
+        develop: (&str, &[(&str, &str)]),
+        staging_files: Option<&[(&str, &str)]>,
+    ) -> Self {
+        let temp = TempDir::new().expect("Failed to create temp dir");
+        let base = temp.path();
+        let local_dir = base.join("local");
+        let develop_dir = base.join(develop.0);
+        let staging_dir = staging_files.map(|_| base.join("staging"));
+        let roots = [(&local_dir, local_files), (&develop_dir, develop.1)]
+            .into_iter()
+            .chain(staging_dir.iter().zip(staging_files));
+        for (dir, files) in roots {
+            fs::create_dir_all(dir).unwrap();
+            place_files(dir, files);
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        deploy_agent(base);
+        let server = runtime.block_on(ssh_server::TestServer::filesystem_with_agent(base));
+        let config_path = base.join("test-config.toml");
+        let config = gen_config(
+            &local_dir,
+            &develop_dir,
+            staging_dir.as_deref(),
+            server.port(),
+        );
+        fs::write(&config_path, &config).unwrap();
+
+        Self {
+            temp,
+            config_path: config_path.to_string_lossy().to_string(),
+            local_dir,
+            remote_dir: develop_dir,
+            server,
+            _runtime: runtime,
+        }
+    }
+
     fn assert_isolated_config(&self) {
-        let config: toml::Table = fs::read_to_string(&self.config_path)
+        self.assert_isolated_config_at(Path::new(&self.config_path), &self.local_dir);
+    }
+
+    /// 自分の設定ファイルと同じ隔離の確認を、テストが別に書いた設定ファイルにかける。
+    ///
+    /// `local_root` はその設定の [local] の root_dir として書いた値。
+    pub fn assert_isolated_config_at(&self, config_path: &Path, local_root: &Path) {
+        let config: toml::Table = fs::read_to_string(config_path)
             .expect("fixture configuration missing")
             .parse()
             .expect("fixture configuration invalid");
-        assert_eq!(
-            config["local"]["root_dir"].as_str(),
-            self.local_dir.to_str()
-        );
+        assert_eq!(config["local"]["root_dir"].as_str(), local_root.to_str());
         assert_eq!(config["agent"]["enabled"].as_bool(), Some(true));
         let deploy_dir = Path::new(
             config["agent"]["deploy_dir"]
@@ -254,17 +334,7 @@ impl TestDirs {
             .expect("fixture servers missing");
         assert!(!servers.is_empty());
         for server in servers.values() {
-            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
-            let port = server["port"].as_integer().expect("fixture port missing");
-            assert!(
-                port > 0 && port != 22,
-                "refusing to connect to an unowned SSH port"
-            );
-            assert_eq!(
-                port,
-                i64::from(self._server.port()),
-                "fixture port is not owned"
-            );
+            assert_owned_server(server, self.server.port());
             assert_eq!(server["auth"].as_str(), Some("password"));
             assert_eq!(server["user"].as_str(), Some("fixture-user"));
             assert_eq!(server["password"].as_str(), Some("fixture-password"));
@@ -275,20 +345,6 @@ impl TestDirs {
                 "remote root escapes fixture"
             );
         }
-    }
-
-    /// 自分の設定ファイルと同じ隔離の確認を、テストが別に書いた設定ファイルにかける。
-    ///
-    /// `local_root` はその設定の [local] の root_dir として書いた値。
-    pub fn assert_isolated_config_at(&mut self, config_path: &Path, local_root: &Path) {
-        let own_config_path = std::mem::replace(
-            &mut self.config_path,
-            config_path.to_string_lossy().into_owned(),
-        );
-        let own_local_dir = std::mem::replace(&mut self.local_dir, local_root.to_path_buf());
-        self.assert_isolated_config();
-        self.config_path = own_config_path;
-        self.local_dir = own_local_dir;
     }
 
     /// 設定の値のテストのための、`assert_isolated_config` とは別の隔離の確認。
@@ -338,17 +394,7 @@ impl TestDirs {
             .expect("fixture servers missing");
         assert!(!servers.is_empty());
         for server in servers.values() {
-            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
-            let port = server["port"].as_integer().expect("fixture port missing");
-            assert!(
-                port > 0 && port != 22,
-                "refusing to connect to an unowned SSH port"
-            );
-            assert_eq!(
-                port,
-                i64::from(self._server.port()),
-                "fixture port is not owned"
-            );
+            assert_owned_server(server, self.server.port());
             assert_eq!(server["user"].as_str(), Some("fixture-user"));
             let root = Path::new(server["root_dir"].as_str().expect("fixture root missing"));
             assert!(inside_temp(root), "remote root escapes fixture");
@@ -371,131 +417,7 @@ impl TestDirs {
 
     /// このテスト自身が起動した SSH の試験サーバのポート
     pub fn server_port(&self) -> u16 {
-        self._server.port()
-    }
-
-    /// 2サーバー構成: local <-> develop(remote)
-    pub fn new_2way(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
-        let temp = TempDir::new().expect("Failed to create temp dir");
-        let base = temp.path();
-
-        let local_dir = base.join("local");
-        let remote_dir = base.join("remote");
-        fs::create_dir_all(&local_dir).unwrap();
-        fs::create_dir_all(&remote_dir).unwrap();
-
-        place_files(&local_dir, local_files);
-        place_files(&remote_dir, remote_files);
-
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        deploy_agent(base);
-        let server = runtime.block_on(ssh_server::TestServer::filesystem_with_agent(base));
-        let config_path = base.join("test-config.toml");
-        let config_content = gen_config(&local_dir, &remote_dir, None, server.port());
-        fs::write(&config_path, &config_content).unwrap();
-
-        Self {
-            temp,
-            config_path: config_path.to_string_lossy().to_string(),
-            local_dir,
-            remote_dir,
-            _server: server,
-            _runtime: runtime,
-        }
-    }
-
-    /// 3サーバー構成: local(ref) + develop(left) + staging(right)
-    ///
-    /// `remote_dir` は develop_dir を指す（2way との互換性のため）。
-    pub fn new_3way(
-        local_files: &[(&str, &str)],
-        develop_files: &[(&str, &str)],
-        staging_files: &[(&str, &str)],
-    ) -> Self {
-        let temp = TempDir::new().expect("Failed to create temp dir");
-        let base = temp.path();
-
-        let local_dir = base.join("local");
-        let develop_dir = base.join("develop");
-        let staging_dir = base.join("staging");
-        fs::create_dir_all(&local_dir).unwrap();
-        fs::create_dir_all(&develop_dir).unwrap();
-        fs::create_dir_all(&staging_dir).unwrap();
-
-        place_files(&local_dir, local_files);
-        place_files(&develop_dir, develop_files);
-        place_files(&staging_dir, staging_files);
-
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        deploy_agent(base);
-        let server = runtime.block_on(ssh_server::TestServer::filesystem_with_agent(base));
-        let config_path = base.join("test-config.toml");
-        let config_content =
-            gen_config(&local_dir, &develop_dir, Some(&staging_dir), server.port());
-        fs::write(&config_path, &config_content).unwrap();
-
-        Self {
-            temp,
-            config_path: config_path.to_string_lossy().to_string(),
-            local_dir,
-            remote_dir: develop_dir,
-            _server: server,
-            _runtime: runtime,
-        }
-    }
-}
-
-// ─── CliEnv（CLI E2E テスト用） ──────────────────────────
-
-/// CLI E2E テスト用の環境。SSH 接続を使う CLI テスト向け。
-///
-/// `TestDirs` を内部で使い、CLI サブコマンドの実行に特化したヘルパーを提供する。
-pub struct CliEnv {
-    _dirs: TestDirs,
-    pub config_path: String,
-    pub local_dir: PathBuf,
-    pub remote_dir: PathBuf,
-}
-
-impl CliEnv {
-    /// 2サーバー構成: local <-> develop(remote)
-    pub fn new(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
-        let dirs = TestDirs::new_2way(local_files, remote_files);
-        let config_path = dirs.config_path.clone();
-        let local_dir = dirs.local_dir.clone();
-        let remote_dir = dirs.remote_dir.clone();
-        Self {
-            _dirs: dirs,
-            config_path,
-            local_dir,
-            remote_dir,
-        }
-    }
-
-    /// 3サーバー構成: local(ref) + develop(left) + staging(right)
-    pub fn new_3way(
-        local_files: &[(&str, &str)],
-        develop_files: &[(&str, &str)],
-        staging_files: &[(&str, &str)],
-    ) -> Self {
-        let dirs = TestDirs::new_3way(local_files, develop_files, staging_files);
-        let config_path = dirs.config_path.clone();
-        let local_dir = dirs.local_dir.clone();
-        let remote_dir = dirs.remote_dir.clone();
-        Self {
-            _dirs: dirs,
-            config_path,
-            local_dir,
-            remote_dir,
-        }
+        self.server.port()
     }
 
     /// CLI コマンドを生成（--config 付き）
@@ -503,8 +425,8 @@ impl CliEnv {
     /// [`isolated_command`] の環境で、XDG の場所は一時ディレクトリの直下の "xdg-config"・
     /// "xdg-data"・"xdg-cache" にする（バックアップと診断ログをそこから読むテストがある）。
     pub fn cmd(&self) -> Command {
-        self._dirs.assert_isolated_config();
-        let temp = self._dirs.temp.path();
+        self.assert_isolated_config();
+        let temp = self.temp.path();
         let mut cmd = isolated_command(&temp.join("home"));
         cmd.env("XDG_CONFIG_HOME", temp.join("xdg-config"));
         cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
@@ -514,22 +436,17 @@ impl CliEnv {
     }
 
     pub fn temp_root(&self) -> &Path {
-        self._dirs.temp.path()
+        self.temp.path()
     }
 
     /// 試験 SSH サーバへのログインを `accepted` 回だけ受け入れ、以降の接続を認証で失敗させる
     pub fn reject_logins_after(&self, accepted: usize) {
-        self._dirs._server.reject_logins_after(accepted);
-    }
-
-    /// 試験 SSH サーバがこれまでに受けたコマンド（ログインシェルの包みを外したもの）
-    pub fn received_commands(&self) -> Vec<String> {
-        self._dirs._server.commands()
+        self.server.reject_logins_after(accepted);
     }
 
     /// 試験 SSH サーバが受け取ったコマンドを、リモートのログインシェル `shell` の `-c` で実行させる
     pub fn use_remote_login_shell(&self, shell: &'static str) {
-        self._dirs._server.use_login_shell(shell);
+        self.server.use_login_shell(shell);
     }
 
     /// CLI コマンドをサブコマンド付きで生成

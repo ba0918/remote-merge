@@ -2,7 +2,7 @@
 //! 走査する側にない include の値と root_dir の外へ解決される値を飛ばすこと
 //! （docs/ir/config/include.md の REQ-config-032・033）の契約テスト。
 //!
-//! `AgentFixture`（祖先がディレクトリでない値のテストは `TestDirs`）の試験サーバに対して、実行ファイルを
+//! `AgentFixture`（祖先がディレクトリでない値のテストは `CliEnv`）の試験サーバに対して、実行ファイルを
 //! `status --left local --right develop` で起動する。どちらも右はエージェントの経路を通る。
 //! 警告は利用者の見る標準エラーで確かめる。左のローカルの経路の警告も同じ標準エラーに出る。
 
@@ -12,12 +12,12 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, place_files, strip_ansi};
+use super::common::{CliEnv, gen_config, place_files, strip_ansi};
 use super::config_filters_cli::{combined, status, with_include};
 use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
-fn status_on_the_remote_server(dirs: &mut TestDirs, include: &[&str]) -> Output {
+fn status_on_the_remote_server(dirs: &CliEnv, include: &[&str]) -> Output {
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
     let config = with_include(&base, &format!("include = {include:?}"));
     status(dirs, &config, &["--all", "--format", "json"])
@@ -144,11 +144,11 @@ async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed
 #[test]
 fn include_value_whose_ancestor_is_not_a_directory_on_the_ssh_side_stops_with_that_error() {
     // 右の SSH の側では "src" が通常ファイルなので、"src/sub" の確認は祖先がディレクトリでないエラーになる
-    let mut dirs = TestDirs::new_2way(
+    let dirs = CliEnv::new(
         &[("src/sub/a.txt", "local\n"), ("top.txt", "local\n")],
         &[("src", "file\n"), ("top.txt", "remote\n")],
     );
-    let output = status_on_the_remote_server(&mut dirs, &["src/sub"]);
+    let output = status_on_the_remote_server(&dirs, &["src/sub"]);
     assert_ne!(output.status.code(), Some(0), "{output:?}");
     // --format json ではエラーは標準出力の JSON に出る
     assert!(

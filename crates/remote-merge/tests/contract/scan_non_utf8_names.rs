@@ -21,7 +21,7 @@ use remote_merge::runtime::RuntimeTargets;
 use serde_json::Value;
 use tempfile::TempDir;
 
-use super::common::{TestDirs, gen_config, place_files};
+use super::common::{CliEnv, gen_config, place_files};
 use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// UTF-8 として読めない名前（"bad" と 0xff と ".txt"）
@@ -64,11 +64,11 @@ fn assert_reported_as_unreadable_name(output: &Output) {
 
 /// 読めない名前のファイルをローカルの側に置いて status を起動する
 fn status_with_a_bad_local_name() -> Output {
-    let mut dirs = TestDirs::new_2way(&READABLE, &READABLE);
+    let dirs = CliEnv::new(&READABLE, &READABLE);
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     place_bad_name(&local_root);
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
-    status_on_the_remote_server(&mut dirs, &config, &local_root, &[])
+    status_on_the_remote_server(&dirs, &config, &local_root, &[])
 }
 
 // @kotowari[REQ-scan-012, EX-scan-014]
@@ -113,11 +113,11 @@ fn assert_link_and_files_below_reported(output: &Output) {
 
 /// 読めない名前のディレクトリへの symlink をローカルの側に置いて status を起動する
 fn status_with_a_bad_local_directory_link() -> Output {
-    let mut dirs = TestDirs::new_2way(&LINKED, &LINKED);
+    let dirs = CliEnv::new(&LINKED, &LINKED);
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     place_bad_directory_link(&local_root);
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
-    status_on_the_remote_server(&mut dirs, &config, &local_root, &[])
+    status_on_the_remote_server(&dirs, &config, &local_root, &[])
 }
 
 // @kotowari[REQ-scan-012]

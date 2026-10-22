@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, place_files, place_symlink};
+use super::common::{CliEnv, gen_config, place_files, place_symlink};
 use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server};
 
 /// 辿れない symlink の置き方の名前と、それを `root` に置く関数と、置いたリンクのパス
@@ -71,13 +71,13 @@ fn assert_listed_with_the_links_in_errors(label: &str, output: &Output, links: &
 /// ローカルの側に置いて、status と diff を起動する
 fn status_and_diff_with_local_links() {
     for (label, place, links) in UNRESOLVABLE {
-        let mut dirs = TestDirs::new_2way(&[], &[]);
+        let dirs = CliEnv::new(&[], &[]);
         let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
         place_plain_files(&local_root, &remote_root);
         place(&local_root);
         let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
 
-        let status = status_on_the_remote_server(&mut dirs, &config, &local_root, &[]);
+        let status = status_on_the_remote_server(&dirs, &config, &local_root, &[]);
         assert_listed_with_the_links_in_errors(label, &status, links);
 
         let config_path = dirs.temp.path().join("scan-listing-config.toml");

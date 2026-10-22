@@ -1566,7 +1566,7 @@ fn diff_with_linked_root(
     linked: LinkedRoot,
     path: &str,
 ) -> (std::process::Output, serde_json::Value) {
-    let mut dirs = TestDirs::new_2way(
+    let dirs = CliEnv::new(
         &[("file.txt", "left body\n")],
         &[("file.txt", "right body\n")],
     );

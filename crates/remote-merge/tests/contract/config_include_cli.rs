@@ -7,12 +7,12 @@
 
 use std::collections::BTreeMap;
 
-use super::common::{TestDirs, gen_config};
+use super::common::{CliEnv, gen_config};
 use super::config_filters_cli::{combined, status, with_include};
 use super::scan_listing_cli::statuses_by_path;
 
 /// include を `include_line` にした設定で `status --all --format json` を起動する
-fn status_with_include(dirs: &mut TestDirs, include_line: &str) -> std::process::Output {
+fn status_with_include(dirs: &CliEnv, include_line: &str) -> std::process::Output {
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
     let config = with_include(&base, include_line);
     status(dirs, &config, &["--all", "--format", "json"])
@@ -28,7 +28,7 @@ fn modified(paths: &[&str]) -> BTreeMap<String, String> {
 // @kotowari[EX-config-014]
 #[test]
 fn include_with_only_absolute_values_warns_and_stops_without_scanning() {
-    let mut dirs = TestDirs::new_2way(
+    let dirs = CliEnv::new(
         &[("src/a.txt", "local\n"), ("top.txt", "local\n")],
         &[("src/a.txt", "remote\n"), ("top.txt", "remote\n")],
     );
@@ -37,7 +37,7 @@ fn include_with_only_absolute_values_warns_and_stops_without_scanning() {
         ("include = [\"\", \"/etc\"]", "/etc"),
         ("include = [\"/\"]", "/"),
     ] {
-        let output = status_with_include(&mut dirs, include_line);
+        let output = status_with_include(&dirs, include_line);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let warning = format!("Absolute path is not allowed in include filter: {absolute}\n");
         assert!(
@@ -55,11 +55,11 @@ fn include_with_only_absolute_values_warns_and_stops_without_scanning() {
 // @kotowari[EX-config-017]
 #[test]
 fn include_with_only_a_dot_compares_the_whole_root_dir_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(
+    let dirs = CliEnv::new(
         &[("src/a.txt", "local\n"), ("top.txt", "local\n")],
         &[("src/a.txt", "remote\n"), ("top.txt", "remote\n")],
     );
-    let output = status_with_include(&mut dirs, "include = [\".\"]");
+    let output = status_with_include(&dirs, "include = [\".\"]");
     assert_eq!(
         statuses_by_path(&output),
         modified(&["src/a.txt", "top.txt"]),

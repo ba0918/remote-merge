@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::common::{TestDirs, gen_config, isolated_command};
+use super::common::{CliEnv, gen_config, isolated_command};
 
 /// 設定を置く場所とカレントディレクトリをテストごとに選べる、隔離した実行環境。
 ///
@@ -18,14 +18,14 @@ use super::common::{TestDirs, gen_config, isolated_command};
 /// [`status_without_xdg`](Self::status_without_xdg) では "HOME/.config" の下になる（Linux の場合）。
 /// 2 つを別の場所にして、どちらを読んだかをテストが見分けられるようにしている（REQ-config-045）
 struct Workspace {
-    dirs: TestDirs,
+    dirs: CliEnv,
     /// テストが書いた設定ファイルと、その [local] の root_dir
     written: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Workspace {
     fn new() -> Self {
-        let dirs = TestDirs::new_2way(&[], &[]);
+        let dirs = CliEnv::new(&[], &[]);
         let workspace = Self {
             dirs,
             written: Vec::new(),
@@ -110,24 +110,24 @@ impl Workspace {
     }
 
     /// cwd で `status --left local --right develop` を起動する。config があれば --config に渡す
-    fn status(&mut self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
+    fn status(&self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
         self.status_with_env(cwd, config, format, true)
     }
 
     /// [`status`](Self::status) の、XDG_CONFIG_HOME を置かないもの（REQ-config-045 の既定の場所）
-    fn status_without_xdg(&mut self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
+    fn status_without_xdg(&self, cwd: &Path, config: Option<&str>, format: &[&str]) -> Output {
         self.status_with_env(cwd, config, format, false)
     }
 
     fn status_with_env(
-        &mut self,
+        &self,
         cwd: &Path,
         config: Option<&str>,
         format: &[&str],
         xdg: bool,
     ) -> Output {
-        for (path, local_root) in self.written.clone() {
-            self.dirs.assert_isolated_config_at(&path, &local_root);
+        for (path, local_root) in &self.written {
+            self.dirs.assert_isolated_config_at(path, local_root);
         }
         let mut cmd = isolated_command(&self.home());
         if xdg {
@@ -144,7 +144,7 @@ impl Workspace {
         cmd.output().expect("failed to execute status")
     }
 
-    fn status_json(&mut self, cwd: &Path, config: Option<&str>) -> serde_json::Value {
+    fn status_json(&self, cwd: &Path, config: Option<&str>) -> serde_json::Value {
         let output = self.status(cwd, config, &["--format", "json"]);
         // ローカルの側にだけファイルを置くため "left_only" があり、終了コードは 1 になる
         assert_eq!(output.status.code(), Some(1), "{output:?}");
@@ -297,7 +297,7 @@ fn the_global_config_is_read_from_the_home_config_directory_without_xdg() {
 // @kotowari[REQ-config-007]
 #[test]
 fn config_option_naming_a_missing_file_stops_with_its_absolute_path() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
 
     let output = workspace.status(&cwd, Some("missing.toml"), &[]);
@@ -320,7 +320,7 @@ fn config_option_naming_a_missing_file_stops_with_its_absolute_path() {
 // @kotowari[REQ-config-007]
 #[test]
 fn config_option_naming_a_directory_stops_with_its_absolute_path() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.dir("work/configs");
 
@@ -336,7 +336,7 @@ fn config_option_naming_a_directory_stops_with_its_absolute_path() {
 // @kotowari[REQ-config-008]
 #[test]
 fn missing_global_and_project_config_stops_naming_the_project_path() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
 
     let output = workspace.status(&cwd, None, &[]);
@@ -349,7 +349,7 @@ fn missing_global_and_project_config_stops_naming_the_project_path() {
 // @kotowari[REQ-config-009]
 #[test]
 fn unparsable_project_config_stops_with_a_parse_error() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.write_unparsable(&cwd.join(".remote-merge.toml"));
 
@@ -362,7 +362,7 @@ fn unparsable_project_config_stops_with_a_parse_error() {
 // @kotowari[REQ-config-009]
 #[test]
 fn unparsable_config_option_file_stops_with_a_parse_error() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.write_unparsable(&cwd.join("broken.toml"));
 
@@ -422,7 +422,7 @@ fn an_empty_local_root_stops_with_the_reason() {
 // @kotowari[REQ-config-013]
 #[test]
 fn a_config_without_a_local_root_dir_stops() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     let content = format!(
         "[servers.develop]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"fixture-user\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = \"/srv/app\"\n",
@@ -758,7 +758,7 @@ fn assert_parse_error_hides(output: &Output, secret: &str) {
 // @kotowari[REQ-config-043, EX-config-024]
 #[test]
 fn ex_config_024_an_unknown_key_on_the_password_line_does_not_show_the_password() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.write_server_line(
         &cwd.join(".remote-merge.toml"),
@@ -776,7 +776,7 @@ fn ex_config_024_an_unknown_key_on_the_password_line_does_not_show_the_password(
 // @kotowari[REQ-config-043, EX-config-025]
 #[test]
 fn ex_config_025_a_type_mismatch_on_the_password_line_does_not_show_the_password() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.write_server_line(
         &cwd.join(".remote-merge.toml"),
@@ -791,7 +791,7 @@ fn ex_config_025_a_type_mismatch_on_the_password_line_does_not_show_the_password
 // @kotowari[REQ-config-043]
 #[test]
 fn a_value_of_the_wrong_type_is_not_shown_in_the_parse_error() {
-    let mut workspace = Workspace::new();
+    let workspace = Workspace::new();
     let cwd = workspace.dir("work");
     workspace.write_server_line(
         &cwd.join(".remote-merge.toml"),
