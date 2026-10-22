@@ -6,11 +6,12 @@
 use remote_merge_core::compare::{Command, Follow, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_engine::treat::incomplete::incomplete_error;
-use remote_merge_engine::treat::sides::{Reference, compared_sides, reference_side};
+use remote_merge_engine::treat::sides::{compared_sides, reference_side};
 use remote_merge_engine::treat::status::{exit_code, shown, summary};
 use remote_merge_engine::treat::status_listing::status_listing;
 use remote_merge_engine::treat::uses::NothingUsed;
 
+use super::compare_steps::used_reference;
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{
     CompareRequest, CompareScope, CompareSides, CoreRuntime, EntryLimit, ExternalLinks,
@@ -58,16 +59,9 @@ pub fn execute_status(
     let servers: Vec<String> = config.servers.keys().cloned().collect();
     let pair = compared_sides(args.left.as_deref(), args.right.as_deref(), &servers)
         .map_err(anyhow::Error::msg)?;
-    let reference = match reference_side(args.ref_server.as_deref(), &pair, &servers)
-        .map_err(anyhow::Error::msg)?
-    {
-        Reference::None => None,
-        Reference::Use(side) => Some(side),
-        Reference::Skipped(warning) => {
-            eprintln!("{warning}");
-            None
-        }
-    };
+    let reference = used_reference(
+        reference_side(args.ref_server.as_deref(), &pair, &servers).map_err(anyhow::Error::msg)?,
+    );
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
     let mut core = CoreRuntime::with_targets(config, targets);
     let result = compare_and_list(&mut core, args, pair, reference, max_entries);

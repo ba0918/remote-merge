@@ -4,8 +4,9 @@
 //! engine の treat の表で書き込み・スキップ・failed に訳し、書き込み先を変更の直前にもう一度判定して
 //! から変える。ファイル全体の merge は merge_files、--hunks は merge_hunks が行う。
 
-use remote_merge_engine::treat::sides::{Reference, merge_sides, reference_side};
+use remote_merge_engine::treat::sides::{merge_sides, reference_side};
 
+use super::compare_steps::used_reference;
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{CompareSides, CoreRuntime, RuntimeTargets};
 use crate::service::output::{
@@ -101,20 +102,14 @@ pub fn execute_merge(
     let servers: Vec<String> = config.servers.keys().cloned().collect();
     let (left, right) = merge_sides(args.left.as_deref(), args.right.as_deref(), &servers)
         .map_err(anyhow::Error::msg)?;
-    let reference = match reference_side(
-        args.ref_server.as_deref(),
-        &(left.clone(), right.clone()),
-        &servers,
-    )
-    .map_err(anyhow::Error::msg)?
-    {
-        Reference::None => None,
-        Reference::Use(side) => Some(side),
-        Reference::Skipped(warning) => {
-            eprintln!("{warning}");
-            None
-        }
-    };
+    let reference = used_reference(
+        reference_side(
+            args.ref_server.as_deref(),
+            &(left.clone(), right.clone()),
+            &servers,
+        )
+        .map_err(anyhow::Error::msg)?,
+    );
     // 強制指定のないリモート間の merge は、つなぐ前に止める（REQ-cli-073）
     let remote = |side: &Side| matches!(side, Side::Remote(_));
     if remote(&left) && remote(&right) && !args.force && !args.dry_run {

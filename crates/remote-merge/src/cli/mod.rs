@@ -2,6 +2,7 @@
 //!
 //! clap 引数 → Service 呼び出し → stdout 出力の薄い変換層。
 
+mod compare_steps;
 pub mod diff;
 mod diff_compare;
 pub mod logs;

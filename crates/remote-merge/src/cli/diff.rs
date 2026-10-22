@@ -11,9 +11,10 @@ use remote_merge_engine::treat::diff_file::Sources;
 use remote_merge_engine::treat::diff_listing::{Coverage, Limits, diff_listing_with_content};
 use remote_merge_engine::treat::diff_names::{DiffScope, diff_scope, missing_names_of_complete};
 use remote_merge_engine::treat::incomplete::incomplete_errors;
-use remote_merge_engine::treat::sides::{Reference, compared_sides, reference_side};
+use remote_merge_engine::treat::sides::{compared_sides, reference_side};
 use remote_merge_engine::treat::uses::DiffUses;
 
+use super::compare_steps::used_reference;
 use super::diff_compare::compare_scope;
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{
@@ -69,20 +70,14 @@ pub fn execute_diff(
     let servers: Vec<String> = config.servers.keys().cloned().collect();
     let (left, right) = compared_sides(args.left.as_deref(), args.right.as_deref(), &servers)
         .map_err(anyhow::Error::msg)?;
-    let reference = match reference_side(
-        args.ref_server.as_deref(),
-        &(left.clone(), right.clone()),
-        &servers,
-    )
-    .map_err(anyhow::Error::msg)?
-    {
-        Reference::None => None,
-        Reference::Use(side) => Some(side),
-        Reference::Skipped(warning) => {
-            eprintln!("{warning}");
-            None
-        }
-    };
+    let reference = used_reference(
+        reference_side(
+            args.ref_server.as_deref(),
+            &(left.clone(), right.clone()),
+            &servers,
+        )
+        .map_err(anyhow::Error::msg)?,
+    );
     let sides = CompareSides {
         left,
         right,
