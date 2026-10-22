@@ -1,6 +1,7 @@
 //! 側ごとの走査の一覧から、パスごとの側ごとの状態の表を作る（docs/ir/compare/flow.md の
 //! REQ-compare-001・003）。ないことは一覧に載らなかったことだけから決める
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::state::SideState;
@@ -23,12 +24,13 @@ pub struct PathStates {
 
 /// 側ごとの一覧を、パスごとの側ごとの状態の表にする。`outside` は側ごとの、root_dir の外へ解決される
 /// symlink のパスで、その下の項目はその側の状態として集めない
-pub fn state_table(
-    listings: &BTreeMap<Role, Listing>,
+pub fn state_table<L: Borrow<Listing>>(
+    listings: &BTreeMap<Role, L>,
     outside: &BTreeMap<Role, Vec<String>>,
 ) -> BTreeMap<String, PathStates> {
     let mut table: BTreeMap<String, PathStates> = BTreeMap::new();
     for (role, listing) in listings {
+        let listing: &Listing = listing.borrow();
         let links = outside.get(role).map(Vec::as_slice).unwrap_or_default();
         let found = listing
             .entries
@@ -65,6 +67,7 @@ pub fn state_table(
     // （docs/ir/scan/limits.md の REQ-scan-004・005）
     for states in table.values_mut() {
         for (role, listing) in listings {
+            let listing: &Listing = listing.borrow();
             if states.not_collected.contains(role) || states.states.contains_key(role) {
                 continue;
             }

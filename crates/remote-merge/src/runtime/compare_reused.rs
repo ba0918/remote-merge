@@ -3,6 +3,7 @@
 //! にも同じものを使う（docs/ir/compare/reading.md の REQ-compare-011）
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::scan::outcome::Listing;
@@ -15,8 +16,9 @@ pub(super) type ByPath<T> = BTreeMap<String, Result<T, OpFailure>>;
 /// 使い回す側について集めた事実
 pub struct Reused {
     pub(super) side: Side,
-    /// 走査の一覧と、外へのリンクを辿らないときの root_dir の外へ解決される symlink のパス
-    pub(super) listing: Option<(Listing, Option<Vec<String>>)>,
+    /// 走査の一覧と、外へのリンクを辿らないときの root_dir の外へ解決される symlink のパス。一覧は
+    /// 書き込み先ごとの状態の表が借りるだけなので、写さずに分け合う
+    pub(super) listing: Option<(Rc<Listing>, Option<Vec<String>>)>,
     pub(super) hashes: ByPath<String>,
     pub(super) contents: ByPath<Vec<u8>>,
 }

@@ -7,6 +7,7 @@
 //! 確かめられる。
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use remote_merge_core::compare::{Incomplete, PathComparison, PathStates, Role, Uses, state_table};
 use remote_merge_core::scan::outcome::{ScanScope, Start};
@@ -76,14 +77,18 @@ impl CoreRuntime {
             let budget = request.max_entries.saturating_sub(before);
             let (listing, links) = match reused.as_deref_mut() {
                 Some(reused) if reused.side == *side => match &reused.listing {
-                    Some(collected) => collected.clone(),
+                    Some((listing, links)) => (Rc::clone(listing), links.clone()),
                     None => {
-                        let collected = self.collect_side(side, request, named, budget)?;
-                        reused.listing = Some(collected.clone());
-                        collected
+                        let (listing, links) = self.collect_side(side, request, named, budget)?;
+                        let listing = Rc::new(listing);
+                        reused.listing = Some((Rc::clone(&listing), links.clone()));
+                        (listing, links)
                     }
                 },
-                _ => self.collect_side(side, request, named, budget)?,
+                _ => {
+                    let (listing, links) = self.collect_side(side, request, named, budget)?;
+                    (Rc::new(listing), links)
+                }
             };
             counted.insert(role, listing.counted);
             request.unfollowable_links.check(&listing)?;
