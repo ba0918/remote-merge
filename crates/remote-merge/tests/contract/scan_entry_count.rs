@@ -1,20 +1,19 @@
 #![cfg(unix)]
 //! 走査の件数の上限に当てる件数にファイルと symlink だけを数えること（docs/ir/scan/limits.md の
 //! REQ-scan-010）と、上限を超えたときだけ不完全な走査として知らせること（同じく REQ-scan-004）を、
-//! ローカル・SSH・エージェントの経路で確かめる契約テスト。
+//! ローカルとエージェントの経路で確かめる契約テスト。
 //!
 //! 実行ファイルを試験 SSH サーバに対して `status --left local --right develop` で起動する（組み方は
-//! scan_listing_cli と同じ）。左は常にローカルの経路、右はエージェントを無効にした SSH の経路か
-//! エージェントの経路になる。左右に同じ構成を置き、上限を超えずに全ての項目が "equal" で一覧に
+//! scan_listing_cli と同じ）。左は常にローカルの経路、右はエージェントの経路になる。左右に同じ構成を置き、上限を超えずに全ての項目が "equal" で一覧に
 //! 載ることを、左右の経路がどちらも上限に当たらなかった証拠にする。
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, place_files};
-use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server, statuses_by_path};
-use super::scan_routes_agree::{all_equal, with_exclude};
+use super::common::place_files;
+use super::scan_listing_cli::{AgentFixture, statuses_by_path};
+use super::scan_routes_agree::all_equal;
 
 /// ディレクトリ 1 件とその中のファイル 2 件。上限 2 はファイルの数と同じ
 const IN_ONE_DIRECTORY: [(&str, &str); 2] = [("dir/a.txt", "same\n"), ("dir/b.txt", "same\n")];
@@ -23,18 +22,6 @@ const LIMIT: [&str; 2] = ["--max-entries", "2"];
 fn listed(output: &Output) -> BTreeMap<String, String> {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     statuses_by_path(output)
-}
-
-// @kotowari[REQ-scan-010, EX-scan-012]
-#[test]
-fn ex_scan_012_a_directory_is_not_counted_toward_the_limit_locally_and_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&IN_ONE_DIRECTORY, &IN_ONE_DIRECTORY);
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
-
-    let output = status_on_the_remote_server(&mut dirs, &config, &local_root, &LIMIT);
-
-    assert_eq!(listed(&output), all_equal(&["dir/a.txt", "dir/b.txt"]));
 }
 
 // @kotowari[REQ-scan-010, EX-scan-012]
@@ -64,25 +51,6 @@ fn links_then_excluded_file(root: &Path, outside: &Path) {
         std::os::unix::fs::symlink(outside.join(target), root.join(link)).unwrap();
     }
     place_files(root, &[("xa.txt", "excluded\n")]);
-}
-
-// @kotowari[REQ-scan-010, REQ-scan-004]
-#[test]
-fn an_excluded_entry_after_the_last_counted_one_does_not_truncate_the_scan_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    let outside = dirs.temp.path().join("outside");
-    for root in [&local_root, &remote_root] {
-        links_then_excluded_file(root, &outside);
-    }
-    let config = with_exclude(
-        &gen_config(&local_root, &remote_root, None, dirs.server_port()),
-        EXCLUDE_UNPRUNABLE,
-    );
-
-    let output = status_on_the_remote_server(&mut dirs, &config, &local_root, &LIMIT);
-
-    assert_eq!(listed(&output), all_equal(&["l1", "l2"]));
 }
 
 // @kotowari[REQ-scan-010, REQ-scan-004]

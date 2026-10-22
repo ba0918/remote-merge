@@ -8,7 +8,7 @@
 //! 読めるので、読めないディレクトリを作れないときはテストを飛ばす。
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Output;
 
 use remote_merge_core::test_tree::PermissionLocks;
@@ -49,13 +49,10 @@ fn assert_scan_stopped(output: &Output) {
     );
 }
 
-fn status_on_the_remote_server_with(
-    local_files: &[(&str, &str)],
-    remote_files: &[(&str, &str)],
-    locked: fn(&TestDirs) -> PathBuf,
-) -> Option<Output> {
-    let mut dirs = TestDirs::new_2way(local_files, remote_files);
-    let _locked = lock(&locked(&dirs))?;
+/// ローカルの側に読めないディレクトリを置いて status を起動する。読めなくできなければ None
+fn status_with_a_locked_local_directory() -> Option<Output> {
+    let mut dirs = TestDirs::new_2way(&WITH_LOCKED, &READABLE);
+    let _locked = lock(&dirs.local_dir)?;
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     Some(status_on_the_remote_server(
@@ -69,21 +66,7 @@ fn status_on_the_remote_server_with(
 // @kotowari[REQ-scan-014]
 #[test]
 fn req_scan_014_an_unreadable_directory_stops_the_local_scan() {
-    let Some(output) =
-        status_on_the_remote_server_with(&WITH_LOCKED, &READABLE, |dirs| dirs.local_dir.clone())
-    else {
-        return;
-    };
-
-    assert_scan_stopped(&output);
-}
-
-// @kotowari[REQ-scan-014]
-#[test]
-fn req_scan_014_an_unreadable_directory_stops_the_scan_on_the_remote_server() {
-    let Some(output) =
-        status_on_the_remote_server_with(&READABLE, &WITH_LOCKED, |dirs| dirs.remote_dir.clone())
-    else {
+    let Some(output) = status_with_a_locked_local_directory() else {
         return;
     };
 

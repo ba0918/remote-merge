@@ -3,7 +3,7 @@
 //! 読めない名前として報告すること（docs/ir/scan/listing.md の REQ-scan-012）の契約テスト。
 //!
 //! status は、実行ファイルを試験 SSH サーバに対して `status --left local --right develop` で起動し
-//! （組み方は scan_listing_cli と同じ）、ローカル・SSH・エージェントの経路で確かめる。読めない名前の
+//! （組み方は scan_listing_cli と同じ）、ローカルとエージェントの経路で確かめる。読めない名前の
 //! ファイルは片側にだけ置き、確かめる経路の側に置く。
 //! diff・merge・sync はローカルの経路で、関数を呼んで確かめる（組み方は filters と同じ）。
 
@@ -62,10 +62,11 @@ fn assert_reported_as_unreadable_name(output: &Output) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
-fn status_on_the_remote_server_with_bad_name(on_local: bool) -> Output {
+/// 読めない名前のファイルをローカルの側に置いて status を起動する
+fn status_with_a_bad_local_name() -> Output {
     let mut dirs = TestDirs::new_2way(&READABLE, &READABLE);
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    place_bad_name(if on_local { &local_root } else { &remote_root });
+    place_bad_name(&local_root);
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     status_on_the_remote_server(&mut dirs, &config, &local_root, &[])
 }
@@ -73,13 +74,7 @@ fn status_on_the_remote_server_with_bad_name(on_local: bool) -> Output {
 // @kotowari[REQ-scan-012, EX-scan-014]
 #[test]
 fn ex_scan_014_status_reports_a_local_file_whose_name_is_not_utf8() {
-    assert_reported_as_unreadable_name(&status_on_the_remote_server_with_bad_name(true));
-}
-
-// @kotowari[REQ-scan-012]
-#[test]
-fn req_scan_012_status_reports_a_remote_file_whose_name_is_not_utf8_on_the_remote_server() {
-    assert_reported_as_unreadable_name(&status_on_the_remote_server_with_bad_name(false));
+    assert_reported_as_unreadable_name(&status_with_a_bad_local_name());
 }
 
 // @kotowari[REQ-scan-012]
@@ -116,10 +111,11 @@ fn assert_link_and_files_below_reported(output: &Output) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
-fn status_on_the_remote_server_with_bad_directory_link(on_local: bool) -> Output {
+/// 読めない名前のディレクトリへの symlink をローカルの側に置いて status を起動する
+fn status_with_a_bad_local_directory_link() -> Output {
     let mut dirs = TestDirs::new_2way(&LINKED, &LINKED);
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    place_bad_directory_link(if on_local { &local_root } else { &remote_root });
+    place_bad_directory_link(&local_root);
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     status_on_the_remote_server(&mut dirs, &config, &local_root, &[])
 }
@@ -127,18 +123,7 @@ fn status_on_the_remote_server_with_bad_directory_link(on_local: bool) -> Output
 // @kotowari[REQ-scan-012]
 #[test]
 fn req_scan_012_status_reports_files_below_a_local_directory_link_whose_name_is_not_utf8() {
-    assert_link_and_files_below_reported(&status_on_the_remote_server_with_bad_directory_link(
-        true,
-    ));
-}
-
-// @kotowari[REQ-scan-012]
-#[test]
-fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_on_the_remote_server()
- {
-    assert_link_and_files_below_reported(&status_on_the_remote_server_with_bad_directory_link(
-        false,
-    ));
+    assert_link_and_files_below_reported(&status_with_a_bad_local_directory_link());
 }
 
 // @kotowari[REQ-scan-012]

@@ -29,21 +29,6 @@ fn json(output: &Output) -> serde_json::Value {
 
 // @kotowari[REQ-cli-070]
 #[test]
-fn verbose_json_reports_connected_for_a_remote_right_side() {
-    let env = one_modified_file();
-
-    let output = status(
-        &env,
-        &[
-            "--left", "local", "--right", "develop", "-v", "--format", "json",
-        ],
-    );
-
-    assert_eq!(json(&output)["agent"], "connected", "{output:?}");
-}
-
-// @kotowari[REQ-cli-070]
-#[test]
 fn verbose_text_adds_the_agent_line_after_the_summary() {
     let env = one_modified_file();
 

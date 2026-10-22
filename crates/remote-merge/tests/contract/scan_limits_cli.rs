@@ -1,11 +1,11 @@
 #![cfg(unix)]
 //! 不完全な走査を知らせる要件（docs/ir/scan/limits.md の REQ-scan-004）の例 EX-scan-008・009 を、
-//! 右のリモートの経路（エージェントを無効にした SSH の経路と、エージェントの経路）で確かめる契約テスト。
+//! 右のリモートの経路（エージェントの経路）で確かめる契約テスト。
 //!
 //! 関数呼び出しで status を実行する組み方はリモートの経路を通らないため、走査の一覧のテスト
 //! （scan_listing_cli）と同じく、実行ファイルを試験 SSH サーバに対して
 //! `status --left local --right develop --all --format json --max-entries <上限>` で起動する。
-//! 上限の超過のエラーの文は三つの経路で同じで、どちらの側の走査かを示さないため、上限を超える
+//! 上限の超過のエラーの文はどの経路でも同じで、どちらの側の走査かを示さないため、上限を超える
 //! 場合は左の local の root_dir を上限を大きく下回る構成にし、右だけを上限を大きく超える構成にする。
 //! 左の走査が先にエラーになると、右の経路を通らずにテストが通ってしまうため。
 
@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Output;
 
-use super::common::{TestDirs, gen_config, place_files};
-use super::scan_listing_cli::{AgentFixture, status_on_the_remote_server, statuses_by_path};
+use super::common::place_files;
+use super::scan_listing_cli::{AgentFixture, statuses_by_path};
 
 /// 上限を超える場合の上限と、右に置くファイルの数
 const SMALL_LIMIT: &str = "3";
@@ -59,30 +59,6 @@ fn every_few_file_equal() -> BTreeMap<String, String> {
         .iter()
         .map(|(path, _)| (path.to_string(), "equal".to_string()))
         .collect()
-}
-
-fn status_on_the_remote_server_with_limit(dirs: &mut TestDirs, limit: &str) -> Output {
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
-    status_on_the_remote_server(dirs, &config, &local_root, &["--max-entries", limit])
-}
-
-// @kotowari[EX-scan-008]
-#[test]
-fn status_reports_a_scan_limit_on_the_remote_side_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&ONE_FILE, &[]);
-    many_files(&dirs.remote_dir.clone());
-    let output = status_on_the_remote_server_with_limit(&mut dirs, SMALL_LIMIT);
-    assert_scan_limit_reported(&output);
-}
-
-// @kotowari[EX-scan-009]
-#[test]
-fn status_lists_every_remote_file_within_the_scan_limit_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&FEW_FILES, &FEW_FILES);
-    let output = status_on_the_remote_server_with_limit(&mut dirs, LARGE_LIMIT);
-    assert!(output.status.success(), "{output:?}");
-    assert_eq!(statuses_by_path(&output), every_few_file_equal());
 }
 
 // @kotowari[EX-scan-008]

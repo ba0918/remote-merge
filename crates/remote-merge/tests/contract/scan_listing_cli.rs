@@ -4,8 +4,7 @@
 //!
 //! 関数呼び出しで status を実行する組み方はリモートの経路を通らないため、実行ファイルを試験 SSH
 //! サーバに対して `status --left local --right develop --all --format json` で起動する。
-//! 右のリモートの経路は、エージェントを無効にした SSH の経路と、エージェントを有効にした経路の
-//! それぞれで起動する。
+//! 右のリモートの経路はエージェントの経路（[`AgentFixture`]）で起動する。
 //! 左右の root_dir に同じ構成を置き、確かめたい項目が "equal" で出ることを、左のローカルの経路と
 //! 右のリモートの経路の両方がその項目を一覧に載せた証拠にする（片側が載せなければ "left_only" か
 //! "right_only" になる）。
@@ -18,7 +17,7 @@ use std::process::Output;
 
 use tempfile::TempDir;
 
-use super::common::{TestDirs, gen_config, isolated_command, place_files, place_symlink};
+use super::common::{TestDirs, isolated_command, place_files, place_symlink};
 use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
@@ -68,17 +67,6 @@ pub(super) fn status_on_the_remote_server(
     launch_status(dirs.temp.path(), &config_path, extra_args)
 }
 
-/// 左右の root_dir を `local_root`・`remote_root` にした設定で status を起動し、一覧を返す
-fn listed_on_the_remote_server(
-    dirs: &mut TestDirs,
-    local_root: &Path,
-    remote_root: &Path,
-) -> BTreeMap<String, String> {
-    let config = gen_config(local_root, remote_root, None, dirs.server_port());
-    let output = status_on_the_remote_server(dirs, &config, local_root, &[]);
-    statuses_by_path(&output)
-}
-
 /// REQ-scan-006 の場合の構成を左右の root_dir に置く
 ///
 /// 左右に同じ "target.txt"、それを指す "link"、存在しない "missing.txt" を指す "dangling"、
@@ -118,16 +106,6 @@ fn assert_symlinks_listed_with_their_target_text(statuses: &BTreeMap<String, Str
     );
 }
 
-// @kotowari[REQ-scan-006]
-#[test]
-fn status_lists_symlinks_themselves_with_their_target_text_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    place_symlink_cases(&local_root, &remote_root);
-    let statuses = listed_on_the_remote_server(&mut dirs, &local_root, &remote_root);
-    assert_symlinks_listed_with_their_target_text(&statuses);
-}
-
 /// 前後に空白があるリンク先と "\" を含むリンク先の symlink を、左右の root_dir に同じく置く
 fn place_link_targets_to_keep_as_read(local: &Path, remote: &Path) {
     for root in [local, remote] {
@@ -145,16 +123,6 @@ fn assert_link_targets_kept_as_read(statuses: &BTreeMap<String, String>) {
             "{path}: {statuses:?}"
         );
     }
-}
-
-// @kotowari[REQ-scan-006]
-#[test]
-fn status_lists_link_targets_with_spaces_or_backslashes_as_read_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    place_link_targets_to_keep_as_read(&local_root, &remote_root);
-    let statuses = listed_on_the_remote_server(&mut dirs, &local_root, &remote_root);
-    assert_link_targets_kept_as_read(&statuses);
 }
 
 /// `temp` の中に実在するディレクトリ（"f.txt" と "sub/g.txt" を置く）と、それを指す symlink を
@@ -182,54 +150,6 @@ fn only_the_linked_files_as_equal() -> BTreeMap<String, String> {
         .collect()
 }
 
-// @kotowari[REQ-scan-007]
-#[test]
-fn status_lists_the_files_below_a_root_dir_that_is_a_directory_symlink_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = linked_roots(dirs.temp.path());
-    assert_eq!(
-        listed_on_the_remote_server(&mut dirs, &local_root, &remote_root),
-        only_the_linked_files_as_equal()
-    );
-}
-
-// @kotowari[REQ-scan-007]
-#[test]
-fn a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = linked_roots(dirs.temp.path());
-    assert_eq!(
-        listed_on_the_remote_server(
-            &mut dirs,
-            &with_trailing_slash(&local_root),
-            &with_trailing_slash(&remote_root)
-        ),
-        only_the_linked_files_as_equal()
-    );
-}
-
-// @kotowari[EX-scan-003]
-#[test]
-fn status_lists_files_inside_a_directory_link_on_the_remote_server() {
-    let mut dirs = TestDirs::new_2way(&[], &[]);
-    // 共有のディレクトリは試験サーバの home の下で、どちらの root_dir の外に置く
-    let shared = dirs.temp.path().join("shared");
-    place_files(&shared, &[("alpha.txt", "alpha\n"), ("beta.txt", "beta\n")]);
-    for root in [&dirs.local_dir, &dirs.remote_dir] {
-        symlink(&shared, root.join("linked")).unwrap();
-    }
-
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    let statuses = listed_on_the_remote_server(&mut dirs, &local_root, &remote_root);
-    for path in ["linked/alpha.txt", "linked/beta.txt"] {
-        assert_eq!(
-            statuses.get(path).map(String::as_str),
-            Some("equal"),
-            "{path}: {statuses:?}"
-        );
-    }
-}
-
 // ─── エージェントの経路 ─────────────────────────────────
 
 /// 設定の user。エージェントの配置先はユーザー名で決まるため、配置する symlink のパスと揃える
@@ -237,8 +157,9 @@ const AGENT_USER: &str = "fixture-user";
 
 /// エージェントを有効にした試験サーバと一時ディレクトリ
 ///
-/// `TestDirs` の試験サーバはエージェントを起動せず、受けたコマンドも読めないため、
-/// `TestServer::filesystem_with_agent` を直接使う。
+/// 試験サーバが受けたコマンドを読み、エージェントの経路を通ったことを確かめるため、
+/// `TestServer::filesystem_with_agent` を直接使う（`TestDirs` も同じエージェントの経路を通るが、
+/// 受けたコマンドを読めない）。
 pub(super) struct AgentFixture {
     pub(super) temp: TempDir,
     server: TestServer,

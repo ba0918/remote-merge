@@ -68,17 +68,13 @@ fn assert_listed_with_the_links_in_errors(label: &str, output: &Output, links: &
     assert_eq!(errors, links, "{label}: {json}");
 }
 
-/// 試験サーバの左右に置いて、status と diff を起動する
-fn status_and_diff_with_links_on(local_side: bool) {
+/// ローカルの側に置いて、status と diff を起動する
+fn status_and_diff_with_local_links() {
     for (label, place, links) in UNRESOLVABLE {
         let mut dirs = TestDirs::new_2way(&[], &[]);
         let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
         place_plain_files(&local_root, &remote_root);
-        place(if local_side {
-            &local_root
-        } else {
-            &remote_root
-        });
+        place(&local_root);
         let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
 
         let status = status_on_the_remote_server(&mut dirs, &config, &local_root, &[]);
@@ -97,13 +93,7 @@ fn status_and_diff_with_links_on(local_side: bool) {
 // @kotowari[REQ-scan-018, EX-scan-018]
 #[test]
 fn req_scan_018_status_and_diff_report_a_local_link_that_cannot_be_followed_and_go_on() {
-    status_and_diff_with_links_on(true);
-}
-
-// @kotowari[REQ-scan-018, EX-scan-018]
-#[test]
-fn req_scan_018_status_and_diff_report_a_remote_link_that_cannot_be_followed_and_go_on() {
-    status_and_diff_with_links_on(false);
+    status_and_diff_with_local_links();
 }
 
 // @kotowari[REQ-scan-018, EX-scan-018]
