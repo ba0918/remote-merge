@@ -9,7 +9,9 @@ use remote_merge_engine::treat::content::{Context, Overrides};
 use remote_merge_engine::treat::diff::exit_code;
 use remote_merge_engine::treat::diff_file::Sources;
 use remote_merge_engine::treat::diff_listing::{Coverage, Limits, diff_listing_with_content};
-use remote_merge_engine::treat::diff_names::{DiffScope, diff_scope, missing_names_of_complete};
+use remote_merge_engine::treat::diff_names::{
+    DiffScope, diff_scope, missing_names_of_complete, nothing_named_found,
+};
 use remote_merge_engine::treat::incomplete::incomplete_errors;
 use remote_merge_engine::treat::sides::{compared_sides, reference_side};
 use remote_merge_engine::treat::uses::DiffUses;
@@ -136,12 +138,7 @@ fn compare_and_show(
     for name in &missing {
         eprintln!("Warning: '{name}' not found on either side");
     }
-    // 名前だけを指定し、そのどれもが見つからない（一覧を取れなかった名前は見つかったもの）
-    if !whole
-        && !missing.is_empty()
-        && missing.len() == compared.named.len()
-        && compared.unlistable.is_empty()
-    {
+    if nothing_named_found(whole, &missing, &compared.named, compared.unlistable.len()) {
         return Err(paths_not_found());
     }
     let sources = Sources {

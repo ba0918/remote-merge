@@ -126,3 +126,18 @@ fn names_are_not_missing_when_the_left_or_right_listing_is_incomplete() {
         assert!(missing_names_of_complete(&named, &paths, &[role]).is_empty());
     }
 }
+
+// 名前だけを指定してどれもないときだけ止め、root_dir 全体を比べるときと、ある名前か一覧を取れなかった
+// 名前があるときは止めない
+// @kotowari[REQ-cli-057]
+#[test]
+fn diff_stops_only_when_every_name_alone_is_missing() {
+    let names = |names: &[&str]| -> Vec<String> { names.iter().map(|n| n.to_string()).collect() };
+    let (both, one) = (names(&["a", "b"]), names(&["a"]));
+
+    assert!(nothing_named_found(false, &both, &both, 0));
+    assert!(!nothing_named_found(true, &both, &both, 0));
+    assert!(!nothing_named_found(false, &one, &both, 0));
+    assert!(!nothing_named_found(false, &both, &both, 1));
+    assert!(!nothing_named_found(false, &[], &[], 0));
+}

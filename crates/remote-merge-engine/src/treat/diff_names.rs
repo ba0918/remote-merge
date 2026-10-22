@@ -72,6 +72,17 @@ pub fn missing_names_of_complete(
     missing_names(named, paths)
 }
 
+/// 名前だけを指定し（root_dir 全体の `whole` でない）、そのどれもが見つからないか（REQ-cli-057。diff を
+/// 止める）。一覧を取れなかった名前が `unlistable` 個あれば、見つかったものとして止めない
+pub fn nothing_named_found(
+    whole: bool,
+    missing: &[String],
+    named: &[String],
+    unlistable: usize,
+) -> bool {
+    !whole && !missing.is_empty() && missing.len() == named.len() && unlistable == 0
+}
+
 /// 走査を止めた失敗が、名前のどれかの一覧を取れなかったもの（読めないディレクトリ・辿れない
 /// symlink・途中で変わった項目など、止めた項目のパスを持つもの）なら、その名前。問いと合わない答えと
 /// 集めることそのものの失敗は、名前の性質ではないのでない
