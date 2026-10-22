@@ -84,7 +84,7 @@ fn take_directory(walk: &mut Walk, path: &[u8], answer: &Answer) -> Result<(), S
         RawKind::File | RawKind::Other => return Ok(()),
     }
     let tree = answer.subtree.as_ref().ok_or_else(missing_subtree)?;
-    walk.list_container(path, &tree.start)?;
+    walk.list_directory(path, &tree.start)?;
     walk.take_subtree(path, tree, &[], 0)
 }
 

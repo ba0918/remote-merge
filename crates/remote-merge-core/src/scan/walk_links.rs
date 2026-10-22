@@ -62,11 +62,6 @@ impl Walk<'_> {
         }
     }
 
-    /// 指定したディレクトリの起点を器のディレクトリとして載せる
-    pub fn list_container(&mut self, path: &[u8], entry: &RawEntry) -> Result<(), ScanError> {
-        self.list_directory(path, entry)
-    }
-
     /// ディレクトリは数えずに載せる。名前が UTF-8 として読めなければ載せず、下の項目で報告する
     pub(super) fn list_directory(
         &mut self,

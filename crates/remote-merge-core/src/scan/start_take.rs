@@ -43,7 +43,7 @@ pub(super) fn take_itself(
         Ok(entry) => entry,
     };
     if entry.kind == RawKind::Directory {
-        return walk.list_container(path, entry);
+        return walk.list_directory(path, entry);
     }
     let container = answer.link == Some(super::raw::LinkTarget::Directory);
     let counter = (!container).then_some(counter);
@@ -85,7 +85,7 @@ pub(super) fn take_below(
         return Ok(());
     }
     let tree = answer.subtree.as_ref();
-    walk.list_container(path, tree.map_or(entry, |tree| &tree.start))?;
+    walk.list_directory(path, tree.map_or(entry, |tree| &tree.start))?;
     match (start.descend, tree) {
         (false, _) => Ok(()),
         (true, Some(tree)) => walk.take_subtree(path, tree, &[root], start.group),
