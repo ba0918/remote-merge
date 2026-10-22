@@ -6,6 +6,8 @@ use crate::agent::client::AgentClient;
 #[cfg(unix)]
 use crate::agent::deploy::{self, VersionCheck};
 #[cfg(unix)]
+use crate::agent::protocol::CLI_VERSION;
+#[cfg(unix)]
 use crate::agent::ssh_transport::SshAgentTransport;
 #[cfg(unix)]
 use remote_merge_core::route_choice::AgentState;
@@ -98,7 +100,7 @@ impl CoreRuntime {
             .block_on(ssh_client.exec(&combined))
             .map_err(|error| cannot_deploy(&error))?;
         let (uname_result, parsed_version_check) =
-            deploy::parse_uname_and_version(&combined_output);
+            deploy::parse_uname_and_version(&combined_output, CLI_VERSION);
         let version_check = if repaired {
             VersionCheck::NotFound
         } else {

@@ -377,37 +377,3 @@ fn test_sudo_error_message_includes_nopasswd_guidance() {
     assert!(expected_msg.contains(user));
     assert!(expected_msg.contains(host));
 }
-
-#[test]
-fn test_build_agent_command_with_sudo() {
-    // sudo=true 時の agent コマンドが正しいこと
-    use crate::agent::deploy::build_agent_command;
-    let cmd = build_agent_command(
-        &std::path::PathBuf::from("/var/tmp/remote-merge-deploy/remote-merge"),
-        "/var/www",
-        true,
-        Some(1000),
-        Some(1000),
-    );
-    assert!(cmd.starts_with("sudo "));
-    assert!(cmd.contains("--default-uid 1000"));
-    assert!(cmd.contains("--default-gid 1000"));
-    assert!(!cmd.contains("--file-permissions"));
-}
-
-#[test]
-fn test_build_agent_command_without_sudo() {
-    // sudo=false 時の agent コマンドに sudo が含まれないこと
-    use crate::agent::deploy::build_agent_command;
-    let cmd = build_agent_command(
-        &std::path::PathBuf::from("/var/tmp/remote-merge-deploy/remote-merge"),
-        "/var/www",
-        false,
-        None,
-        None,
-    );
-    assert!(!cmd.starts_with("sudo "));
-    assert!(!cmd.contains("--default-uid"));
-    assert!(!cmd.contains("--default-gid"));
-    assert!(!cmd.contains("--dir-permissions"));
-}

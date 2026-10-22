@@ -1,5 +1,5 @@
 pub use remote_merge_agent::agent::client;
-pub mod deploy;
+pub use remote_merge_agent::agent::deploy;
 #[cfg(unix)]
 pub use remote_merge_agent::agent::dispatch;
 pub use remote_merge_protocol::framing;

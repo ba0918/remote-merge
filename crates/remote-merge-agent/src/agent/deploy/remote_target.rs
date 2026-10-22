@@ -96,3 +96,185 @@ pub fn parse_uname_and_version(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::deploy::{VersionCheck, expected_version_line};
+
+    const CLI_VERSION: &str = "1.2.3 (protocol v15)";
+
+    #[test]
+    fn parse_linux_x86_64() {
+        assert_eq!(
+            parse_remote_target("Linux\nx86_64\n").unwrap(),
+            TARGET_LINUX_X86_64_MUSL
+        );
+    }
+
+    #[test]
+    fn linux_aarch64_is_not_in_the_distribution() {
+        let message = parse_remote_target("Linux\naarch64\n")
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("Unsupported remote target"), "{message}");
+    }
+
+    #[test]
+    fn parse_darwin_x86_64() {
+        assert_eq!(
+            parse_remote_target("Darwin\nx86_64\n").unwrap(),
+            TARGET_DARWIN_X86_64
+        );
+    }
+
+    #[test]
+    fn parse_darwin_arm64_normalizes_to_aarch64() {
+        assert_eq!(
+            parse_remote_target("Darwin\narm64\n").unwrap(),
+            TARGET_DARWIN_AARCH64
+        );
+    }
+
+    #[test]
+    fn parse_darwin_aarch64() {
+        assert_eq!(
+            parse_remote_target("Darwin\naarch64\n").unwrap(),
+            TARGET_DARWIN_AARCH64
+        );
+    }
+
+    #[test]
+    fn error_on_empty_input() {
+        let result = parse_remote_target("");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Empty uname output")
+        );
+    }
+
+    #[test]
+    fn error_on_single_line() {
+        let result = parse_remote_target("Linux\n");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Incomplete"));
+    }
+
+    #[test]
+    fn error_on_unknown_os() {
+        let result = parse_remote_target("FreeBSD\nx86_64\n");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Unsupported remote target"));
+        assert!(msg.contains("FreeBSD"));
+    }
+
+    #[test]
+    fn error_on_unknown_arch() {
+        let result = parse_remote_target("Linux\nmips\n");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Unsupported remote target"));
+        assert!(msg.contains("mips"));
+    }
+
+    #[test]
+    fn handles_crlf_line_endings() {
+        assert_eq!(
+            parse_remote_target("Linux\r\nx86_64\r\n").unwrap(),
+            TARGET_LINUX_X86_64_MUSL
+        );
+    }
+
+    #[test]
+    fn handles_extra_whitespace() {
+        assert_eq!(
+            parse_remote_target("  Linux  \n  x86_64  \n").unwrap(),
+            TARGET_LINUX_X86_64_MUSL
+        );
+    }
+
+    #[test]
+    fn detect_command_is_correct() {
+        assert_eq!(detect_remote_target_command(), "uname -s && uname -m");
+    }
+
+    // --- parse_uname_and_version ---
+
+    #[test]
+    fn uname_and_version_linux_x86_64_match() {
+        let version_line = expected_version_line(CLI_VERSION);
+        let output = format!("Linux\nx86_64\n{}", version_line);
+        let (target, version) = parse_uname_and_version(&output, CLI_VERSION);
+
+        assert_eq!(target.unwrap().unwrap(), TARGET_LINUX_X86_64_MUSL);
+        assert_eq!(version, VersionCheck::Match);
+    }
+
+    #[test]
+    fn uname_and_version_darwin_arm64_mismatch() {
+        let output = "Darwin\narm64\nremote-merge 0.0.1";
+        let (target, version) = parse_uname_and_version(output, CLI_VERSION);
+
+        assert_eq!(target.unwrap().unwrap(), TARGET_DARWIN_AARCH64);
+        assert!(matches!(version, VersionCheck::Mismatch { .. }));
+    }
+
+    #[test]
+    fn uname_and_version_not_found() {
+        let output = "Linux\nx86_64\n__NOT_FOUND__";
+        let (target, version) = parse_uname_and_version(output, CLI_VERSION);
+
+        assert_eq!(target.unwrap().unwrap(), TARGET_LINUX_X86_64_MUSL);
+        assert_eq!(version, VersionCheck::NotFound);
+    }
+
+    #[test]
+    fn uname_and_version_uname_failed() {
+        let version_line = expected_version_line(CLI_VERSION);
+        let (target, version) = parse_uname_and_version(&version_line, CLI_VERSION);
+
+        assert!(target.is_none());
+        assert_eq!(version, VersionCheck::Match);
+    }
+
+    #[test]
+    fn uname_and_version_empty() {
+        let (target, version) = parse_uname_and_version("", CLI_VERSION);
+
+        assert!(target.is_none());
+        assert_eq!(version, VersionCheck::NotFound);
+    }
+
+    #[test]
+    fn uname_and_version_extra_lines() {
+        let version_line = expected_version_line(CLI_VERSION);
+        let output = format!("Linux\nx86_64\n{}\nextra line", version_line);
+        let (target, version) = parse_uname_and_version(&output, CLI_VERSION);
+
+        assert_eq!(target.unwrap().unwrap(), TARGET_LINUX_X86_64_MUSL);
+        assert_eq!(version, VersionCheck::Match);
+    }
+
+    #[test]
+    fn uname_and_version_uname_only_no_version() {
+        let output = "Linux\nx86_64";
+        let (target, version) = parse_uname_and_version(output, CLI_VERSION);
+
+        assert_eq!(target.unwrap().unwrap(), TARGET_LINUX_X86_64_MUSL);
+        assert_eq!(version, VersionCheck::NotFound);
+    }
+
+    #[test]
+    fn uname_and_version_unsupported_target() {
+        let version_line = expected_version_line(CLI_VERSION);
+        let output = format!("FreeBSD\namd64\n{}", version_line);
+        let (target, version) = parse_uname_and_version(&output, CLI_VERSION);
+
+        assert!(target.unwrap().is_err());
+        assert_eq!(version, VersionCheck::Match);
+    }
+}

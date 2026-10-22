@@ -188,8 +188,13 @@ impl CoreRuntime {
         }
 
         // Step 3: chmod + checksum + version + mv（1 exec）
-        let post_script =
-            deploy::build_post_write_script(remote_path, &tmp_path, &local_hash, sudo)?;
+        let post_script = deploy::build_post_write_script(
+            remote_path,
+            &tmp_path,
+            &local_hash,
+            sudo,
+            crate::agent::protocol::CLI_VERSION,
+        )?;
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
             .block_on(ssh_client.exec_strict(&post_script))
