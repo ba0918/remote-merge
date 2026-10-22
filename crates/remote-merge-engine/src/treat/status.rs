@@ -4,7 +4,7 @@
 use remote_merge_core::compare::{PathComparison, Present, Role, SideState, Verdict};
 
 use super::only_directories;
-use crate::service::types::{FileStatus, FileStatusKind, StatusSummary};
+use crate::service::types::{FileStatus, FileStatusKind, StatusSummary, exit_code as codes};
 
 /// 一つのパスの status の扱い
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,13 +163,17 @@ pub fn shown(files: Vec<FileStatus>, all: bool) -> Vec<FileStatus> {
 /// 終了コード（TBL-cli-002）。errors に出したファイルがあれば 2、なければ違いがあれば 1、なければ 0
 pub fn exit_code(files: &[FileStatus], unreadable: usize) -> i32 {
     if unreadable > 0 {
-        return 2;
+        return codes::ERROR;
     }
     let changed = files.iter().any(|file| match file.status {
         FileStatusKind::Modified | FileStatusKind::LeftOnly | FileStatusKind::RightOnly => true,
         FileStatusKind::Equal => false,
     });
-    i32::from(changed)
+    if changed {
+        codes::DIFF_FOUND
+    } else {
+        codes::SUCCESS
+    }
 }
 
 #[cfg(test)]

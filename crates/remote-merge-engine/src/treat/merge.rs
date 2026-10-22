@@ -5,6 +5,8 @@
 use remote_merge_core::compare::{PathComparison, Present, Role, SideState, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
+use crate::service::types::exit_code as codes;
+
 /// merge と sync の指定のうち、扱いを変えるもの
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MergeOptions {
@@ -173,9 +175,9 @@ fn is_below(path: &str, root: &str) -> bool {
 /// merge の終了コード（REQ-cli-047）。失敗か種類の違いのスキップがあれば 2、なければ 0
 pub fn exit_code(failed: bool, skipped: &[SkipReason]) -> i32 {
     if failed || skipped.iter().any(SkipReason::counts_as_failure) {
-        2
+        codes::ERROR
     } else {
-        0
+        codes::SUCCESS
     }
 }
 

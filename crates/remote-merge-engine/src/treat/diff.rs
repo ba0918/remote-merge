@@ -4,6 +4,7 @@
 use remote_merge_core::compare::{PathComparison, Present, Role, Verdict};
 
 use super::only_directories;
+use crate::service::types::exit_code as codes;
 
 /// 変更のあるファイルの、判定による種類
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,9 +48,9 @@ pub fn diff_entry(comparison: &PathComparison) -> DiffEntry {
 /// 終了コード（REQ-cli-056）。errors があれば 2、なければ変更があれば 1、なければ 0
 pub fn exit_code(changed: bool, errors: bool) -> i32 {
     match (changed, errors) {
-        (_, true) => 2,
-        (true, false) => 1,
-        (false, false) => 0,
+        (_, true) => codes::ERROR,
+        (true, false) => codes::DIFF_FOUND,
+        (false, false) => codes::SUCCESS,
     }
 }
 
