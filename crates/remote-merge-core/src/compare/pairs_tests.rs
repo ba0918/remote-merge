@@ -1,32 +1,12 @@
 //! 組ごとの判定と、判定が求めるハッシュの側と、読んだ結果での判定し直しの単体テスト
 use std::collections::BTreeSet;
 
+use super::test_support::{self, link, path};
 use super::*;
 use crate::scan::outcome::LinkPoint;
 
 fn file(size: u64) -> SideState {
-    SideState::File {
-        size: Some(size),
-        mtime: Some(Mtime {
-            secs: 1,
-            nanos: 0,
-            digits: 9,
-        }),
-    }
-}
-
-fn link(target: &str, points_to: LinkPoint) -> SideState {
-    SideState::Symlink {
-        target: target.into(),
-        points_to,
-    }
-}
-
-fn path(states: &[(Role, SideState)]) -> PathStates {
-    PathStates {
-        states: states.iter().cloned().collect(),
-        ..PathStates::default()
-    }
+    test_support::file(size, 1, 0, 9)
 }
 
 fn pair(first: Role, second: Role) -> Pair {

@@ -1,6 +1,7 @@
 //! 読んだハッシュと中身の結果での組の判定し直し（TBL-compare-002・REQ-compare-011・012）の単体テスト
 use std::collections::BTreeMap;
 
+use super::test_support::{link, path};
 use super::*;
 use crate::op_failure::{Disconnection, OpFailure};
 use crate::scan::outcome::LinkPoint;
@@ -9,20 +10,6 @@ fn file(size: u64) -> SideState {
     SideState::File {
         size: Some(size),
         mtime: None,
-    }
-}
-
-fn link(target: &str, points_to: LinkPoint) -> SideState {
-    SideState::Symlink {
-        target: target.into(),
-        points_to,
-    }
-}
-
-fn path(states: &[(Role, SideState)]) -> PathStates {
-    PathStates {
-        states: states.iter().cloned().collect(),
-        ..PathStates::default()
     }
 }
 

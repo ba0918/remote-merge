@@ -1,26 +1,6 @@
 //! 二つの通常ファイルの組の判定（TBL-compare-001 の通常ファイルの行）の単体テスト
+use super::test_support::{BOTH, decided, file, judge};
 use super::*;
-
-fn judge(first: &SideState, second: &SideState, method: Method) -> Judgement {
-    judge_states((Role::Left, first), (Role::Right, second), method)
-}
-
-fn file(size: u64, secs: i64, nanos: u32, digits: u8) -> SideState {
-    SideState::File {
-        size: Some(size),
-        mtime: Some(Mtime {
-            secs,
-            nanos,
-            digits,
-        }),
-    }
-}
-
-fn decided(verdict: Verdict) -> Judgement {
-    Judgement::Decided(verdict)
-}
-
-const BOTH: [Method; 2] = [Method::Metadata, Method::Content];
 
 // @kotowari[REQ-compare-006, TBL-compare-001, EX-compare-007]
 #[test]

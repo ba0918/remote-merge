@@ -1,36 +1,19 @@
 //! 二つの側の状態の組の判定（TBL-compare-001）のうち、リンク先を辿れない symlink の行の単体テスト
+use super::test_support::{self, BOTH, judge};
 use super::*;
 use crate::scan::outcome::LinkPoint;
 
 fn link(target: &str) -> SideState {
-    SideState::Symlink {
-        target: target.into(),
-        points_to: LinkPoint::NotDirectory,
-    }
+    test_support::link(target, LinkPoint::NotDirectory)
 }
 
+/// 更新時刻をナノ秒の桁まで持つ通常ファイル
 fn file() -> SideState {
-    SideState::File {
-        size: Some(1),
-        mtime: Some(Mtime {
-            secs: 0,
-            nanos: 0,
-            digits: 9,
-        }),
-    }
+    test_support::file(1, 0, 0, 9)
 }
-
-fn judge(first: &SideState, second: &SideState, method: Method) -> Judgement {
-    judge_states((Role::Left, first), (Role::Right, second), method)
-}
-
-const BOTH: [Method; 2] = [Method::Metadata, Method::Content];
 
 fn unfollowable(target: &str) -> SideState {
-    SideState::Symlink {
-        target: target.into(),
-        points_to: LinkPoint::Unresolvable,
-    }
+    test_support::link(target, LinkPoint::Unresolvable)
 }
 
 // リンク先を辿れない symlink は、リンク文字列が同じでも判定できないとし、そうだった側を理由に並べる

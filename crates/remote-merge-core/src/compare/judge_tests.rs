@@ -1,41 +1,14 @@
 //! 二つの側の状態の組の判定（TBL-compare-001）の単体テスト。表の行ごとに確かめる
+use super::test_support::{self, BOTH, decided, file, judge};
 use super::*;
 use crate::scan::outcome::LinkPoint;
 
-fn file(size: u64, secs: i64, nanos: u32, digits: u8) -> SideState {
-    SideState::File {
-        size: Some(size),
-        mtime: Some(Mtime {
-            secs,
-            nanos,
-            digits,
-        }),
-    }
-}
-
 fn link(target: &str) -> SideState {
-    SideState::Symlink {
-        target: target.into(),
-        points_to: LinkPoint::NotDirectory,
-    }
+    test_support::link(target, LinkPoint::NotDirectory)
 }
 
 fn dir_link() -> SideState {
-    SideState::Symlink {
-        target: "d".into(),
-        points_to: LinkPoint::Directory,
-    }
-}
-
-fn decided(verdict: Verdict) -> Judgement {
-    Judgement::Decided(verdict)
-}
-
-const BOTH: [Method; 2] = [Method::Metadata, Method::Content];
-
-/// 左右の組の判定
-fn judge(first: &SideState, second: &SideState, method: Method) -> Judgement {
-    judge_states((Role::Left, first), (Role::Right, second), method)
+    test_support::link("d", LinkPoint::Directory)
 }
 
 /// その他の種類だった側の名前を持つ判定できない理由

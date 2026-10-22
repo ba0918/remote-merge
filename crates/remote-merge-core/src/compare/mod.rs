@@ -29,6 +29,9 @@ pub use table::{PathStates, state_table};
 pub use verdict::{Judgement, Present, Role, SideFailure, Undecidable, Verdict};
 
 #[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
 #[path = "judge_tests.rs"]
 mod judge_tests;
 
