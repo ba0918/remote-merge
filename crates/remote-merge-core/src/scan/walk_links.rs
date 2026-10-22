@@ -8,31 +8,16 @@ use super::raw::{Answer, LinkTarget};
 use super::walk::Walk;
 
 impl Walk<'_> {
-    /// 待たせた symlink のリンク先を答えから決める（REQ-scan-002・018）
+    /// 待たせた symlink のリンク先を答えから決め、ディレクトリなら辿って下を載せる（REQ-scan-002・018）
     pub fn take_link(&mut self, link: &PendingLink, answer: &Answer) -> Result<(), ScanError> {
-        match answer.link {
-            Some(LinkTarget::Directory) => {
-                self.point(link, LinkPoint::Directory);
-                if !self.follow_links {
-                    return Ok(());
-                }
-                let Some(tree) = &answer.subtree else {
-                    return Err(changed(&link.path));
-                };
-                self.take_subtree(&link.path, tree, &link.ancestors, link.counter)
-            }
-            Some(LinkTarget::NotDirectory) => Ok(()),
-            Some(LinkTarget::Other) => {
-                self.point(link, LinkPoint::Other);
-                Ok(())
-            }
-            Some(LinkTarget::Missing) => {
-                self.point(link, LinkPoint::Missing);
-                Ok(())
-            }
-            Some(LinkTarget::Unresolvable) => self.point_unresolvable(link),
-            None => Err(changed(&link.path)),
+        self.point_link(link, answer)?;
+        if answer.link != Some(LinkTarget::Directory) {
+            return Ok(());
         }
+        let Some(tree) = &answer.subtree else {
+            return Err(changed(&link.path));
+        };
+        self.take_subtree(&link.path, tree, &link.ancestors, link.counter)
     }
 
     /// 待たせた symlink を辿らずに、リンク先の種類だけを答えから決める

@@ -46,7 +46,6 @@ pub(super) fn scan_children(
     let answers = ask(collector, &questions, exclude)?;
     root_identity(&answers[0])?;
     let mut walk = Walk::new(exclude, max_entries, 1);
-    walk.follow_links = false;
     if path.is_empty() {
         let tree = answers[0].subtree.as_ref().ok_or_else(missing_subtree)?;
         walk.take_subtree(b"", tree, &[], 0)?;
@@ -64,7 +63,7 @@ pub(super) fn scan_children(
             .collect();
         let answers = ask(collector, &questions, exclude)?;
         for (link, answer) in pending.into_iter().zip(&answers) {
-            walk.take_link(&link, answer)?;
+            walk.point_link(&link, answer)?;
         }
     }
     Ok(walk.finish())
@@ -80,7 +79,7 @@ fn take_directory(walk: &mut Walk, path: &[u8], answer: &Answer) -> Result<(), S
         RawKind::Directory => {}
         RawKind::Symlink { .. } if answer.link == Some(LinkTarget::Directory) => {}
         RawKind::Symlink { .. } => {
-            return walk.take_link(&PendingLink::new(path.to_vec(), Vec::new(), 0), answer);
+            return walk.point_link(&PendingLink::new(path.to_vec(), Vec::new(), 0), answer);
         }
         RawKind::File | RawKind::Other => return Ok(()),
     }
