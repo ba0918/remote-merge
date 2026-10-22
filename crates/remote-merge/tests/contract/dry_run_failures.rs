@@ -140,6 +140,12 @@ fn req_cli_091_a_dry_run_merge_with_a_failure_exits_with_2() {
     let MergeCommandOutput::Files(output) = &result.output else {
         panic!("expected merge output")
     };
-    assert!(!output.failed.is_empty(), "{output:?}");
+    let failed: Vec<&str> = output.failed.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(failed, ["locked.txt"], "{output:?}");
     assert_eq!(result.exit_code, exit_code::ERROR);
+    assert_eq!(
+        fs::read_to_string(fixture.right.path().join("planned.txt")).unwrap(),
+        "old content\n",
+        "--dry-run wrote the planned file"
+    );
 }

@@ -86,4 +86,9 @@ fn req_cli_069_an_unreachable_ref_ends_with_exit_code_two_and_no_result() {
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(!stdout(&output).contains("\"files\""), "{output:?}");
+    // 拒んだのが参照先へのログインであること（ログインの順が変わると develop を拒んでしまう）
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("server=staging"),
+        "{output:?}"
+    );
 }

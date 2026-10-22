@@ -5,7 +5,7 @@
 
 use std::fs;
 
-use super::agent_support::{AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, json};
 use super::server_faults::Faults;
 
 // @kotowari[REQ-backup-035, REQ-ssh-005]
@@ -24,6 +24,8 @@ async fn a_rollback_to_a_server_without_the_agent_stops_before_asking() {
     let output = fixture.run(&["rollback", "--target", "fixture"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let error = json(&output)["error"].to_string();
+    assert!(error.contains("[agent] enabled"), "{error}");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("Restore 1 file(s)"), "{stderr}");
     assert!(!stderr.contains("Aborted."), "{stderr}");

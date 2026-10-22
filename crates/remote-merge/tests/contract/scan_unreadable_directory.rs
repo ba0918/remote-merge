@@ -32,12 +32,21 @@ fn lock(root: &Path) -> Option<PermissionLocks> {
     Some(locks)
 }
 
-/// 一覧（"files" を持つ JSON）を返さず、終了コード 2 で終わる
+/// 一覧（"files" を持つ JSON）を返さず、読めないディレクトリ "locked" を理由に終了コード 2 で終わる
 fn assert_scan_stopped(output: &Output) {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let listed = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .is_ok_and(|json| json.get("files").is_some());
-    assert!(!listed, "a file list must not be returned: {output:?}");
+    let json = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"));
+    assert!(
+        json.get("files").is_none(),
+        "a file list must not be returned: {json}"
+    );
+    assert!(
+        json["error"]
+            .as_str()
+            .is_some_and(|error| error.starts_with("Cannot read directory: locked")),
+        "{json}"
+    );
 }
 
 fn status_on_the_remote_server_with(

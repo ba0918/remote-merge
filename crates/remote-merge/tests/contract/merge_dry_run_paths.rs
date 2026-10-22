@@ -180,6 +180,8 @@ fn merge_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() 
         });
 
         assert_only_the_long_child_failed(&format!("dry_run={dry_run}"), &json, code);
+        let written = fixture.root("develop").join("deep/a").exists();
+        assert_eq!(written, !dry_run, "dry_run={dry_run}");
     }
 }
 
@@ -199,5 +201,7 @@ fn sync_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() {
         assert_only_the_long_child_failed(&label, target, code);
         // 書き込む（予定の）ファイルと失敗があるので、--dry-run でも実行時と同じく "partial"
         assert_eq!(target["status"], "partial", "{label}: {target}");
+        let written = fixture.root("develop").join("deep/a").exists();
+        assert_eq!(written, !dry_run, "{label}");
     }
 }

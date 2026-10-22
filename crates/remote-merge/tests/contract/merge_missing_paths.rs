@@ -284,10 +284,12 @@ fn req_merge_035_sync_stops_when_the_path_is_on_neither_side_for_every_target() 
 
     let result = sync_x_with_delete(&fixture, &["a", "b"]);
 
+    let error = result
+        .map(|result| result.exit_code)
+        .expect_err("sync went on without the path on any side");
     assert!(
-        result.is_err(),
-        "{:?}",
-        result.map(|result| result.exit_code)
+        format!("{error:#}").contains("not found on either side"),
+        "{error:#}"
     );
 }
 
