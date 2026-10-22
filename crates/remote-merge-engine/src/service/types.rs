@@ -300,17 +300,6 @@ pub struct MergeFailure {
     pub error: String,
 }
 
-/// merge サービスの実行結果。
-#[derive(Debug, Clone)]
-pub enum MergeOutcome {
-    /// マージ成功（0件以上のファイルがマージされた）
-    Success(MergeOutput),
-    /// 指定パスにマージ対象ファイルがない
-    NoFilesToMerge,
-    /// remote-to-remote マージがブロックされた（--force で解除可能）
-    R2rBlocked { left: String, right: String },
-}
-
 // ── rollback ──
 
 /// rollback --list の出力

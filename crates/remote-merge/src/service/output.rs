@@ -386,7 +386,6 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
 /// MergeOutcome をテキストフォーマットする
 pub fn format_merge_outcome_text(outcome: &MergeOutcome) -> String {
     match outcome {
-        MergeOutcome::Success(output) => format_merge_text(output),
         MergeOutcome::NoFilesToMerge => "no files to merge in the specified path(s)".to_string(),
         MergeOutcome::R2rBlocked { left, right } => {
             format!(
@@ -400,7 +399,6 @@ pub fn format_merge_outcome_text(outcome: &MergeOutcome) -> String {
 /// MergeOutcome を JSON フォーマットする
 pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<String> {
     match outcome {
-        MergeOutcome::Success(output) => format_json(output),
         MergeOutcome::NoFilesToMerge => {
             let output = MergeOutput {
                 merged: vec![],
@@ -1548,25 +1546,6 @@ mod tests {
         assert!(text.contains("Warning: merging between two remote servers"));
         assert!(text.contains("develop → staging"));
         assert!(text.contains("--force"));
-    }
-
-    #[test]
-    fn test_format_merge_outcome_text_success() {
-        let output = MergeOutput {
-            merged: vec![MergeFileResult {
-                path: "a.rs".into(),
-                status: "ok".into(),
-                backup: None,
-                ref_badge: None,
-                hunk_info: None,
-            }],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            ref_: None,
-        };
-        let text = format_merge_outcome_text(&MergeOutcome::Success(output));
-        assert!(text.contains("Merged: a.rs"));
     }
 
     #[test]
