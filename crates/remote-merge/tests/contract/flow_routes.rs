@@ -6,7 +6,7 @@
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use super::flow_support::{CONFIG, HOME, REQUEST, RESULT, ROUTE, ROUTES, Roots, Route};
@@ -116,6 +116,9 @@ impl FlowRoutes {
         release: impl Fn(),
     ) -> Option<String> {
         let result = self.home.path().join("flow-result");
+        // 読まないパイプに出すと、出力が多い子のプロセスは書けずに止まり、本当の失敗が時間切れに隠れる
+        let stdout = self.home.path().join("flow-stdout");
+        let stderr = self.home.path().join("flow-stderr");
         let mut process = Command::new(std::env::current_exe().unwrap())
             .env("HOME", self.home.path())
             .env("XDG_CACHE_HOME", self.home.path().join("cache"))
@@ -128,8 +131,8 @@ impl FlowRoutes {
             .env(RESULT, &result)
             .env(HOME, self.home.path())
             .args(["--exact", test, "--nocapture"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(fs::File::create(&stdout).unwrap())
+            .stderr(fs::File::create(&stderr).unwrap())
             .spawn()
             .unwrap();
         let deadline = Instant::now() + limit;
@@ -142,8 +145,13 @@ impl FlowRoutes {
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        let output = process.wait_with_output().unwrap();
-        assert!(output.status.success(), "{route:?}: {output:?}");
+        let status = process.wait().unwrap();
+        assert!(
+            status.success(),
+            "{route:?}: {status}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&fs::read(&stdout).unwrap_or_default()),
+            String::from_utf8_lossy(&fs::read(&stderr).unwrap_or_default()),
+        );
         let answer = fs::read_to_string(&result).unwrap();
         fs::remove_file(&result).unwrap();
         Some(answer)
