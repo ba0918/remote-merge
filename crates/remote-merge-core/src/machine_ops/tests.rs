@@ -70,16 +70,19 @@ fn reading_over_the_limit_is_refused_by_the_answered_size() {
 // ファイルを読む
 #[cfg(target_os = "linux")]
 #[test]
-fn content_that_outgrows_the_answered_size_is_refused_at_the_limit() {
+fn content_that_outgrows_the_answered_size_stops_one_byte_past_the_limit() {
     let result = read(
         Path::new("/proc/self"),
         &entry("status"),
         SizeLimit::Bytes(10),
     );
-    assert!(
-        matches!(result, Err(OpFailure::TooLarge { size, limit: 10 }) if size > 10),
-        "{:?}",
-        result.map(|content| content.len())
+    // 中身は 10 バイトよりずっと長いので、大きさが 11 なら終わりまで読まずに止めている
+    assert_eq!(
+        result.map(|content| content.len()),
+        Err(OpFailure::TooLarge {
+            size: 11,
+            limit: 10
+        })
     );
 }
 
