@@ -44,13 +44,10 @@ impl CoreRuntime {
                     .unwrap_or_else(|| OpFailure::Io(format!("{error:#}"))),
             }),
         };
-        match check_before_change(compared, now) {
-            ChangeCheck::Stopped(lost) => {
-                let error = OpError::new(Operation::Hash, path.as_typed(), lost.failure).into();
-                Err(self.stop_if_root_gone(side, error))
-            }
-            checked => Ok(checked),
-        }
+        check_before_change(compared, now).map_err(|lost| {
+            let error = OpError::new(Operation::Hash, path.as_typed(), lost.failure).into();
+            self.stop_if_root_gone(side, error)
+        })
     }
 
     /// 起点そのものの一覧から、そのパスの今の状態。通常ファイルはハッシュを取る

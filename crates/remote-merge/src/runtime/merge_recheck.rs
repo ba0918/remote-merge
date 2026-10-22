@@ -24,7 +24,6 @@ impl CoreRuntime {
             Ok(ChangeCheck::Unchanged) => None,
             Ok(ChangeCheck::Changed) => Some(Applied::Failed(CHANGED_SINCE_COMPARED.to_string())),
             Ok(ChangeCheck::Undecidable(why)) => Some(Applied::Failed(why.to_string())),
-            Ok(ChangeCheck::Stopped(lost)) => Some(Applied::Failed(lost.failure.to_string())),
             Err(error) => Some(Applied::Failed(format!("{error:#}"))),
         }
     }

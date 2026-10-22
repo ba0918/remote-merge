@@ -52,23 +52,25 @@ pub enum ChangeCheck {
     Changed,
     /// 状態かハッシュを集め直せなかった（REQ-compare-013）
     Undecidable(Undecidable),
-    /// 集め直しが判定せずに止める失敗（`接続断` か root_dir がない）になった。`接続断` はつなぎ直しの
-    /// 規則に、root_dir がないはその側を止める規則に任せる
-    Stopped(SideFailure),
 }
 
-/// 比べたときの状態 `compared` と、集め直した状態 `now` から、変えてよいかを決める
-pub fn check_before_change(compared: &Observed, now: Result<Observed, SideFailure>) -> ChangeCheck {
-    match now {
+/// 比べたときの状態 `compared` と、集め直した状態 `now` から、変えてよいかを決める。集め直しが判定
+/// せずに止める失敗（`接続断` か root_dir がない）になったら、判定せずにその失敗を返す（`接続断` は
+/// つなぎ直しの規則に、root_dir がないはその側を止める規則に任せる）
+pub fn check_before_change(
+    compared: &Observed,
+    now: Result<Observed, SideFailure>,
+) -> Result<ChangeCheck, SideFailure> {
+    Ok(match now {
         Ok(now) if now == *compared => ChangeCheck::Unchanged,
         Ok(_) => ChangeCheck::Changed,
         // 集め直した状態ではあったファイルのハッシュが「ない」の失敗なら、比べた後に消えたもの
         Err(failed) if failed.failure == OpFailure::NotFound => ChangeCheck::Changed,
         Err(failed) => match read_outcome([failed]) {
-            ReadOutcome::Stopped(failed) => ChangeCheck::Stopped(failed),
+            ReadOutcome::Stopped(failed) => return Err(failed),
             ReadOutcome::Undecidable(why) => ChangeCheck::Undecidable(why),
             // 失敗を一つ渡したので、読めたことにはならない
             ReadOutcome::Read => ChangeCheck::Changed,
         },
-    }
+    })
 }
