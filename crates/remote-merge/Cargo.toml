@@ -45,7 +45,7 @@ name = "ssh_integration"
 required-features = ["test-utils"]
 
 [[test]]
-name = "agent_ssh_deploy"
+name = "agent_ssh_transport"
 required-features = ["test-utils"]
 
 [lints]

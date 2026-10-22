@@ -42,7 +42,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 | Purpose | Command |
 |---|---|
 | Build | `cargo build` |
-| Test | `cargo nextest run --workspace --all-features`（未導入なら `cargo test --workspace --all-features`。CI と pre-push はこちら。`--all-features` がないと ssh_integration・agent_ssh_deploy と契約テストの多くが走らない） |
+| Test | `cargo nextest run --workspace --all-features`（未導入なら `cargo test --workspace --all-features`。CI と pre-push はこちら。`--all-features` がないと ssh_integration・agent_ssh_transport と契約テストの多くが走らない） |
 | Check | `cargo fmt --all --check` / `cargo clippy --all-targets --all-features -- -D warnings` |
 | Run | `cargo run -- status --left local --right <server>`（サブコマンドなしは使い方を出して終了コード 2） |
 | Spec check | `kotowari check` |

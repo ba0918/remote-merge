@@ -1,5 +1,6 @@
 #![cfg(unix)]
-//! Agent SSH E2E テスト (D-5b)
+//! SSH の exec で `remote-merge agent` を起動し、ssh_transport と AgentClient でエージェントと
+//! 通信できることのテスト（配置は確かめない。エージェントの実行ファイルは手元のものを直に起動する）。
 //!
 //! インプロセス SSH テストサーバーを使って `remote-merge agent` を SSH exec 経由で
 //! 起動し、ssh_transport + AgentClient でエンドツーエンドの通信を検証する。
@@ -38,7 +39,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
@@ -68,33 +69,24 @@ enum StdinMsg {
     Eof,
 }
 
-/// ChannelId ごとの stdin チャンネル送信端
-type ChannelStdinMap = Arc<Mutex<HashMap<u32, StdinTx>>>;
-
 /// プロセスをフォークできる SSH テストサーバー
 #[derive(Clone)]
-struct ProcessAgentServer {
-    id: usize,
-}
+struct ProcessAgentServer;
 
 impl server::Server for ProcessAgentServer {
     type Handler = ProcessAgentHandler;
 
     fn new_client(&mut self, _: Option<SocketAddr>) -> ProcessAgentHandler {
-        let handler = ProcessAgentHandler {
-            id: self.id,
-            stdin_channels: Arc::new(Mutex::new(HashMap::new())),
-        };
-        self.id += 1;
-        handler
+        ProcessAgentHandler {
+            stdin_channels: HashMap::new(),
+        }
     }
 }
 
+/// 一つの接続の handler。接続ごとに作られ、`&mut self` でしか触られない
 struct ProcessAgentHandler {
-    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
-    id: usize,
     /// ChannelId (u32) → StdinTx
-    stdin_channels: ChannelStdinMap,
+    stdin_channels: HashMap<u32, StdinTx>,
 }
 
 impl server::Handler for ProcessAgentHandler {
@@ -139,7 +131,7 @@ impl server::Handler for ProcessAgentHandler {
                 .windows(2)
                 .find(|w| w[0] == "--root")
                 .map(|w| w[1])
-                .unwrap_or("/tmp");
+                .unwrap_or_else(|| panic!("the agent command names no --root: {command}"));
 
             let mut child = tokio::process::Command::new(binary)
                 .arg("agent")
@@ -159,10 +151,7 @@ impl server::Handler for ProcessAgentHandler {
 
             // ChannelId → stdin_tx マッピングを登録
             let raw_id: u32 = channel.into();
-            {
-                let mut map = self.stdin_channels.lock().unwrap();
-                map.insert(raw_id, stdin_tx);
-            }
+            self.stdin_channels.insert(raw_id, stdin_tx);
 
             // Handle を取得して非同期タスクで stdout → SSH チャネルに中継
             let handle: russh::server::Handle = session.handle();
@@ -197,8 +186,7 @@ impl server::Handler for ProcessAgentHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         let raw_id: u32 = channel.into();
-        let map = self.stdin_channels.lock().unwrap();
-        if let Some(tx) = map.get(&raw_id) {
+        if let Some(tx) = self.stdin_channels.get(&raw_id) {
             // 送信失敗（プロセス終了済み）は無視
             let _ = tx.send(StdinMsg::Data(data.to_vec()));
         }
@@ -212,8 +200,7 @@ impl server::Handler for ProcessAgentHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         let raw_id: u32 = channel.into();
-        let map = self.stdin_channels.lock().unwrap();
-        if let Some(tx) = map.get(&raw_id) {
+        if let Some(tx) = self.stdin_channels.get(&raw_id) {
             let _ = tx.send(StdinMsg::Eof);
         }
         Ok(())
@@ -226,8 +213,7 @@ impl server::Handler for ProcessAgentHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         let raw_id: u32 = channel.into();
-        let mut map = self.stdin_channels.lock().unwrap();
-        map.remove(&raw_id);
+        self.stdin_channels.remove(&raw_id);
         Ok(())
     }
 }
@@ -304,7 +290,7 @@ async fn start_process_agent_server() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    let mut server = ProcessAgentServer { id: 0 };
+    let mut server = ProcessAgentServer;
     tokio::spawn(async move {
         let _ = server.run_on_socket(config, &listener).await;
     });
