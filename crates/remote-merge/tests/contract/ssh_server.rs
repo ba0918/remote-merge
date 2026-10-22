@@ -7,7 +7,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Write as _;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,6 +16,7 @@ use std::time::Duration;
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, server};
+use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpListener;
 
 use super::server_faults::{self, AgentInbound, FaultState, Faults, SudoAnswer};
@@ -326,14 +326,14 @@ impl server::Handler for LocalHandler {
         }
         if let Some((command, encoded)) = self.uploads.remove(&channel) {
             let home = self.sandbox_home.as_ref().unwrap();
-            let mut child = self
-                .shell_command(&command, home)
+            // 待つ間も同じ実行環境の他の処理（エージェントの中継など）が進むよう、非同期に待つ
+            let mut child = tokio::process::Command::from(self.shell_command(&command, home))
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()?;
-            child.stdin.take().unwrap().write_all(&encoded)?;
-            let result = child.wait_with_output()?;
+            child.stdin.take().unwrap().write_all(&encoded).await?;
+            let result = child.wait_with_output().await?;
             if !result.stdout.is_empty() {
                 session.data(channel, result.stdout.clone())?;
             }
@@ -433,7 +433,9 @@ impl server::Handler for LocalHandler {
             self.agent_inbound.insert(channel, inbound);
             return Ok(());
         }
-        let result = self.shell_command(&received, home).output()?;
+        let result = tokio::process::Command::from(self.shell_command(&received, home))
+            .output()
+            .await?;
         if !result.stdout.is_empty() {
             session.data(channel, result.stdout.clone())?;
         }
