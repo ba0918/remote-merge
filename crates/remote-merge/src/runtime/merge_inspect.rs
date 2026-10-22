@@ -7,17 +7,18 @@ use std::collections::BTreeMap;
 use remote_merge_core::compare::{PathComparison, Role, SideState};
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::path_resolution::ResolvedPath;
-use remote_merge_core::relative_path::{EntryPath, RelPath, RelPathError};
+use remote_merge_core::relative_path::{EntryPath, RelPathError};
 
 use super::core::CoreRuntime;
 use super::merge_apply::{ApplyOptions, ChangeKind, PlannedChange};
-use super::root_checked::RootAbsent;
+use super::root_checked::{DistinctPaths, RootAbsent};
 use crate::side::Side;
 
 /// 書き込み先のパスを確かめた結果
 pub(super) struct Inspected {
     pub entry: ResolvedPath,
-    pub parent: anyhow::Result<ResolvedPath>,
+    /// 親の答え。確かめられなければその誤りの文
+    pub parent: Result<ResolvedPath, String>,
     /// 書く前になかった祖先（書き込みが作るディレクトリ。root_dir に近い順）
     pub missing_ancestors: Vec<EntryPath>,
 }
@@ -27,50 +28,54 @@ pub(super) type BackupContent = Result<Vec<u8>, OpFailure>;
 
 impl CoreRuntime {
     /// 書き込み先のパスとその親と、書き込み先がないパスの祖先を、root_dir と一緒に経路にまとめて一度に
-    /// 尋ねる。比べた後なので、root_dir がなければなくなったものとしてその側を止める（REQ-merge-044）
+    /// 尋ねる。同じパスは一度だけ尋ね、答えを変更ごとに分ける。確かめられない書き込み先は、その誤りの文
+    /// にする。比べた後なので、root_dir がなければなくなったものとしてその側を止める（REQ-merge-044）
     pub(super) fn inspect_destinations(
         &mut self,
         target: &Side,
         changes: &[PlannedChange<'_>],
-    ) -> anyhow::Result<Vec<anyhow::Result<Inspected>>> {
-        let mut rels: Vec<RelPath> = Vec::new();
+    ) -> anyhow::Result<Vec<Result<Inspected, String>>> {
+        let mut asked = DistinctPaths::default();
         let mut layout = Vec::new();
         for change in changes {
             let entry = EntryPath::parse(change.path)?;
-            let ancestors = if destination_absent(change.comparison) {
-                entry.parent_entries()
+            let at_entry = asked.add(entry.as_rel().clone());
+            let at_parent = asked.add(entry.parent_and_name().0);
+            let ancestors: Vec<(EntryPath, usize)> = if destination_absent(change.comparison) {
+                entry
+                    .parent_entries()
+                    .into_iter()
+                    .map(|ancestor| {
+                        let at = asked.add(ancestor.as_rel().clone());
+                        (ancestor, at)
+                    })
+                    .collect()
             } else {
                 Vec::new()
             };
-            rels.push(entry.as_rel().clone());
-            rels.push(entry.parent_and_name().0);
-            rels.extend(ancestors.iter().map(|ancestor| ancestor.as_rel().clone()));
-            layout.push(ancestors);
+            layout.push((at_entry, at_parent, ancestors));
         }
-        let mut answers = self
-            .inspect_under_root(target, &rels, RootAbsent::GoneAfterScan)?
+        let answers: Vec<Result<ResolvedPath, String>> = self
+            .inspect_under_root(target, asked.paths(), RootAbsent::GoneAfterScan)?
             .answers
-            .into_iter();
-        let mut inspected = Vec::new();
-        for ancestors in layout {
-            let (Some(entry), Some(parent)) = (answers.next(), answers.next()) else {
-                anyhow::bail!("the destination paths were not all answered");
-            };
-            let mut missing_ancestors = Vec::new();
-            for ancestor in ancestors {
-                match answers.next() {
-                    Some(Ok(ResolvedPath::Missing { .. })) => missing_ancestors.push(ancestor),
-                    Some(_) => {}
-                    None => anyhow::bail!("the destination paths were not all answered"),
-                }
-            }
-            inspected.push(entry.map(|entry| Inspected {
-                entry,
-                parent,
-                missing_ancestors,
-            }));
-        }
-        Ok(inspected)
+            .into_iter()
+            .map(|answer| answer.map_err(|error| format!("{error:#}")))
+            .collect();
+        Ok(layout
+            .into_iter()
+            .map(|(at_entry, at_parent, ancestors)| {
+                let missing_ancestors = ancestors
+                    .into_iter()
+                    .filter(|(_, at)| matches!(answers[*at], Ok(ResolvedPath::Missing { .. })))
+                    .map(|(ancestor, _)| ancestor)
+                    .collect();
+                answers[at_entry].clone().map(|entry| Inspected {
+                    entry,
+                    parent: answers[at_parent].clone(),
+                    missing_ancestors,
+                })
+            })
+            .collect())
     }
 
     /// バックアップする書き込み先の通常ファイルの中身を、まとめて読む

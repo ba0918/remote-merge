@@ -8,6 +8,8 @@
 //!
 //! [`RootWatch`]: super::root_watch::RootWatch
 
+use std::collections::HashMap;
+
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation, Prefixed};
 use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
@@ -15,6 +17,30 @@ use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 
 use super::core::CoreRuntime;
 use crate::side::Side;
+
+/// まとめて尋ねるパスの並び。同じパスは一度だけ並べ、答えは並べた位置で引く（パスごとに親や祖先を
+/// 足すと、兄弟のパスが同じ親と祖先を何度も足すため）
+#[derive(Default)]
+pub(super) struct DistinctPaths {
+    paths: Vec<RelPath>,
+    at: HashMap<RelPath, usize>,
+}
+
+impl DistinctPaths {
+    /// `path` を並べ（並んでいれば並べ直さず）、その位置を返す
+    pub(super) fn add(&mut self, path: RelPath) -> usize {
+        if let Some(&at) = self.at.get(&path) {
+            return at;
+        }
+        self.paths.push(path.clone());
+        self.at.insert(path, self.paths.len() - 1);
+        self.paths.len() - 1
+    }
+
+    pub(super) fn paths(&self) -> &[RelPath] {
+        &self.paths
+    }
+}
 
 /// root_dir がないと答えたときに、どの誤りにするか
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

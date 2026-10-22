@@ -76,7 +76,7 @@ impl CoreRuntime {
                     Ok(ResolvedPath::Exists { real_path, .. })
                     | Ok(ResolvedPath::Symlink { real_path, .. }) => real_path,
                     Ok(_) => anyhow::bail!("the parent directory of the destination is gone"),
-                    Err(error) => anyhow::bail!("{error:#}"),
+                    Err(error) => anyhow::bail!("{error}"),
                 };
                 let new_target = link_target_of(comparison, Role::Left)?;
                 let saved = self.backup_store.save_symlink(

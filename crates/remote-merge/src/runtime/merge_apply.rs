@@ -120,7 +120,7 @@ impl CoreRuntime {
                     .as_deref()
                     .filter(|_| failed_batch.contains(change.path));
                 match (inspected, in_failed_batch) {
-                    (Err(error), _) => Applied::Failed(format!("{error:#}")),
+                    (Err(error), _) => Applied::Failed(error),
                     (
                         Ok(Inspected {
                             entry: ResolvedPath::AncestorNotDirectory { .. },

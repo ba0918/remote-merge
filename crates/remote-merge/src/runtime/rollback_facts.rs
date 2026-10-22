@@ -7,15 +7,15 @@ use std::collections::BTreeMap;
 
 use remote_merge_core::compare::{Follow, Method, Role, SideState, state_table};
 use remote_merge_core::op_failure::SizeLimit;
-use remote_merge_core::path_resolution::ResolveError;
-use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+use remote_merge_core::relative_path::EntryPath;
 use remote_merge_engine::treat::rollback::TargetFacts;
 
 use super::compare_flow::{
     CompareRequest, CompareScope, EntryLimit, ExternalLinks, LostDestination, UnfollowableLinks,
 };
 use super::core::CoreRuntime;
-use super::root_checked::{RootAbsent, is_root_missing};
+use super::root_checked::{DistinctPaths, RootAbsent, is_root_missing};
 use crate::side::Side;
 
 impl CoreRuntime {
@@ -26,13 +26,17 @@ impl CoreRuntime {
         target: &Side,
         paths: &[EntryPath],
     ) -> anyhow::Result<Vec<TargetFacts>> {
-        let mut asked: Vec<RelPath> = Vec::new();
-        for path in paths {
-            asked.push(path.as_rel().clone());
-            asked.push(path.parent_and_name().0);
-        }
+        let mut asked = DistinctPaths::default();
+        let layout: Vec<(usize, usize)> = paths
+            .iter()
+            .map(|path| {
+                let at_entry = asked.add(path.as_rel().clone());
+                (at_entry, asked.add(path.parent_and_name().0))
+            })
+            .collect();
         // root_dir もパスの深さによらず同じ問いで尋ね、なければ走査の root_dir の誤りと同じにする
-        let under = match self.inspect_under_root(target, &asked, RootAbsent::MissingAtStart) {
+        let under = match self.inspect_under_root(target, asked.paths(), RootAbsent::MissingAtStart)
+        {
             Ok(under) => under,
             // つなぎ直しても `接続断` なら、呼び出し側がどのパスも読み込みの失敗にする（REQ-ssh-003）
             Err(error) if super::connection::classify(&error).is_disconnection() => {
@@ -50,17 +54,23 @@ impl CoreRuntime {
                     .collect());
             }
         };
-        let mut answers = under.answers.into_iter();
-        let mut resolved = Vec::new();
-        for path in paths {
-            let (Some(entry), Some(parent)) = (answers.next(), answers.next()) else {
-                anyhow::bail!("the target paths were not all answered");
-            };
-            resolved.push(match (entry, parent) {
-                (Ok(entry), Ok(parent)) => Ok((path.as_str().to_string(), entry, parent)),
-                (Err(error), _) | (_, Err(error)) => Err(unresolved_cause(&error)),
-            });
-        }
+        let answers: Vec<Result<ResolvedPath, String>> = under
+            .answers
+            .into_iter()
+            .map(|answer| answer.map_err(|error| unresolved_cause(&error)))
+            .collect();
+        let resolved: Vec<Result<(String, ResolvedPath, ResolvedPath), String>> = paths
+            .iter()
+            .zip(layout)
+            .map(
+                |(path, (at_entry, at_parent))| match (&answers[at_entry], &answers[at_parent]) {
+                    (Ok(entry), Ok(parent)) => {
+                        Ok((path.as_str().to_string(), entry.clone(), parent.clone()))
+                    }
+                    (Err(cause), _) | (_, Err(cause)) => Err(cause.clone()),
+                },
+            )
+            .collect();
         // 確かめられたパスだけを走査する（辿れない symlink の起点は走査を止めるので入れない）
         let names: Vec<String> = resolved
             .iter()
