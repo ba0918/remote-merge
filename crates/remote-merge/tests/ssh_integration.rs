@@ -509,6 +509,10 @@ async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
 
 // ── write_file テストケース ──
 
+/// 待たずに返ることを確かめる上限。試験サーバの無通信での切断（10 秒）より短くしておかないと、
+/// 切断されるまで待ってから返る退行も通してしまう。
+const PROMPT_LIMIT: Duration = Duration::from_secs(8);
+
 #[tokio::test]
 async fn rejected_large_input_returns_remote_exit_and_stderr_without_waiting_for_upload() {
     let handle = start_test_server().await;
@@ -516,13 +520,11 @@ async fn rejected_large_input_returns_remote_exit_and_stderr_without_waiting_for
     let (mut client, _key) = connect_client(&handle).await;
     let input = vec![b'A'; 16 * 1024 * 1024];
 
-    let (stdout, stderr, exit_code) = tokio::time::timeout(
-        Duration::from_secs(30),
-        client.run_with_input("reject-upload", &input),
-    )
-    .await
-    .expect("remote exit must cancel an upload blocked by the SSH window")
-    .expect("remote command's exit status must be returned");
+    let (stdout, stderr, exit_code) =
+        tokio::time::timeout(PROMPT_LIMIT, client.run_with_input("reject-upload", &input))
+            .await
+            .expect("remote exit must cancel an upload blocked by the SSH window")
+            .expect("remote command's exit status must be returned");
 
     assert_eq!(stdout, b"upload rejected");
     assert_eq!(stderr, b"decoder: unavailable\n");
@@ -538,13 +540,11 @@ async fn successful_early_exit_does_not_wait_for_unconsumed_large_input() {
     let (mut client, _key) = connect_client(&handle).await;
     let input = vec![b'A'; 16 * 1024 * 1024];
 
-    let (stdout, stderr, exit_code) = tokio::time::timeout(
-        Duration::from_secs(30),
-        client.run_with_input("early-success", &input),
-    )
-    .await
-    .expect("remote success must finish without consuming all stdin")
-    .expect("remote command failed");
+    let (stdout, stderr, exit_code) =
+        tokio::time::timeout(PROMPT_LIMIT, client.run_with_input("early-success", &input))
+            .await
+            .expect("remote success must finish without consuming all stdin")
+            .expect("remote command failed");
 
     assert_eq!(stdout, b"done");
     assert!(stderr.is_empty());
@@ -562,7 +562,7 @@ async fn large_input_cut_off_without_exit_status_returns_connection_error_prompt
     let input = vec![b'A'; 16 * 1024 * 1024];
 
     let error = tokio::time::timeout(
-        Duration::from_secs(30),
+        PROMPT_LIMIT,
         client.run_with_input("cut-off-upload", &input),
     )
     .await
