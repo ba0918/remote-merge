@@ -102,8 +102,11 @@ impl<'a, 'b> PairScript<'a, 'b> {
     pub fn display(&self) -> DiffResult {
         let mut result = self.full.clone();
         if let DiffResult::Modified { lines, .. } = &mut result {
+            // similar の行は末尾に "\n" を高々一つ持つ
             for line in lines {
-                line.value = line.value.trim_end_matches('\n').to_owned();
+                if line.value.ends_with('\n') {
+                    line.value.pop();
+                }
             }
         }
         result
