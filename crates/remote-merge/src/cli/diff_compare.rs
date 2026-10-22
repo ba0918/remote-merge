@@ -11,6 +11,7 @@ use remote_merge_core::scan::outcome::{ScanFailure, ScanStopped};
 use remote_merge_engine::treat::diff_names::{DiffScope, missing_names, unlistable_name};
 use remote_merge_engine::treat::uses::DiffUses;
 
+use super::compare_steps::absorb_comparison;
 use crate::runtime::{CompareRequest, CompareScope, CompareSides, CoreRuntime};
 use crate::service::types::DiffError;
 
@@ -50,14 +51,12 @@ pub(super) fn compare_scope(
     // 名前で比べ足す走査も同じ比較の走査で、件数の上限は全体の走査が数えた残りに当てる（REQ-cli-021）
     request.counted_before = comparison.counted;
     let more = compare_named(core, sides, request, uses, unseen)?;
-    for (path, found) in more.paths {
-        compared.paths.entry(path).or_insert(found);
-    }
-    for incomplete in more.incomplete {
-        if !compared.incomplete.contains(&incomplete) {
-            compared.incomplete.push(incomplete);
-        }
-    }
+    absorb_comparison(
+        &mut compared.paths,
+        &mut compared.incomplete,
+        more.paths,
+        more.incomplete,
+    );
     compared
         .named
         .retain(|name| !more.unlistable.iter().any(|error| error.path == *name));

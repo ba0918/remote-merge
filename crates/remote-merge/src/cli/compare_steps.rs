@@ -1,5 +1,9 @@
-//! status・diff・merge が比べる前後に共有する段：使う参照先の決め方と、比べる側への接続
+//! status・diff・merge が比べる前後に共有する段：使う参照先の決め方、比べる側への接続、名前で
+//! 比べ足した結果の合わせ方
 
+use std::collections::BTreeMap;
+
+use remote_merge_core::compare::{Incomplete, PathComparison};
 use remote_merge_engine::treat::sides::Reference;
 
 use crate::runtime::{CompareSides, CoreRuntime};
@@ -23,4 +27,21 @@ pub(super) fn connect_sides(core: &mut CoreRuntime, sides: &CompareSides) -> any
         core.connect_side(side)?;
     }
     Ok(())
+}
+
+/// 名前で比べ足した結果を合わせる。先に比べたパスはそのまま残し、打ち切った一覧は同じものを重ねない
+pub(super) fn absorb_comparison(
+    paths: &mut BTreeMap<String, PathComparison>,
+    incomplete: &mut Vec<Incomplete>,
+    more_paths: BTreeMap<String, PathComparison>,
+    more_incomplete: Vec<Incomplete>,
+) {
+    for (path, found) in more_paths {
+        paths.entry(path).or_insert(found);
+    }
+    for each in more_incomplete {
+        if !incomplete.contains(&each) {
+            incomplete.push(each);
+        }
+    }
 }

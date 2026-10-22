@@ -12,7 +12,7 @@ use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
-use super::compare_steps::connect_sides;
+use super::compare_steps::{absorb_comparison, connect_sides};
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult};
 use super::plan_apply::{apply_plan, change_counts, skip_reasons};
 use crate::runtime::{
@@ -163,14 +163,12 @@ pub(super) fn compare_named_files(
     again.scope = CompareScope::Entries(unseen);
     again.counted_before = comparison.counted.clone();
     let more = core.compare(sides, &again, uses)?;
-    for (path, found) in more.paths {
-        comparison.paths.entry(path).or_insert(found);
-    }
-    for incomplete in more.incomplete {
-        if !comparison.incomplete.contains(&incomplete) {
-            comparison.incomplete.push(incomplete);
-        }
-    }
+    absorb_comparison(
+        &mut comparison.paths,
+        &mut comparison.incomplete,
+        more.paths,
+        more.incomplete,
+    );
     Ok(comparison)
 }
 
