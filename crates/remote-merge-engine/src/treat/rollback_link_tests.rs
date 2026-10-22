@@ -48,3 +48,42 @@ fn a_link_whose_string_changed_is_skipped_even_if_it_reaches_the_same_file() {
         assert_eq!(entry, RestoreEntry::Skip(LINK_CHANGED.to_string()));
     }
 }
+
+fn facts_under(parent: ResolvedPath) -> TargetFacts {
+    TargetFacts::Resolved {
+        state: link_state("new.txt"),
+        entry: link_entry("new.txt"),
+        parent,
+    }
+}
+
+// @kotowari[REQ-backup-033]
+#[test]
+fn a_link_holding_the_merged_string_under_a_parent_that_moved_is_skipped_as_a_changed_location() {
+    let entry = one(
+        link_update(),
+        facts_under(exists("/elsewhere", ExistingKind::Directory)),
+    );
+    assert_eq!(entry, RestoreEntry::Skip(CHANGED_LOCATION.to_string()));
+}
+
+// @kotowari[REQ-backup-033]
+#[test]
+fn a_link_holding_the_merged_string_whose_parent_is_gone_is_skipped_as_a_changed_location() {
+    let entry = one(link_update(), facts_under(missing("/r", false)));
+    assert_eq!(entry, RestoreEntry::Skip(CHANGED_LOCATION.to_string()));
+}
+
+// @kotowari[REQ-backup-033]
+#[test]
+fn a_link_holding_the_merged_string_whose_parent_is_not_a_directory_is_skipped_as_a_changed_location()
+ {
+    let entry = one(
+        link_update(),
+        facts_under(ResolvedPath::AncestorNotDirectory {
+            real_path: "/r".to_string(),
+            regular_file: true,
+        }),
+    );
+    assert_eq!(entry, RestoreEntry::Skip(CHANGED_LOCATION.to_string()));
+}
