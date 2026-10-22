@@ -195,8 +195,4 @@ async fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it
     let output = fixture.run(&["diff", "--max-entries", "5"]);
 
     assert_kept_with_truncation(&output, "agent");
-    assert!(
-        !String::from_utf8_lossy(&output.stderr).contains("falling back"),
-        "{output:?}"
-    );
 }

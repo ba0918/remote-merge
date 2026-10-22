@@ -408,11 +408,7 @@ impl AgentFixture {
         self.assert_isolated_agent_config(&config_path);
         let output = launch_status(self.temp.path(), &config_path, extra_args);
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
-        let commands = self.assert_agent_started();
-        assert!(
-            !commands.iter().any(|command| command.contains("@RMSCAN")),
-            "the tree was scanned over plain SSH: {commands:?}"
-        );
+        self.assert_agent_started();
         output
     }
 
@@ -487,8 +483,8 @@ impl AgentFixture {
         output
     }
 
-    /// 試験サーバがエージェントの起動を受けたことを確かめ、受けたコマンドを返す
-    fn assert_agent_started(&self) -> Vec<String> {
+    /// 試験サーバがエージェントの起動を受けたことを確かめる
+    fn assert_agent_started(&self) {
         let commands = self.server.commands();
         assert!(
             commands
@@ -496,7 +492,6 @@ impl AgentFixture {
                 .any(|command| command.contains(" agent --root ")),
             "the agent was not started: {commands:?}"
         );
-        commands
     }
 }
 

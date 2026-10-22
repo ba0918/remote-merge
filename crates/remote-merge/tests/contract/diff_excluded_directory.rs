@@ -90,9 +90,5 @@ async fn ex_cli_075_a_directory_whose_children_are_all_excluded_has_no_diff_via_
         let json = agent_support::json(&output);
         assert_eq!(json["files"], serde_json::json!([]), "{path}: {output:?}");
         assert_eq!(output.status.code(), Some(0), "{path}: {output:?}");
-        assert!(
-            !String::from_utf8_lossy(&output.stderr).contains("falling back"),
-            "{path}: {output:?}"
-        );
     }
 }

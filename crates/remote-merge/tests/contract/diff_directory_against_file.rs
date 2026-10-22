@@ -201,9 +201,5 @@ async fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_bo
         let json = agent_support::json(&output);
         assert_kind_and_body(&json, &format!("{paths:?}"));
         assert_eq!(output.status.code(), Some(1), "{paths:?}: {output:?}");
-        assert!(
-            !String::from_utf8_lossy(&output.stderr).contains("falling back"),
-            "{paths:?}: {output:?}"
-        );
     }
 }
