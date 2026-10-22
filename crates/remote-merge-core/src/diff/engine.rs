@@ -86,16 +86,7 @@ pub enum DiffResult {
         merge_hunks: Vec<DiffHunk>,
         /// 全行（コンテキスト含む）
         lines: Vec<DiffLine>,
-        stats: DiffStats,
     },
-}
-
-/// 差分の統計情報
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DiffStats {
-    pub insertions: usize,
-    pub deletions: usize,
-    pub equal: usize,
 }
 
 pub struct PairScript<'a, 'b> {
@@ -215,13 +206,6 @@ fn build_script(old: &str, new: &str) -> DiffResult {
         });
     }
 
-    // 統計
-    let stats = DiffStats {
-        insertions: lines.iter().filter(|l| l.tag == DiffTag::Insert).count(),
-        deletions: lines.iter().filter(|l| l.tag == DiffTag::Delete).count(),
-        equal: lines.iter().filter(|l| l.tag == DiffTag::Equal).count(),
-    };
-
     // 表示用ハンク（コンテキスト3行でグループ化）
     let hunks = build_hunks(&lines, 3);
     // 操作用ハンク（コンテキスト0行、変更ブロック単位）
@@ -231,7 +215,6 @@ fn build_script(old: &str, new: &str) -> DiffResult {
         hunks,
         merge_hunks,
         lines,
-        stats,
     }
 }
 
@@ -465,11 +448,7 @@ mod tests {
         let result = display_diff(old, new);
 
         match result {
-            DiffResult::Modified { stats, lines, .. } => {
-                assert!(stats.deletions > 0, "削除が検出されるべき");
-                assert!(stats.insertions > 0, "追加が検出されるべき");
-                assert!(stats.equal > 0, "同一行が存在するべき");
-
+            DiffResult::Modified { lines, .. } => {
                 // line2 が削除され modified が追加されていること
                 assert!(
                     lines
@@ -493,29 +472,6 @@ mod tests {
     }
 
     #[test]
-    fn test_one_side_empty() {
-        // 左が空
-        let result = display_diff("", "new content\n");
-        match result {
-            DiffResult::Modified { stats, .. } => {
-                assert_eq!(stats.insertions, 1);
-                assert_eq!(stats.deletions, 0);
-            }
-            other => panic!("Modified を期待したが {:?}", other),
-        }
-
-        // 右が空
-        let result = display_diff("old content\n", "");
-        match result {
-            DiffResult::Modified { stats, .. } => {
-                assert_eq!(stats.insertions, 0);
-                assert_eq!(stats.deletions, 1);
-            }
-            other => panic!("Modified を期待したが {:?}", other),
-        }
-    }
-
-    #[test]
     fn test_large_file_diff() {
         let old: String = (0..1500).map(|i| format!("line {}\n", i)).collect();
         let mut new = old.clone();
@@ -526,9 +482,7 @@ mod tests {
 
         let result = display_diff(&old, &new);
         match result {
-            DiffResult::Modified { hunks, stats, .. } => {
-                assert_eq!(stats.deletions, 2);
-                assert_eq!(stats.insertions, 2);
+            DiffResult::Modified { hunks, .. } => {
                 // 2つの変更が離れているのでハンクが2つ
                 assert_eq!(hunks.len(), 2, "離れた変更は別ハンクになるべき");
             }
