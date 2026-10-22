@@ -5,7 +5,6 @@
 //! 決め、その後は操作の失敗でも、つなぎ直しでも決め直さない（REQ-ssh-010・REQ-ssh-024）。
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use remote_merge_core::route_choice::{AgentState, RouteChoice, choose_route};
 
@@ -71,9 +70,8 @@ impl CoreRuntime {
     /// エージェントを配置して起動してみた結果の状態。起動できたらクライアントを持つ
     fn agent_state(&mut self, server_name: &str) -> AgentState {
         match self.start_agent_via_ssh(server_name) {
-            Ok(client) => {
-                self.agent_clients
-                    .insert(server_name.to_string(), Arc::new(Mutex::new(client)));
+            Ok(agent) => {
+                self.agent_clients.insert(server_name.to_string(), agent);
                 AgentState::Ready
             }
             Err(state) => state,

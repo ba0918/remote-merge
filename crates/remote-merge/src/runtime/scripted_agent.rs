@@ -6,13 +6,14 @@
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use crate::agent::protocol::{AgentRequest, AgentResponse};
 use crate::agent::{framing, protocol};
 
 use super::CoreRuntime;
+use super::agent_clients::ConnectedAgent;
 
 /// `runtime` のサーバ `server_name` に試験用のエージェントをつなぐ。エージェントは最初の
 /// 問い合わせに `response` を返し（None なら答えずに接続を切る）、二つ目の問い合わせを受けると
@@ -41,9 +42,13 @@ pub(crate) fn connect(
     });
     let agent =
         crate::agent::client::AgentClient::connect(client.try_clone().unwrap(), client).unwrap();
-    runtime
-        .agent_clients
-        .insert(server_name.to_string(), Arc::new(Mutex::new(agent)));
+    runtime.agent_clients.insert(
+        server_name.to_string(),
+        ConnectedAgent {
+            client: agent,
+            _guard: None,
+        },
+    );
     runtime.agent_chosen.insert(server_name.to_string());
     received
 }
@@ -71,8 +76,12 @@ pub(crate) fn connect_answering(
     });
     let agent =
         crate::agent::client::AgentClient::connect(client.try_clone().unwrap(), client).unwrap();
-    runtime
-        .agent_clients
-        .insert(server_name.to_string(), Arc::new(Mutex::new(agent)));
+    runtime.agent_clients.insert(
+        server_name.to_string(),
+        ConnectedAgent {
+            client: agent,
+            _guard: None,
+        },
+    );
     runtime.agent_chosen.insert(server_name.to_string());
 }

@@ -1,8 +1,18 @@
 //! つないだエージェントのクライアント
 
-use std::sync::{Arc, Mutex};
+#[cfg(unix)]
+use crate::agent::ssh_transport::TransportGuard;
 
 use super::core::{BoxedAgentClient, CoreRuntime};
+
+/// つないだエージェント。転送のブリッジスレッドのガードはクライアントと一緒に持ち、クライアントの後に
+/// 捨ててスレッドを止める
+pub(crate) struct ConnectedAgent {
+    pub(crate) client: BoxedAgentClient,
+    /// 試験用のエージェントは転送を通さずにつなぐので、ガードを持たない
+    #[cfg(unix)]
+    pub(crate) _guard: Option<TransportGuard>,
+}
 
 impl CoreRuntime {
     /// Agent が利用可能か（接続済みか）を返す
@@ -10,21 +20,12 @@ impl CoreRuntime {
         self.agent_clients.contains_key(server_name)
     }
 
-    /// Agent クライアントの Arc<Mutex<>> を取得する
-    pub fn get_agent(&self, server_name: &str) -> Option<Arc<Mutex<BoxedAgentClient>>> {
-        self.agent_clients.get(server_name).cloned()
-    }
-
     /// Agent を切断する
     pub fn disconnect_agent(&mut self, server_name: &str) {
-        if let Some(client_arc) = self.agent_clients.remove(server_name)
-            && let Ok(mut client) = client_arc.lock()
-            && let Err(e) = client.shutdown()
+        if let Some(mut agent) = self.agent_clients.remove(server_name)
+            && let Err(e) = agent.client.shutdown()
         {
             tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
         }
-        // TransportGuard を drop してブリッジスレッドをシャットダウン
-        #[cfg(unix)]
-        self.transport_guards.remove(server_name);
     }
 }

@@ -16,14 +16,15 @@ use crate::agent::ssh_transport;
 #[cfg(unix)]
 use remote_merge_core::route_choice::AgentState;
 
+use super::agent_clients::ConnectedAgent;
 #[cfg(unix)]
 use super::agent_target::{cannot_deploy, cannot_start, not_connected};
-use super::core::{BoxedAgentClient, CoreRuntime};
+use super::core::CoreRuntime;
 #[cfg(unix)]
 use super::route_state::require_ssh_client;
 
 impl CoreRuntime {
-    /// SSH exec 経由で Agent プロセスを起動し、AgentClient を返す。
+    /// SSH exec 経由で Agent プロセスを起動し、つないだエージェントを返す。
     ///
     /// 1. sudo=true なら、sudo を使えるかと既定の所有者を確かめる
     /// 2. エージェントを配置済みにする（`ensure_agent_deployed`）
@@ -34,7 +35,7 @@ impl CoreRuntime {
     pub(crate) fn start_agent_via_ssh(
         &mut self,
         server_name: &str,
-    ) -> Result<BoxedAgentClient, AgentState> {
+    ) -> Result<ConnectedAgent, AgentState> {
         // サーバー設定を取得（借用を先に解決）
         let server_config = self
             .get_server_config(server_name)
@@ -144,13 +145,13 @@ impl CoreRuntime {
     }
 
     /// `agent_command` を SSH exec チャネルで実行し、ssh_transport でブリッジスレッドを起動して
-    /// AgentClient::connect でハンドシェイクする。ブリッジスレッドのガードはサーバごとに持つ
+    /// AgentClient::connect でハンドシェイクする。ブリッジスレッドのガードはクライアントと一緒に返す
     #[cfg(unix)]
     fn launch_agent(
         &mut self,
         server_name: &str,
         agent_command: &str,
-    ) -> Result<BoxedAgentClient, AgentState> {
+    ) -> Result<ConnectedAgent, AgentState> {
         tracing::debug!(
             "Starting agent: server={}, command={}",
             server_name,
@@ -182,10 +183,10 @@ impl CoreRuntime {
             PROTOCOL_VERSION
         );
 
-        // TransportGuard を保持してブリッジスレッドのライフサイクルを管理
-        self.transport_guards.insert(server_name.to_string(), guard);
-
-        Ok(client)
+        Ok(ConnectedAgent {
+            client,
+            _guard: Some(guard),
+        })
     }
 
     /// Unix 以外のプラットフォームではエージェントは利用不可
@@ -193,7 +194,7 @@ impl CoreRuntime {
     pub(crate) fn start_agent_via_ssh(
         &mut self,
         _server_name: &str,
-    ) -> Result<BoxedAgentClient, AgentState> {
+    ) -> Result<ConnectedAgent, AgentState> {
         Err(AgentState::CannotStart {
             reason: "the agent runs only on Unix platforms".to_string(),
         })

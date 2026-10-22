@@ -6,12 +6,9 @@
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex};
 
+use super::agent_clients::ConnectedAgent;
 use crate::agent::client::AgentClient;
-
-#[cfg(unix)]
-use crate::agent::ssh_transport::TransportGuard;
 use crate::config::{AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
 
@@ -35,11 +32,8 @@ pub struct CoreRuntime {
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
     pub ssh_clients: HashMap<String, SshClient>,
     pub config: AppConfig,
-    /// サーバ名 -> Agent クライアントのマップ（Agent 利用可能時のみ登録）
-    pub(crate) agent_clients: HashMap<String, Arc<Mutex<BoxedAgentClient>>>,
-    /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
-    #[cfg(unix)]
-    pub(crate) transport_guards: HashMap<String, TransportGuard>,
+    /// サーバ名 -> つないだエージェント（Agent 利用可能時のみ登録）
+    pub(crate) agent_clients: HashMap<String, ConnectedAgent>,
     /// つないだときにエージェントを使うと一度だけ決めたサーバ（REQ-ssh-024）。つなぎ直しても決め直さない
     pub(crate) agent_chosen: std::collections::HashSet<String>,
     pub(crate) targets: super::RuntimeTargets,
@@ -72,8 +66,6 @@ impl CoreRuntime {
             ssh_clients: HashMap::new(),
             config,
             agent_clients: HashMap::new(),
-            #[cfg(unix)]
-            transport_guards: HashMap::new(),
             agent_chosen: std::collections::HashSet::new(),
             targets,
             backup_store,

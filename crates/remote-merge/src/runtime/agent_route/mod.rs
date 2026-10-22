@@ -24,11 +24,10 @@ pub(crate) fn with_agent<T>(
     server_name: &str,
     operation: impl FnOnce(&mut BoxedAgentClient) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-    let Some(agent) = rt.get_agent(server_name) else {
+    let Some(agent) = rt.agent_clients.get_mut(server_name) else {
         return Err(not_running(server_name));
     };
-    let mut client = agent.lock().map_err(|_| not_running(server_name))?;
-    operation(&mut client)
+    operation(&mut agent.client)
 }
 
 fn not_running(server_name: &str) -> anyhow::Error {

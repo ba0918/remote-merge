@@ -54,12 +54,6 @@ fn test_has_agent_returns_false_initially() {
 }
 
 #[test]
-fn test_get_agent_returns_none_initially() {
-    let runtime = CoreRuntime::new_for_test();
-    assert!(runtime.get_agent("develop").is_none());
-}
-
-#[test]
 fn test_disconnect_agent_noop_when_no_agent() {
     let mut runtime = CoreRuntime::new_for_test();
     // パニックしないことを確認
@@ -74,7 +68,7 @@ fn test_start_agent_via_ssh_no_server_config() {
     let result = runtime.start_agent_via_ssh("nonexistent");
     assert!(result.is_err());
     assert!(
-        result.unwrap_err().to_string().contains("not found"),
+        result.err().unwrap().to_string().contains("not found"),
         "should report server not found"
     );
 }
@@ -103,7 +97,7 @@ fn test_start_agent_via_ssh_no_ssh_connection() {
     let result = runtime.start_agent_via_ssh("test-server");
     assert!(result.is_err());
     assert!(
-        result.unwrap_err().to_string().contains("not connected"),
+        result.err().unwrap().to_string().contains("not connected"),
         "should report SSH not connected"
     );
 }
@@ -114,39 +108,6 @@ fn test_disconnect_all_cleans_agent_clients() {
     // agent_clients は空だが disconnect_all がパニックしないことを確認
     runtime.disconnect_all();
     assert!(runtime.agent_clients.is_empty());
-}
-
-// ── Arc<Mutex<BoxedAgentClient>> 型テスト ──
-
-#[test]
-fn boxed_agent_client_is_send() {
-    fn assert_send<T: Send>() {}
-    // BoxedAgentClient = AgentClient<UnixStream, UnixStream>
-    // UnixStream: Send + Sync → AgentClient: Send
-    assert_send::<BoxedAgentClient>();
-}
-
-#[test]
-fn arc_mutex_agent_client_is_send_sync() {
-    fn assert_send_sync<T: Send + Sync>() {}
-    // Arc<Mutex<BoxedAgentClient>> は Send + Sync であることを確認
-    assert_send_sync::<Arc<Mutex<BoxedAgentClient>>>();
-}
-
-#[test]
-fn arc_mutex_agent_client_cloneable() {
-    // Arc<Mutex<>> の clone が同一リソースを共有し、
-    // スレッド間で安全にアクセスできることを確認
-    let data: Arc<Mutex<i32>> = Arc::new(Mutex::new(42));
-    let cloned = Arc::clone(&data);
-    assert_eq!(Arc::strong_count(&data), 2);
-
-    // 別スレッドから書き込み → メインスレッドで読み取り
-    let handle = std::thread::spawn(move || {
-        *cloned.lock().unwrap() = 99;
-    });
-    handle.join().unwrap();
-    assert_eq!(*data.lock().unwrap(), 99);
 }
 
 // ── サーバー設定付きテスト ──
