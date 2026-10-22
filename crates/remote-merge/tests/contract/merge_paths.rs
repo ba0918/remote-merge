@@ -1719,18 +1719,25 @@ fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
 // @kotowari[EX-cli-029]
 #[test]
 fn merging_a_file_does_not_record_its_body_in_diagnostic_logs() {
-    if std::env::var_os("REMOTE_MERGE_DIAGNOSTIC_LOG_CHILD").is_none() {
+    // 名前がずれて子のプロセスがこのテストを走らせなくても通ってしまわないよう、子には終わりに印を書かせる
+    const CHILD_RAN: &str = "REMOTE_MERGE_DIAGNOSTIC_LOG_CHILD";
+    let Some(ran) = std::env::var_os(CHILD_RAN) else {
+        let marker = TempDir::new().unwrap();
+        let ran = marker.path().join("ran");
+        let (_, module) = module_path!().split_once("::").unwrap();
+        let test = format!("{module}::merging_a_file_does_not_record_its_body_in_diagnostic_logs");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "merge_paths::merging_a_file_does_not_record_its_body_in_diagnostic_logs",
-            ])
-            .env("REMOTE_MERGE_DIAGNOSTIC_LOG_CHILD", "1")
+            .args(["--exact", &test])
+            .env(CHILD_RAN, &ran)
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
+        assert!(
+            ran.exists(),
+            "the child process did not run {test}: {output:?}"
+        );
         return;
-    }
+    };
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
@@ -1759,6 +1766,7 @@ fn merging_a_file_does_not_record_its_body_in_diagnostic_logs() {
         !recorded.contains(body.trim()),
         "file body leaked into diagnostic log"
     );
+    fs::write(ran, "").unwrap();
 }
 
 fn merge(
