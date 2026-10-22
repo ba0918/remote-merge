@@ -117,17 +117,29 @@ fn assert_oversized_file_is_an_error(output: &Output) {
 
 // ── EX-cli-081: どの経路でも同じに扱う ──
 
+// 上限を超えるのを片側ずつにし、ローカルの側とエージェントの側のどちらの判定も確かめる（両側が
+// 超えるとローカルの側だけで決まる）
 // @kotowari[EX-cli-081]
 #[tokio::test(flavor = "multi_thread")]
 async fn ex_cli_081_an_oversized_file_is_an_unreadable_file_via_the_agent() {
-    let fixture = AgentFixture::new().await;
-    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
-    place_two_oversized_files(&local_root, &remote_root);
+    for oversized in ["local", "remote"] {
+        let fixture = AgentFixture::new().await;
+        let [local_root, remote_root] =
+            ["local", "remote"].map(|side| fixture.temp.path().join(side));
+        for root in [&local_root, &remote_root] {
+            if root.ends_with(oversized) {
+                place_sparse(&root.join("big.bin"), LIMIT + 1, b'o');
+            } else {
+                fs::create_dir_all(root).unwrap();
+                fs::write(root.join("big.bin"), b"small\0").unwrap();
+            }
+        }
 
-    let output =
-        fixture.diff_via_agent(&local_root, &remote_root, &["big.bin", "--format", "json"]);
+        let output =
+            fixture.diff_via_agent(&local_root, &remote_root, &["big.bin", "--format", "json"]);
 
-    assert_oversized_file_is_an_error(&output);
+        assert_oversized_file_is_an_error(&output);
+    }
 }
 
 // ── REQ-cli-079: 片側だけ上限を超える、読む前に大きさで決める ──
@@ -399,6 +411,10 @@ fn req_cli_079_force_backs_up_a_file_over_the_limit_before_rollback_restores_it(
         .find(|entry| entry["path"] == "a.txt")
         .unwrap_or_else(|| panic!("a.txt not restored: {json}"));
     assert!(restored["pre_rollback_backup"].is_string(), "{json}");
+    assert!(
+        has_regular_file_of_size(&backups_of(&env), LIMIT + 1),
+        "{output:?}"
+    );
 }
 
 // ── --force のない sync と rollback: 上限を超える中身は読まずに止める ──
