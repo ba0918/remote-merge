@@ -27,7 +27,7 @@ pub(super) fn local_agent_hash<R: Read>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::deploy;
+    use remote_merge_core::sha256::hex_of_bytes;
 
     #[test]
     fn empty_and_multi_buffer_binaries_have_the_same_digest_as_their_contents() {
@@ -36,7 +36,7 @@ mod tests {
                 Ok(std::io::Cursor::new(&bytes))
             })
             .unwrap();
-            assert_eq!(hash, Some(deploy::sha256_of_bytes(&bytes)));
+            assert_eq!(hash, Some(hex_of_bytes(&bytes)));
         }
     }
 
@@ -66,7 +66,7 @@ mod tests {
         assert_eq!(unresolved.unwrap(), None);
 
         let read = local_agent_hash(Ok(PathBuf::from("/a")), |_| Ok(&b"abc"[..]));
-        assert_eq!(read.unwrap(), Some(deploy::sha256_of_bytes(b"abc")));
+        assert_eq!(read.unwrap(), Some(hex_of_bytes(b"abc")));
 
         let unreadable = local_agent_hash::<&[u8]>(Ok(PathBuf::from("/agent-bin")), |_| {
             Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))

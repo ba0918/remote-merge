@@ -34,5 +34,5 @@ pub use transfer::{
 };
 pub use verify::{
     InstalledBinary, is_debug_binary, judge_installed_binary, parse_checksum_output,
-    parse_version_output, sha256_of_bytes, verify_checksum,
+    parse_version_output, verify_checksum,
 };

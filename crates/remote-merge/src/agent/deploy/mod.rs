@@ -16,9 +16,4 @@ pub use transfer::{
     build_agent_command, build_post_write_script, build_pre_write_command, check_version_command,
     expected_version_line, remote_binary_path,
 };
-pub use verify::{
-    is_debug_binary, parse_checksum_output, parse_version_output, sha256_of_bytes, verify_checksum,
-};
-
-#[cfg(test)]
-pub use verify::compute_file_sha256;
+pub use verify::{is_debug_binary, parse_checksum_output, parse_version_output, verify_checksum};

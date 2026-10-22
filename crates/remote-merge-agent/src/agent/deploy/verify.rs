@@ -48,11 +48,6 @@ pub fn verify_checksum(local_hash: &str, remote_hash: &str) -> bool {
     local_hash.to_lowercase() == remote_hash.to_lowercase()
 }
 
-/// Compute the SHA-256 hash of a byte slice, returning a lowercase hex string.
-pub fn sha256_of_bytes(data: &[u8]) -> String {
-    remote_merge_core::sha256::hex_of_bytes(data)
-}
-
 /// Check whether a binary is likely a debug build based on file size.
 ///
 /// Returns `true` if `size_bytes` exceeds 50 MB (52_428_800 bytes).

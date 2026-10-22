@@ -1,10 +1,7 @@
-#[cfg(test)]
-use sha2::{Digest, Sha256};
-
 use super::VersionCheck;
 
 pub use remote_merge_agent::agent::deploy::{
-    is_debug_binary, parse_checksum_output, sha256_of_bytes, verify_checksum,
+    is_debug_binary, parse_checksum_output, verify_checksum,
 };
 
 /// リモートのバージョン確認コマンド出力をパースする。
@@ -20,35 +17,8 @@ pub fn parse_version_output(output: &str) -> VersionCheck {
     )
 }
 
-/// Compute the SHA-256 hash of a file on disk (streaming).
-///
-/// Only available in test builds.
-#[cfg(test)]
-pub fn compute_file_sha256(path: &std::path::Path) -> anyhow::Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    let digest = hasher.finalize();
-    use std::fmt::Write;
-    let mut s = String::with_capacity(64);
-    for b in digest.iter() {
-        write!(s, "{:02x}", b).unwrap();
-    }
-    Ok(s)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use crate::agent::deploy::expected_version_line;
 
@@ -195,44 +165,6 @@ mod tests {
         let lower = "abcdef1234567890".repeat(4);
         let upper = lower.to_uppercase();
         assert!(verify_checksum(&lower, &upper));
-    }
-
-    // --- sha256_of_bytes ---
-
-    #[test]
-    fn sha256_of_bytes_known_input() {
-        assert_eq!(
-            sha256_of_bytes(b"hello"),
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-        );
-    }
-
-    #[test]
-    fn sha256_of_bytes_empty() {
-        assert_eq!(
-            sha256_of_bytes(b""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-    }
-
-    // --- compute_file_sha256 ---
-
-    #[test]
-    fn compute_file_sha256_matches_sha256_of_bytes() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("test-data");
-        let data = b"test data for sha256";
-        std::fs::write(&file_path, data).unwrap();
-
-        let from_file = compute_file_sha256(&file_path).unwrap();
-        let from_bytes = sha256_of_bytes(data);
-        assert_eq!(from_file, from_bytes);
-    }
-
-    #[test]
-    fn compute_file_sha256_nonexistent_file() {
-        let result = compute_file_sha256(Path::new("/nonexistent/path/file"));
-        assert!(result.is_err());
     }
 
     // --- is_debug_binary ---

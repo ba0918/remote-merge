@@ -144,7 +144,7 @@ impl CoreRuntime {
             remote_path.display()
         );
         let binary_bytes = std::fs::read(&local_path)?;
-        let local_hash = deploy::sha256_of_bytes(&binary_bytes);
+        let local_hash = remote_merge_core::sha256::hex_of_bytes(&binary_bytes);
 
         // Step 1: mkdir + symlink チェック（1 exec）
         let pre_cmd = deploy::build_pre_write_command(remote_path, sudo);
