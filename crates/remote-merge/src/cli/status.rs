@@ -120,12 +120,7 @@ fn compare_and_list(
     }
     let with_ref = sides.reference.is_some();
     let listing = status_listing(&comparison.paths, with_ref);
-    let mut counts = summary(&listing.files, listing.errors.len());
-    if let Some(reference) = listing.ref_counts {
-        counts.ref_differs = Some(reference.differs);
-        counts.ref_only = Some(reference.only);
-        counts.ref_missing = Some(reference.missing);
-    }
+    let counts = summary(&listing.files, listing.errors.len(), listing.ref_counts);
     let code = exit_code(&listing.files, listing.errors.len());
     let files = shown(listing.files, args.all);
     let output = StatusOutput {

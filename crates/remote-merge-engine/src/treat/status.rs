@@ -135,17 +135,24 @@ pub fn ref_counts(marks: &[RefMark], only_in_ref: usize) -> RefCounts {
     }
 }
 
-/// --all の有無によらずすべてのファイルを値ごとに数え、errors に出したファイルの数を添える
-/// （docs/ir/cli/status-output.md の REQ-cli-029・REQ-cli-032）
-pub fn summary(files: &[FileStatus], unreadable: usize) -> StatusSummary {
+/// --all の有無によらずすべてのファイルを値ごとに数え、errors に出したファイルの数と、参照先を
+/// 使ったときは参照先との違いの集計を添える（docs/ir/cli/status-output.md の REQ-cli-029・REQ-cli-032、
+/// status-targets.md の REQ-cli-035）
+pub fn summary(
+    files: &[FileStatus],
+    unreadable: usize,
+    reference: Option<RefCounts>,
+) -> StatusSummary {
     let count = |kind: FileStatusKind| files.iter().filter(|file| file.status == kind).count();
     StatusSummary {
         modified: count(FileStatusKind::Modified),
         left_only: count(FileStatusKind::LeftOnly),
         right_only: count(FileStatusKind::RightOnly),
         equal: count(FileStatusKind::Equal),
+        ref_differs: reference.map(|counts| counts.differs),
+        ref_only: reference.map(|counts| counts.only),
+        ref_missing: reference.map(|counts| counts.missing),
         unreadable,
-        ..StatusSummary::default()
     }
 }
 

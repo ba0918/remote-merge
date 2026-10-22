@@ -275,7 +275,7 @@ fn the_summary_counts_every_file_by_its_value_and_the_errors() {
         listed("d", Equal),
         listed("e", Equal),
     ];
-    let summary = summary(&files, 3);
+    let summary = summary(&files, 3, None);
     assert_eq!(
         (
             summary.modified,
