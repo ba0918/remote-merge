@@ -18,7 +18,7 @@ fn a_whole_file_conflict_has_only_the_whole_file_range() {
 // @kotowari[REQ-cli-065]
 #[test]
 fn a_line_conflict_keeps_the_fields_of_the_region() {
-    let region = crate::diff::conflict::ConflictRegion {
+    let region = remote_merge_core::diff::conflict::ConflictRegion {
         ref_range: 1..2,
         left_lines: vec!["l".into()],
         right_lines: vec!["r".into()],

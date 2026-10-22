@@ -46,7 +46,7 @@ pub fn scan_listing(
 
 /// ローカルの root_dir がないときの誤り
 pub fn missing_root(root: &Path) -> anyhow::Error {
-    crate::error::AppError::PathNotFound {
+    remote_merge_core::error::AppError::PathNotFound {
         path: root.to_path_buf(),
     }
     .into()

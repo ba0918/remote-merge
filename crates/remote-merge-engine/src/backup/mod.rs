@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
-use crate::config::{LocalConfig, ServerConfig};
+use remote_merge_config::{LocalConfig, ServerConfig};
 
 /// XDG のデータディレクトリとホームディレクトリから集約先を決める。
 pub fn backup_store_path(xdg_data_home: Option<&Path>, home_dir: Option<&Path>) -> Option<PathBuf> {
@@ -169,8 +169,8 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AuthMethod, LocalConfig, ServerConfig};
     use chrono::TimeZone;
+    use remote_merge_config::{AuthMethod, LocalConfig, ServerConfig};
 
     fn remote_config(user: &str, host: &str, root_dir: &str) -> ServerConfig {
         ServerConfig {

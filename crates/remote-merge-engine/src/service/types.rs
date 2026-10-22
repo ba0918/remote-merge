@@ -149,7 +149,7 @@ pub enum ConflictArea {
     WholeFile {
         ref_range: WholeFile,
     },
-    Lines(crate::diff::conflict::ConflictRegion),
+    Lines(remote_merge_core::diff::conflict::ConflictRegion),
 }
 
 impl ConflictArea {
@@ -897,7 +897,7 @@ mod tests {
 
     #[test]
     fn test_diff_output_conflict_count_nonzero_serialized() {
-        use crate::diff::conflict::ConflictRegion;
+        use remote_merge_core::diff::conflict::ConflictRegion;
 
         let output = DiffOutput {
             path: "a.rs".into(),
