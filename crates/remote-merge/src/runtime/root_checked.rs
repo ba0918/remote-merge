@@ -149,7 +149,7 @@ pub(super) fn is_root_missing(error: &anyhow::Error) -> bool {
 /// 走査の root_dir がない誤りと同じ誤り（経路ごとの文言。REQ-scan-015）
 fn root_missing(side: &Side, runtime: &CoreRuntime) -> anyhow::Error {
     let shown: anyhow::Error = match side {
-        Side::Remote(name) if runtime.targets.local_override(name).is_none() => {
+        Side::Remote(name) if runtime.local_override(name).is_none() => {
             match runtime.get_server_config(name) {
                 Ok(server) => super::remote_root::remote_root_missing(name, &server.root_dir),
                 Err(error) => error,

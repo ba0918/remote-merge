@@ -9,7 +9,7 @@ impl CoreRuntime {
     pub fn connect_side(&mut self, side: &Side) -> anyhow::Result<()> {
         match side {
             Side::Local => Ok(()),
-            Side::Remote(name) if self.targets.local_override(name).is_some() => Ok(()),
+            Side::Remote(name) if self.local_override(name).is_some() => Ok(()),
             Side::Remote(name) => self.connect_if_needed(name),
         }
     }

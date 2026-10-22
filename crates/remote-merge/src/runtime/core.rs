@@ -36,7 +36,8 @@ pub struct CoreRuntime {
     pub(crate) agent_clients: HashMap<String, ConnectedAgent>,
     /// つないだときにエージェントを使うと一度だけ決めたサーバ（REQ-ssh-024）。つなぎ直しても決め直さない
     pub(crate) agent_chosen: std::collections::HashSet<String>,
-    pub(crate) targets: super::RuntimeTargets,
+    /// サーバ名ごとの、そのサーバの代わりに相手にするローカルのディレクトリ
+    local_overrides: HashMap<String, std::path::PathBuf>,
     pub(crate) backup_store: super::backup_store::BackupStore,
     /// `接続断` か root_dir がなくなったことで処理を止めた書き込み先と、止めた理由。以降の操作は
     /// 行わずに失敗にする
@@ -56,18 +57,21 @@ impl CoreRuntime {
     }
 
     pub fn with_targets(config: AppConfig, targets: super::RuntimeTargets) -> Self {
-        let backup_store = super::backup_store::BackupStore::new(
-            targets.backup_store.clone(),
-            targets.startup_directory.clone(),
-            targets.now,
-        );
+        let super::RuntimeTargets {
+            local_overrides,
+            backup_store,
+            startup_directory,
+            now,
+        } = targets;
+        let backup_store =
+            super::backup_store::BackupStore::new(backup_store, startup_directory, now);
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
             ssh_clients: HashMap::new(),
             config,
             agent_clients: HashMap::new(),
             agent_chosen: std::collections::HashSet::new(),
-            targets,
+            local_overrides,
             backup_store,
             stopped: HashMap::new(),
             checked_include: HashMap::new(),
@@ -111,6 +115,13 @@ impl CoreRuntime {
         };
         config.agent.enabled = false;
         Self::with_targets(config, super::RuntimeTargets::for_test())
+    }
+
+    /// サーバ `server_name` の代わりに相手にするローカルのディレクトリ
+    pub(crate) fn local_override(&self, server_name: &str) -> Option<&std::path::Path> {
+        self.local_overrides
+            .get(server_name)
+            .map(std::path::PathBuf::as_path)
     }
 
     /// 指定サーバー名の設定を取得する

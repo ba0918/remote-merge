@@ -109,10 +109,6 @@ impl RuntimeTargets {
         self
     }
 
-    pub(crate) fn local_override(&self, server_name: &str) -> Option<&Path> {
-        self.local_overrides.get(server_name).map(PathBuf::as_path)
-    }
-
     pub(crate) fn now(&self) -> DateTime<Utc> {
         self.now
     }

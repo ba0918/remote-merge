@@ -90,7 +90,7 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
     }
     let inner: Box<dyn TargetIo> = match side {
         Side::Local => Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
-        Side::Remote(name) => match runtime.targets.local_override(name) {
+        Side::Remote(name) => match runtime.local_override(name) {
             Some(root) => Box::new(super::local_target::LocalTargetIo::new(
                 root.to_path_buf(),
                 runtime.config.filter.exclude.clone(),
@@ -109,7 +109,7 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
 pub(crate) fn shown_root(side: &Side, runtime: &CoreRuntime) -> String {
     match side {
         Side::Local => runtime.config.local.root_dir.display().to_string(),
-        Side::Remote(name) => match runtime.targets.local_override(name) {
+        Side::Remote(name) => match runtime.local_override(name) {
             Some(root) => root.display().to_string(),
             None => match runtime.get_server_config(name) {
                 Ok(server) => super::remote_root::remote_shown_root(name, &server.root_dir),
