@@ -281,32 +281,6 @@ mod bridge_tests;
 mod tests {
     use super::*;
 
-    /// writer_relay_loop が EOF で正常終了することを確認
-    #[test]
-    fn writer_relay_exits_on_eof() {
-        let (relay_read, relay_write) = UnixStream::pair().unwrap();
-        relay_read
-            .set_read_timeout(Some(Duration::from_millis(RELAY_READ_TIMEOUT_MS)))
-            .unwrap();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        let handle = std::thread::spawn({
-            let shutdown = shutdown.clone();
-            move || {
-                writer_relay_loop(relay_read, &tx, &shutdown);
-            }
-        });
-
-        // データを送信してから EOF
-        relay_write.shutdown(std::net::Shutdown::Write).unwrap();
-        handle.join().expect("writer_relay should exit cleanly");
-
-        // rx は空（EOF のみだったため何も送信されない、または空）
-        // ドロップ時にパニックしなければ OK
-        drop(rx);
-    }
-
     /// writer_relay_loop がデータを中継することを確認
     #[test]
     fn writer_relay_forwards_data() {

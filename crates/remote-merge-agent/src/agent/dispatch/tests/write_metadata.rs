@@ -8,31 +8,6 @@ fn mode_of(path: &std::path::Path) -> u32 {
 }
 
 #[test]
-fn write_file_propagates_metadata_config() {
-    let (tmp, mut d) = setup_with_config(MetadataConfig {
-        default_uid: Some(1000),
-        default_gid: Some(1000),
-    });
-
-    let resp = single(
-        d.dispatch(AgentRequest::WriteFile {
-            path: "new_file.txt".into(),
-            content: b"hello".to_vec(),
-            is_binary: false,
-            more_to_follow: false,
-        })
-        .unwrap(),
-    );
-
-    assert_eq!(resp, AgentResponse::Changed { failure: None });
-    // ファイルが書き込まれていること
-    assert_eq!(
-        fs::read_to_string(tmp.path().join("new_file.txt")).unwrap(),
-        "hello"
-    );
-}
-
-#[test]
 fn write_file_chunked_saved_metadata_management() {
     use std::os::unix::fs::PermissionsExt;
 

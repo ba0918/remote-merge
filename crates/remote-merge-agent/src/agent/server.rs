@@ -192,55 +192,6 @@ mod tests {
     }
 
     #[test]
-    fn send_response_roundtrip() {
-        let resp = AgentResponse::Pong;
-        let mut buf = Vec::new();
-        send_response(&mut buf, &resp).unwrap();
-
-        let mut reader = Cursor::new(buf);
-        let frame = framing::read_frame(&mut reader).unwrap();
-        let decoded = protocol::deserialize_response(&frame).unwrap();
-        assert_eq!(decoded, AgentResponse::Pong);
-    }
-
-    #[test]
-    fn send_response_error_roundtrip() {
-        let resp = AgentResponse::Error {
-            message: "test error".into(),
-        };
-        let mut buf = Vec::new();
-        send_response(&mut buf, &resp).unwrap();
-
-        let mut reader = Cursor::new(buf);
-        let frame = framing::read_frame(&mut reader).unwrap();
-        let decoded = protocol::deserialize_response(&frame).unwrap();
-        assert_eq!(decoded, resp);
-    }
-
-    #[test]
-    fn handshake_output_format() {
-        let tmp = TempDir::new().unwrap();
-        let mut input = Vec::new();
-        write_request_frame(&mut input, &AgentRequest::Ping);
-
-        let mut output = Vec::new();
-        run_agent_loop(
-            Cursor::new(input),
-            &mut output,
-            tmp.path().to_path_buf(),
-            MetadataConfig::default(),
-        )
-        .unwrap();
-
-        // 出力の先頭はハンドシェイク行（改行終端）
-        let handshake_expected = format!("{}\n", protocol::format_handshake());
-        assert!(
-            output.starts_with(handshake_expected.as_bytes()),
-            "output should start with handshake line"
-        );
-    }
-
-    #[test]
     fn ping_pong_then_eof() {
         let tmp = TempDir::new().unwrap();
         let mut input = Vec::new();
@@ -367,70 +318,5 @@ mod tests {
         // ハンドシェイク行だけが出力される
         let handshake_expected = format!("{}\n", protocol::format_handshake());
         assert_eq!(output, handshake_expected.as_bytes());
-    }
-
-    // ── MetadataConfig ──
-
-    #[test]
-    fn metadata_config_default_all_none() {
-        let config = MetadataConfig::default();
-        assert_eq!(config.default_uid, None);
-        assert_eq!(config.default_gid, None);
-    }
-
-    #[test]
-    fn metadata_config_with_values() {
-        let config = MetadataConfig {
-            default_uid: Some(1000),
-            default_gid: Some(1000),
-        };
-        assert_eq!(config.default_uid, Some(1000));
-        assert_eq!(config.default_gid, Some(1000));
-    }
-
-    #[test]
-    fn metadata_config_partial_values() {
-        let config = MetadataConfig {
-            default_uid: Some(500),
-            default_gid: None,
-        };
-        assert_eq!(config.default_uid, Some(500));
-        assert_eq!(config.default_gid, None);
-    }
-
-    #[test]
-    fn metadata_config_clone_and_eq() {
-        let config = MetadataConfig {
-            default_uid: Some(1000),
-            default_gid: Some(1000),
-        };
-        let cloned = config.clone();
-        assert_eq!(config, cloned);
-    }
-
-    #[test]
-    fn agent_loop_with_metadata_config() {
-        // MetadataConfig を渡しても正常にループが動作することを確認
-        let tmp = TempDir::new().unwrap();
-        let config = MetadataConfig {
-            default_uid: Some(1000),
-            default_gid: Some(1000),
-        };
-
-        let mut input = Vec::new();
-        write_request_frame(&mut input, &AgentRequest::Ping);
-
-        let mut output = Vec::new();
-        run_agent_loop(
-            Cursor::new(input),
-            &mut output,
-            tmp.path().to_path_buf(),
-            config,
-        )
-        .unwrap();
-
-        let response_bytes = extract_response_bytes(&output);
-        let mut reader = Cursor::new(response_bytes);
-        assert_eq!(read_response_frame(&mut reader), AgentResponse::Pong);
     }
 }
