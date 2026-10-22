@@ -59,6 +59,15 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn a_frame_is_the_payload_length_as_four_big_endian_bytes_then_the_payload() {
+        let payload = vec![0x5a; 0x0102];
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &payload).unwrap();
+        assert_eq!(buf[..4], [0, 0, 0x01, 0x02]);
+        assert_eq!(buf[4..], payload);
+    }
+
+    #[test]
     fn roundtrip_basic() {
         let data = b"hello, world!";
         let mut buf = Vec::new();
