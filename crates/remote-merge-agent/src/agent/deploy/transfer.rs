@@ -174,3 +174,82 @@ pub fn build_agent_command(
     }
     cmd
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REMOTE: &str = "/d/remote-merge";
+    const TMP: &str = "/d/remote-merge.tmp";
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn post_write_script(sudo: bool) -> String {
+        build_post_write_script(Path::new(REMOTE), TMP, HASH, sudo, "1.2.3 (protocol v15)").unwrap()
+    }
+
+    #[test]
+    fn with_sudo_the_installed_binary_is_hashed_with_sudo() {
+        assert_eq!(
+            installed_checksum_command(Path::new(REMOTE), true),
+            "sudo sha256sum '/d/remote-merge' 2>/dev/null || sudo shasum -a 256 '/d/remote-merge' 2>/dev/null || echo __UNSUPPORTED__"
+        );
+    }
+
+    #[test]
+    fn without_sudo_the_installed_binary_is_hashed_directly() {
+        assert_eq!(
+            installed_checksum_command(Path::new(REMOTE), false),
+            "sha256sum '/d/remote-merge' 2>/dev/null || shasum -a 256 '/d/remote-merge' 2>/dev/null || echo __UNSUPPORTED__"
+        );
+    }
+
+    #[test]
+    fn with_sudo_every_step_after_the_upload_runs_with_sudo() {
+        assert_eq!(
+            post_write_script(true),
+            r#"set -e
+sudo chmod 700 '/d/remote-merge.tmp'
+_cksum=$(sudo sha256sum '/d/remote-merge.tmp' 2>/dev/null || sudo shasum -a 256 '/d/remote-merge.tmp' 2>/dev/null || echo __UNSUPPORTED__)
+if [ "$_cksum" != "__UNSUPPORTED__" ]; then
+  _hash=$(echo "$_cksum" | cut -c1-64)
+  if [ "$_hash" != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ]; then
+    sudo rm -f '/d/remote-merge.tmp' || true
+    echo "checksum mismatch: expected 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, got $_hash" >&2
+    exit 1
+  fi
+fi
+_ver=$(sudo '/d/remote-merge.tmp' --version 2>/dev/null || echo __NOT_FOUND__)
+if [ "$_ver" != "remote-merge 1.2.3 (protocol v15)" ]; then
+  sudo rm -f '/d/remote-merge.tmp' || true
+  echo "version mismatch: expected remote-merge 1.2.3 (protocol v15), got $_ver" >&2
+  exit 1
+fi
+sudo mv '/d/remote-merge.tmp' '/d/remote-merge'"#
+        );
+    }
+
+    #[test]
+    fn without_sudo_no_step_after_the_upload_runs_with_sudo() {
+        assert_eq!(
+            post_write_script(false),
+            r#"set -e
+chmod 700 '/d/remote-merge.tmp'
+_cksum=$(sha256sum '/d/remote-merge.tmp' 2>/dev/null || shasum -a 256 '/d/remote-merge.tmp' 2>/dev/null || echo __UNSUPPORTED__)
+if [ "$_cksum" != "__UNSUPPORTED__" ]; then
+  _hash=$(echo "$_cksum" | cut -c1-64)
+  if [ "$_hash" != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ]; then
+    rm -f '/d/remote-merge.tmp' || true
+    echo "checksum mismatch: expected 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, got $_hash" >&2
+    exit 1
+  fi
+fi
+_ver=$('/d/remote-merge.tmp' --version 2>/dev/null || echo __NOT_FOUND__)
+if [ "$_ver" != "remote-merge 1.2.3 (protocol v15)" ]; then
+  rm -f '/d/remote-merge.tmp' || true
+  echo "version mismatch: expected remote-merge 1.2.3 (protocol v15), got $_ver" >&2
+  exit 1
+fi
+mv '/d/remote-merge.tmp' '/d/remote-merge'"#
+        );
+    }
+}
