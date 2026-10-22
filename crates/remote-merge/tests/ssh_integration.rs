@@ -507,6 +507,16 @@ async fn connect_client(handle: &TestServerHandle) -> (SshClient, NamedTempFile)
     (client, key_file)
 }
 
+/// SSH の接続そのものの失敗（接続できない・接続断・時間切れ）か。コマンドの失敗や認証の失敗は含めない
+fn is_connection_error(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote_merge::error::AppError>(),
+        Some(remote_merge::error::AppError::SshConnection { .. })
+            | Some(remote_merge::error::AppError::SshDisconnected { .. })
+            | Some(remote_merge::error::AppError::SshTimeout { .. })
+    )
+}
+
 // エージェントを置くコマンドの出力が終了ステータスなしで切れたら、途中までの出力で成功にしない
 #[tokio::test]
 async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
@@ -521,10 +531,7 @@ async fn a_command_cut_off_without_exit_status_is_a_connection_error() {
         .await
         .expect_err("a command without an exit status must not succeed");
 
-    assert!(
-        remote_merge::error::is_connection_error(&error),
-        "{error:?}"
-    );
+    assert!(is_connection_error(&error), "{error:?}");
 }
 
 // ── write_file テストケース ──
@@ -589,10 +596,7 @@ async fn large_input_cut_off_without_exit_status_returns_connection_error_prompt
     .expect("channel closure must cancel the blocked upload")
     .expect_err("missing exit status must not succeed");
 
-    assert!(
-        remote_merge::error::is_connection_error(&error),
-        "{error:?}"
-    );
+    assert!(is_connection_error(&error), "{error:?}");
     client.disconnect().await.expect("disconnect failed");
 }
 
