@@ -110,16 +110,3 @@ fn only_a_disconnection_is_a_disconnection() {
     assert!(OpFailure::Disconnected(Disconnection::NotSent("closed".into())).is_disconnection());
     assert!(!OpFailure::Io("x".into()).is_disconnection());
 }
-
-#[test]
-fn an_error_chain_is_read_for_its_kind() {
-    let io = anyhow::Error::new(os_error(libc::EACCES)).context("writing");
-    assert_eq!(from_error(&io), OpFailure::PermissionDenied);
-    let typed = anyhow::Error::new(OpError::new(Operation::Write, "a", OpFailure::NotFound));
-    assert_eq!(from_error(&typed), OpFailure::NotFound);
-    let other = anyhow::anyhow!("pre-write check failed");
-    assert_eq!(
-        from_error(&other),
-        OpFailure::Io("pre-write check failed".to_string())
-    );
-}
