@@ -2,6 +2,9 @@
 //! 経路の選び方に渡すエージェントの状態を返し、ここでは経路を選ばない
 
 #[cfg(unix)]
+use std::path::PathBuf;
+
+#[cfg(unix)]
 use crate::agent::client::AgentClient;
 #[cfg(unix)]
 use crate::agent::deploy::{self, VersionCheck};
@@ -9,6 +12,7 @@ use crate::agent::deploy::{self, VersionCheck};
 use crate::agent::protocol::CLI_VERSION;
 #[cfg(unix)]
 use crate::agent::ssh_transport;
+
 #[cfg(unix)]
 use remote_merge_core::route_choice::AgentState;
 
@@ -21,10 +25,9 @@ use super::route_state::require_ssh_client;
 impl CoreRuntime {
     /// SSH exec 経由で Agent プロセスを起動し、AgentClient を返す。
     ///
-    /// 1. 配置先のディレクトリの検査 → バージョンチェック → 不一致または未配置なら自動デプロイ
-    /// 2. SSH exec チャネルで Agent プロセスを起動
-    /// 3. ssh_transport でブリッジスレッドを起動し、UnixStream ペアを取得
-    /// 4. AgentClient::connect でハンドシェイク
+    /// 1. sudo=true なら、sudo を使えるかと既定の所有者を確かめる
+    /// 2. エージェントを配置済みにする（`ensure_agent_deployed`）
+    /// 3. エージェントを起動してつなぐ（`launch_agent`）
     ///
     /// 使えなければ、経路の選び方（TBL-ssh-001）に渡すエージェントの状態を返す
     #[cfg(unix)]
@@ -39,7 +42,6 @@ impl CoreRuntime {
         let user = server_config.user.clone();
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let sudo = server_config.sudo;
-        let deploy_dir = self.config.agent.deploy_dir.clone();
 
         // sudo=true の場合: pre-flight チェック
         let (default_uid, default_gid) = if sudo {
@@ -49,8 +51,23 @@ impl CoreRuntime {
             (None, None)
         };
 
+        let remote_path = self.ensure_agent_deployed(server_name, &user, sudo)?;
+        let agent_command =
+            deploy::build_agent_command(&remote_path, &root_dir, sudo, default_uid, default_gid);
+        self.launch_agent(server_name, &agent_command)
+    }
+
+    /// 配置先のディレクトリの検査 → バージョンチェック → 不一致・未配置・中身の違いなら配置し、
+    /// 配置先のバイナリのパスを返す
+    #[cfg(unix)]
+    fn ensure_agent_deployed(
+        &mut self,
+        server_name: &str,
+        user: &str,
+        sudo: bool,
+    ) -> Result<PathBuf, AgentState> {
         // リモートバイナリパスを計算
-        let remote_path = deploy::remote_binary_path(&deploy_dir, &user);
+        let remote_path = deploy::remote_binary_path(&self.config.agent.deploy_dir, user);
         tracing::debug!(
             "Agent deploy target: server={}, path={}",
             server_name,
@@ -123,10 +140,17 @@ impl CoreRuntime {
             self.deploy_agent_binary(server_name, &remote_path, sudo, remote_target)
                 .map_err(|error| cannot_deploy(&error))?;
         }
+        Ok(remote_path)
+    }
 
-        // Agent プロセスを起動
-        let agent_command =
-            deploy::build_agent_command(&remote_path, &root_dir, sudo, default_uid, default_gid);
+    /// `agent_command` を SSH exec チャネルで実行し、ssh_transport でブリッジスレッドを起動して
+    /// AgentClient::connect でハンドシェイクする。ブリッジスレッドのガードはサーバごとに持つ
+    #[cfg(unix)]
+    fn launch_agent(
+        &mut self,
+        server_name: &str,
+        agent_command: &str,
+    ) -> Result<BoxedAgentClient, AgentState> {
         tracing::debug!(
             "Starting agent: server={}, command={}",
             server_name,
@@ -136,7 +160,7 @@ impl CoreRuntime {
             .map_err(|error| cannot_start(&error))?;
         let channel = self
             .rt
-            .block_on(ssh_client.open_exec_channel(&agent_command))
+            .block_on(ssh_client.open_exec_channel(agent_command))
             .map_err(|error| cannot_start(&error))?;
 
         // ブリッジスレッドを起動し、UnixStream ペアを取得
