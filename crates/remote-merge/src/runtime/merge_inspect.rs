@@ -120,3 +120,7 @@ fn destination_absent(comparison: &PathComparison) -> bool {
         Some(SideState::Absent)
     )
 }
+
+#[cfg(all(test, unix))]
+#[path = "merge_inspect_tests.rs"]
+mod tests;
