@@ -34,13 +34,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - CLIの出力とruntimeのI/Oは製品側に残す。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。
 - 製品バージョンの正本は `crates/remote-merge/Cargo.toml` の `package.version`。
-- core の内部バージョンは `crates/remote-merge-core/Cargo.toml` の `package.version`。core は `publish = false` とし、製品のバージョンとは独立に扱う。
-- protocol の内部バージョンは `crates/remote-merge-protocol/Cargo.toml` の `package.version`。protocol は `publish = false`。通信版の正本は `define_protocol_version` の単一リテラルで、製品側の `CLI_VERSION` は製品版と通信版を組み合わせた定数とする。
-- settings の内部バージョンは `crates/remote-merge-settings/Cargo.toml` の `package.version`。settings は版0.1.0・`publish = false` とし、製品版とは独立に扱う。
-- ssh の内部バージョンは `crates/remote-merge-ssh/Cargo.toml` の `package.version`。ssh は版0.1.0・`publish = false` とし、製品版とは独立に扱う。
-- config の内部バージョンは `crates/remote-merge-config/Cargo.toml` の `package.version`。configは版0.1.0・`publish = false` とし、製品版とは独立に扱う。
-- agent の内部バージョンは `crates/remote-merge-agent/Cargo.toml` の `package.version`。agentは版0.1.0・`publish = false` とし、製品版とは独立に扱う。
-- engine の内部バージョンは `crates/remote-merge-engine/Cargo.toml` の `package.version`。engineは版0.1.0・`publish = false` とし、製品版とは独立に扱う。
+- 製品以外の crate（core・protocol・settings・ssh・config・agent・engine）は `publish = false` で、版は各 crate の `Cargo.toml` の `package.version` に製品版とは独立に持つ。通信版の正本は protocol の `define_protocol_version` の単一リテラルで、製品側の `CLI_VERSION` は製品版と通信版を組み合わせた定数とする。
 - 設定はグローバルの `~/.config/remote-merge/config.toml` と、プロジェクトの `.remote-merge.toml`。後者が優先し、`[filter]` は和集合でマージする。
 
 ## Commands
