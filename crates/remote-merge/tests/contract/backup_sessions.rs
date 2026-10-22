@@ -739,37 +739,6 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     assert_ne!(merged_session(&first), merged_session(&second));
 }
 
-// @kotowari[REQ-backup-023]
-#[test]
-fn concurrent_merges_use_distinct_session_ids() {
-    let store = TempDir::new().unwrap();
-    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let mut handles = Vec::new();
-    for index in 0..2 {
-        let local = TempDir::new().unwrap();
-        let develop = TempDir::new().unwrap();
-        fs::write(
-            local.path().join("file.txt"),
-            format!("new content {index}\n"),
-        )
-        .unwrap();
-        fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-        let config = config(&local, &develop, true);
-        let targets = targets(&develop, &store);
-        let barrier = barrier.clone();
-        handles.push(std::thread::spawn(move || {
-            let _guards = (local, develop);
-            barrier.wait();
-            merged_session(&merge_files(merge_args("file.txt"), config, targets))
-        }));
-    }
-    let sessions = handles
-        .into_iter()
-        .map(|handle| handle.join().unwrap())
-        .collect::<Vec<_>>();
-    assert_ne!(sessions[0], sessions[1]);
-}
-
 /// 同じ集約先と同じ時刻で、merge を threads 本同時に始める。
 /// どれかがエラーで終わればパニックし、成功したもののセッション ID を返す。
 fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
