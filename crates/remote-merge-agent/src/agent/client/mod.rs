@@ -24,13 +24,12 @@ const WRITE_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 pub struct AgentClient<R: Read, W: Write> {
     reader: R,
     writer: W,
-    protocol_version: u32,
 }
 
 impl<R: Read, W: Write> std::fmt::Debug for AgentClient<R, W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentClient")
-            .field("protocol_version", &self.protocol_version)
+            .field("protocol_version", &self.protocol_version())
             .finish_non_exhaustive()
     }
 }
@@ -114,11 +113,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let line = read_handshake_line(&mut reader).map_err(handshake_lost)?;
         let version = protocol::parse_handshake(&line)?;
         protocol::check_protocol_version(version)?;
-        Ok(Self {
-            reader,
-            writer,
-            protocol_version: version,
-        })
+        Ok(Self { reader, writer })
     }
 
     /// 要求を一つ送り、応答を一つ読む。パスを拒んだ応答はその理由の誤りに、要求全体の失敗の応答は
@@ -164,8 +159,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         self.send(&AgentRequest::Shutdown)
     }
 
+    /// つないだエージェントと話す通信の版。手元と同じ版のエージェントにだけつなぐので、手元の版
     pub fn protocol_version(&self) -> u32 {
-        self.protocol_version
+        protocol::PROTOCOL_VERSION
     }
 }
 
