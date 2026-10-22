@@ -38,9 +38,10 @@ impl CoreRuntime {
         self.backup_store.list_sessions(&self.config, side)
     }
 
-    /// `target` の `path` を、セッション `session_id` にバックアップする（テストがセッションを
-    /// 作るのに使う）。通常ファイルは中身を、symlink はリンク文字列を残す。`force` は読み込みの
-    /// 大きさの上限を外す
+    /// テストだけ: `target` の `path` を、セッション `session_id` にバックアップする（テストが
+    /// セッションを作るのに使う）。通常ファイルは中身を、symlink はリンク文字列を残す。`force` は
+    /// 読み込みの大きさの上限を外す
+    #[cfg(feature = "test-utils")]
     pub fn save_backup(
         &mut self,
         target: &crate::side::Side,

@@ -1,3 +1,4 @@
+#[cfg(feature = "test-utils")]
 #[path = "contract/backup_cleanup.rs"]
 mod backup_cleanup;
 #[path = "contract/backup_failure.rs"]
@@ -11,6 +12,7 @@ mod backup_rollback_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/backup_rollback_cli_e2e.rs"]
 mod backup_rollback_cli_e2e;
+#[cfg(feature = "test-utils")]
 #[path = "contract/backup_rollback_path.rs"]
 mod backup_rollback_path;
 #[path = "contract/backup_sessions.rs"]
@@ -290,6 +292,7 @@ mod rollback_path_agent;
 #[cfg(feature = "test-utils")]
 #[path = "contract/rollback_path_remote.rs"]
 mod rollback_path_remote;
+#[cfg(feature = "test-utils")]
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[cfg(feature = "test-utils")]
