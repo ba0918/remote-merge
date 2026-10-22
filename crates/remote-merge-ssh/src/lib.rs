@@ -18,9 +18,8 @@ pub(crate) mod preferred;
 pub(crate) use remote_merge_core::error;
 
 mod config {
-    pub(crate) use remote_merge_config::expand_tilde;
     pub(crate) use remote_merge_settings::{
-        AuthMethod, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking,
+        AuthMethod, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking, expand_tilde,
     };
 }
 

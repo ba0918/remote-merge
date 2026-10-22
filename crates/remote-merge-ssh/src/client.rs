@@ -788,27 +788,6 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_tilde_home_dir() {
-        let expanded = crate::config::expand_tilde("~/test/path");
-        // ホームディレクトリが取得できる環境では ~ が展開される
-        let expanded_str = expanded.to_string_lossy();
-        assert!(!expanded_str.starts_with("~/") || dirs::home_dir().is_none());
-    }
-
-    #[test]
-    fn test_expand_tilde_no_tilde() {
-        // チルダがないパスはそのまま返される
-        assert_eq!(
-            crate::config::expand_tilde("/absolute/path"),
-            std::path::PathBuf::from("/absolute/path")
-        );
-        assert_eq!(
-            crate::config::expand_tilde("relative/path"),
-            std::path::PathBuf::from("relative/path")
-        );
-    }
-
-    #[test]
     fn test_channel_data_chunk_size_is_within_ssh_window() {
         // SSH デフォルトウィンドウサイズ (64KB) より小さいことを保証
         // const assert で定数の妥当性をコンパイル時に検証

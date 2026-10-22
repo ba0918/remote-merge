@@ -14,5 +14,5 @@ pub use loading::{load_config_from_paths, load_config_with_project_override};
 pub use value::{
     AgentConfig, AppConfig, AuthMethod, BackupConfig, DEFAULT_MAX_SCAN_ENTRIES, DefaultsConfig,
     FilterConfig, LocalConfig, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking,
-    expand_tilde, resolve_dir_permissions, resolve_file_permissions, resolve_max_entries,
+    resolve_dir_permissions, resolve_file_permissions, resolve_max_entries,
 };

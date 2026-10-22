@@ -6,7 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-remote-merge-config = { path = "../remote-merge-config" }
 anyhow = "1"
 russh = "0.64"
 tokio = { version = "1", features = ["full"] }

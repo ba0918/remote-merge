@@ -89,3 +89,39 @@ impl Default for SshConfig {
         }
     }
 }
+
+/// `~` をホームディレクトリに展開する
+pub fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(stripped) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(stripped);
+    }
+    PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_tilde_home_dir() {
+        let expanded = expand_tilde("~/test/path");
+        // ホームディレクトリが取得できる環境では ~ が展開される
+        let expanded_str = expanded.to_string_lossy();
+        assert!(!expanded_str.starts_with("~/") || dirs::home_dir().is_none());
+    }
+
+    #[test]
+    fn test_expand_tilde_no_tilde() {
+        // チルダがないパスはそのまま返される
+        assert_eq!(
+            expand_tilde("/absolute/path"),
+            PathBuf::from("/absolute/path")
+        );
+        assert_eq!(
+            expand_tilde("relative/path"),
+            PathBuf::from("relative/path")
+        );
+    }
+}

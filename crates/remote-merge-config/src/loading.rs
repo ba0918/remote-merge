@@ -1,7 +1,8 @@
 use crate::merge::merge_configs;
 use crate::schema::RawConfig;
-use crate::{AppConfig, error::AppError, expand_tilde, parse_error};
+use crate::{AppConfig, error::AppError, parse_error};
 use anyhow::bail;
+use remote_merge_settings::expand_tilde;
 use std::path::{Path, PathBuf};
 
 /// グローバル設定ファイルのパスを返す

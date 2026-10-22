@@ -5,6 +5,7 @@ use crate::loading::*;
 use crate::merge::{merge_raw_defaults, split_suspicious_excludes};
 use crate::schema::{RawAgentConfig, RawDefaultsConfig, RawServerConfig, RawSshConfig};
 use anyhow::bail;
+use remote_merge_settings::expand_tilde;
 pub use remote_merge_settings::{
     AuthMethod, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking,
 };
@@ -350,16 +351,6 @@ pub(crate) fn convert_server_config(
         file_permissions,
         dir_permissions,
     })
-}
-
-/// `~` をホームディレクトリに展開する
-pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/")
-        && let Some(home) = dirs::home_dir()
-    {
-        return home.join(stripped);
-    }
-    PathBuf::from(path)
 }
 
 #[cfg(test)]

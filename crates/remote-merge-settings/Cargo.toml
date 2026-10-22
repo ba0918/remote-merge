@@ -5,5 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+dirs = "7"
+
 [lints]
 workspace = true
