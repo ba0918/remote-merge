@@ -25,7 +25,7 @@ fn the_entry_itself_is_listed_without_what_is_below_it() {
         .with(b"a.txt", plain(file(b""), None))
         .with(b"d", plain(dir(b"", 2), None))
         .with(b"l", link_answer(LinkTarget::Directory, None))
-        .with(b"gone", unreached(Unreached::Missing));
+        .with(b"gone", unreached_answer(Unreached::Missing));
     let request = scope(itself(&["a.txt", "d", "l", "gone"]), 9);
 
     let listing = run(&mut fake, &exclude(&[]), &request).unwrap();

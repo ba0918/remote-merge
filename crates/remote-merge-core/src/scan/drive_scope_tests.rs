@@ -19,7 +19,7 @@ fn filters_are_matched_against_the_path_from_the_root_dir_below_a_directory() {
 fn a_directory_below_an_excluded_one_is_not_read() {
     let mut fake = Fake::default().with(b"", root(None)).with(
         b"cache/x",
-        unreached(Unreached::Unreadable(ReadCause::PermissionDenied)),
+        unreached_answer(Unreached::Unreadable(ReadCause::PermissionDenied)),
     );
     let listing = run(
         &mut fake,
@@ -35,8 +35,8 @@ fn a_directory_below_an_excluded_one_is_not_read() {
 #[test]
 fn a_missing_root_dir_stops_a_scan_below_a_directory() {
     let mut fake = Fake::default()
-        .with(b"", unreached(Unreached::Missing))
-        .with(b"a", unreached(Unreached::Missing));
+        .with(b"", unreached_answer(Unreached::Missing))
+        .with(b"a", unreached_answer(Unreached::Missing));
     let result = run(&mut fake, &exclude(&[]), &scope(below(&["a"]), 9));
     assert_eq!(failure(result), ScanFailure::RootMissing);
 }
@@ -58,7 +58,7 @@ fn the_root_dir_is_asked_once_with_every_directory_in_one_batch() {
 fn a_missing_directory_or_a_file_has_nothing_below_it() {
     let mut fake = Fake::default()
         .with(b"", root(None))
-        .with(b"gone", unreached(Unreached::Missing))
+        .with(b"gone", unreached_answer(Unreached::Missing))
         .with(b"f.txt", plain(file(b""), None));
     let listing = run(
         &mut fake,
@@ -73,7 +73,7 @@ fn a_missing_directory_or_a_file_has_nothing_below_it() {
 fn a_directory_that_cannot_be_reached_stops_the_scan() {
     let mut fake = Fake::default()
         .with(b"", root(None))
-        .with(b"f/x", unreached(Unreached::NotDirectory));
+        .with(b"f/x", unreached_answer(Unreached::NotDirectory));
     let result = run(&mut fake, &exclude(&[]), &scope(below(&["f/x"]), 9));
     assert_eq!(
         failure(result),
@@ -82,7 +82,7 @@ fn a_directory_that_cannot_be_reached_stops_the_scan() {
 
     let mut fake = Fake::default().with(b"", root(None)).with(
         b"locked/x",
-        unreached(Unreached::Unreadable(ReadCause::PermissionDenied)),
+        unreached_answer(Unreached::Unreadable(ReadCause::PermissionDenied)),
     );
     let result = run(&mut fake, &exclude(&[]), &scope(below(&["locked/x"]), 9));
     assert_eq!(

@@ -104,7 +104,7 @@ fn a_file_a_dangling_link_and_a_missing_path_are_not_directories() {
         .with(b"", root(None))
         .with(b"f", plain(file(b""), None))
         .with(b"l", link_answer(LinkTarget::Missing, None))
-        .with(b"m", unreached(Unreached::Missing));
+        .with(b"m", unreached_answer(Unreached::Missing));
 
     for path in ["f", "l", "m"] {
         let listing = run(&mut fake, &exclude(&[]), &children(path)).unwrap();

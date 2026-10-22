@@ -104,7 +104,7 @@ pub(super) fn root_identity(answer: &Answer) -> Result<DirId, ScanFailure> {
 }
 
 /// 起点に届かなかった理由を、ないなら Ok に、ほかは誤りにする
-pub(super) fn unreached(path: &[u8], why: Unreached) -> Result<(), ScanError> {
+pub(super) fn unreached_start(path: &[u8], why: Unreached) -> Result<(), ScanError> {
     let path = String::from_utf8_lossy(path).into_owned();
     match why {
         Unreached::Missing => Ok(()),

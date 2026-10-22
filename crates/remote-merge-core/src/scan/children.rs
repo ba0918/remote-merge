@@ -2,7 +2,7 @@
 //! 生の項目を集め、走査と同じ規則で一覧に載せる（docs/decision/records/2026-10-12-foundation-3.md
 //! の D6）。子のリンクは辿らず、リンク先がディレクトリかだけを決める。
 
-use super::drive::{ask, missing_subtree, root_identity, unreached};
+use super::drive::{ask, missing_subtree, root_identity, unreached_start};
 use super::exclude::Exclude;
 use super::outcome::{LinkPoint, ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 use super::raw::{Answer, Collector, Depth, LinkTarget, Question, RawKind};
@@ -72,7 +72,7 @@ pub(super) fn scan_children(
 /// 一覧するパスの答えを載せる。ディレクトリでなければ何も載せない
 fn take_directory(walk: &mut Walk, path: &[u8], answer: &Answer) -> Result<(), ScanError> {
     let entry = match &answer.entry {
-        Err(why) => return unreached(path, *why),
+        Err(why) => return unreached_start(path, *why),
         Ok(entry) => entry,
     };
     match entry.kind {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::exclude::Exclude;
 use super::machine_fs::{
     bytes_of, cause_of, entry_at, entry_with_metadata, link_target, path_of, raw_entry,
-    root_went_away, unreached, went_away,
+    root_went_away, went_away, why_unreached,
 };
 use super::parts::join;
 use super::raw::{
@@ -59,7 +59,7 @@ impl MachineCollector {
                 Ok(meta)
             })
             .map(|meta| raw_entry(Vec::new(), &meta, None))
-            .map_err(|e| unreached(&e));
+            .map_err(|e| why_unreached(&e));
         let is_dir = matches!(&entry, Ok(entry) if entry.kind == RawKind::Directory);
         let subtree = (is_dir && depth != Depth::Itself)
             .then(|| collect_below(&self.root, b"", depth, exclude));

@@ -130,7 +130,7 @@ pub fn plain(entry: RawEntry, tree: Option<Subtree>) -> Answer {
     }
 }
 
-pub fn unreached(why: Unreached) -> Answer {
+pub fn unreached_answer(why: Unreached) -> Answer {
     Answer {
         entry: Err(why),
         link: None,

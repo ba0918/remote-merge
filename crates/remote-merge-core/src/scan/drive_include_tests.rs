@@ -58,7 +58,7 @@ fn an_include_value_lists_what_is_below_it_except_excluded_paths() {
 fn an_include_value_that_vanished_is_skipped_and_an_excluded_one_is_not_read() {
     let mut fake = Fake::default()
         .with(b"", root(None))
-        .with(b"docs", unreached(Unreached::Missing));
+        .with(b"docs", unreached_answer(Unreached::Missing));
     let request = scope(values(&["docs", "node_modules"]), 9);
     let listing = run(&mut fake, &exclude(&["node_modules"]), &request).unwrap();
     assert!(listing.entries.is_empty());
@@ -68,7 +68,7 @@ fn an_include_value_that_vanished_is_skipped_and_an_excluded_one_is_not_read() {
 // @kotowari[REQ-config-032, REQ-scan-015]
 #[test]
 fn no_include_value_left_still_checks_the_root_dir() {
-    let mut fake = Fake::default().with(b"", unreached(Unreached::Missing));
+    let mut fake = Fake::default().with(b"", unreached_answer(Unreached::Missing));
     let result = run(&mut fake, &exclude(&[]), &scope(values(&[]), 9));
     assert_eq!(failure(result), ScanFailure::RootMissing);
 }

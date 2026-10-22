@@ -71,7 +71,7 @@ pub fn raw_entry(path: Vec<u8>, meta: &Metadata, link: Option<Option<Vec<u8>>>) 
 
 /// `path` の項目そのもの（最後の要素のリンクは辿らない）を生の項目にする
 pub fn entry_at(path: &Path, rel: Vec<u8>) -> Result<RawEntry, Unreached> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| unreached(&e))?;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| why_unreached(&e))?;
     Ok(entry_with_metadata(path, rel, &meta))
 }
 
@@ -95,7 +95,7 @@ pub fn link_target(path: &Path) -> LinkTarget {
     }
 }
 
-pub fn unreached(error: &io::Error) -> Unreached {
+pub fn why_unreached(error: &io::Error) -> Unreached {
     if error.kind() == io::ErrorKind::NotFound {
         return Unreached::Missing;
     }

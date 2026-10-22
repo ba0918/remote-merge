@@ -1,6 +1,6 @@
 //! 起点ごとの答えを一覧に載せる規則（include の値・起点そのもの・指定したディレクトリの下）
 
-use super::drive::{missing_subtree, unreached};
+use super::drive::{missing_subtree, unreached_start};
 use super::outcome::ScanError;
 use super::raw::{Answer, DirId, RawKind};
 use super::start_paths::StartPath;
@@ -15,7 +15,7 @@ pub(super) fn take_value(
     counter: usize,
 ) -> Result<(), ScanError> {
     let entry = match &answer.entry {
-        Err(why) => return unreached(path, *why),
+        Err(why) => return unreached_start(path, *why),
         Ok(entry) => entry,
     };
     if entry.kind == RawKind::Directory {
@@ -39,7 +39,7 @@ pub(super) fn take_itself(
     counter: usize,
 ) -> Result<(), ScanError> {
     let entry = match &answer.entry {
-        Err(why) => return unreached(path, *why),
+        Err(why) => return unreached_start(path, *why),
         Ok(entry) => entry,
     };
     if entry.kind == RawKind::Directory {
@@ -64,7 +64,7 @@ pub(super) fn take_below(
     let path = start.path.as_slice();
     let entry = match &answer.entry {
         Err(_) if start.excluded => return Ok(()),
-        Err(why) => return unreached(path, *why),
+        Err(why) => return unreached_start(path, *why),
         Ok(entry) => entry,
     };
     let is_dir = match entry.kind {

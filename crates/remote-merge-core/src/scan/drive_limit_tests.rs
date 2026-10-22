@@ -39,13 +39,13 @@ fn files_below_a_link_count_toward_the_limit() {
 // @kotowari[REQ-scan-015]
 #[test]
 fn a_missing_or_unreadable_root_dir_stops_the_scan() {
-    let mut fake = Fake::default().with(b"", unreached(Unreached::Missing));
+    let mut fake = Fake::default().with(b"", unreached_answer(Unreached::Missing));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootMissing
     );
     for cause in [ReadCause::Other, ReadCause::PermissionDenied] {
-        let mut fake = Fake::default().with(b"", unreached(Unreached::Unreadable(cause)));
+        let mut fake = Fake::default().with(b"", unreached_answer(Unreached::Unreadable(cause)));
         assert_eq!(
             failure(run(&mut fake, &exclude(&[]), &whole(9))),
             ScanFailure::RootUnreadable { cause }
@@ -64,7 +64,7 @@ fn a_missing_or_unreadable_root_dir_stops_the_scan() {
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootNotDirectory
     );
-    let mut fake = Fake::default().with(b"", unreached(Unreached::NotDirectory));
+    let mut fake = Fake::default().with(b"", unreached_answer(Unreached::NotDirectory));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootNotDirectory
