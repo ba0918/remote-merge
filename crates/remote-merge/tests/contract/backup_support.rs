@@ -135,7 +135,8 @@ pub fn restore(
     (output, exit_code)
 }
 
-/// 集約先の中の全てのファイルとディレクトリを返す。
+/// 集約先の中の全てのファイルとディレクトリを、パスの順に返す（前後で比べられるよう、ディレクトリを
+/// 読んだ順によらない）。
 pub fn store_entries(store: &Path) -> Vec<PathBuf> {
     let mut entries = Vec::new();
     let mut pending = vec![store.to_path_buf()];
@@ -149,5 +150,6 @@ pub fn store_entries(store: &Path) -> Vec<PathBuf> {
         }
         entries.push(path);
     }
+    entries.sort();
     entries
 }
