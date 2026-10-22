@@ -1769,21 +1769,12 @@ fn diff_with_linked_root_placing(
     std::fs::write(&config_path, config).unwrap();
     dirs.assert_isolated_config_at(&config_path, &local_root);
 
-    let home = temp.join("home");
-    std::fs::create_dir_all(&home).unwrap();
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-    cmd.env_clear();
-    cmd.env("HOME", &home);
-    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
-    cmd.current_dir(&home);
-    cmd.arg("--config").arg(&config_path);
-    cmd.args(["diff", path, "--format", "json"]);
-    cmd.stdin(std::process::Stdio::null());
-    let output = cmd.output().expect("failed to execute diff");
+    let output = isolated_command(&temp.join("home"))
+        .arg("--config")
+        .arg(&config_path)
+        .args(["diff", path, "--format", "json"])
+        .output()
+        .expect("failed to execute diff");
     let result = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("{error}: {output:?}"));
     (output, result)

@@ -1,9 +1,10 @@
 //! サブコマンドなしの起動（docs/ir/cli/safety.md の REQ-cli-076）の契約テスト。
 
 use std::fs;
-use std::process::{Command, Stdio};
 
 use tempfile::TempDir;
+
+use super::common::isolated_command;
 
 // @kotowari[REQ-cli-076]
 #[test]
@@ -13,20 +14,13 @@ fn starting_without_a_subcommand_shows_usage_and_writes_nothing() {
         let cwd = home.path().join("cwd");
         fs::create_dir_all(&cwd).unwrap();
 
-        let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        command.env_clear();
-        // カバレッジの計測中は、計測データの書き出し先を残す（消すと実行ディレクトリに書かれる）
-        if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
-            command.env("LLVM_PROFILE_FILE", profile);
-        }
-        let output = command
-            .env("HOME", home.path().join("home"))
+        // 書き込まないことを、HOME の外の XDG の場所と作業ディレクトリで確かめる
+        let output = isolated_command(&home.path().join("home"))
             .env("XDG_CACHE_HOME", home.path().join("cache"))
             .env("XDG_CONFIG_HOME", home.path().join("config"))
             .env("XDG_DATA_HOME", home.path().join("data"))
             .current_dir(&cwd)
             .args(flags)
-            .stdin(Stdio::null())
             .output()
             .unwrap();
 
@@ -51,22 +45,14 @@ fn help_and_version_are_exempt_and_answer_on_stdout_with_success() {
     for flag in ["--help", "--version"] {
         let home = TempDir::new().unwrap();
 
-        let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .env_clear()
-            .env("HOME", home.path().join("home"))
-            .env("XDG_CACHE_HOME", home.path().join("cache"))
-            .current_dir(home.path())
-            .arg(flag)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let output = isolated_command(home.path()).arg(flag).output().unwrap();
 
         assert_eq!(output.status.code(), Some(0), "{flag}: {output:?}");
         assert!(output.stderr.is_empty(), "{flag}: {output:?}");
         assert!(!output.stdout.is_empty(), "{flag}: nothing was shown");
     }
     let home = TempDir::new().unwrap();
-    let version = super::common::isolated_command(home.path())
+    let version = isolated_command(home.path())
         .arg("--version")
         .output()
         .unwrap();

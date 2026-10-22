@@ -8,7 +8,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 use std::time::SystemTime;
 
 use remote_merge::cli::diff::{DiffArgs, execute_diff};
@@ -225,17 +225,11 @@ impl Fixture {
 
     /// 実行ファイルの merge を `args` で起動する
     pub fn run_cli(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .env_clear()
-            .env("HOME", self.home.path().join("home"))
-            .env("XDG_CONFIG_HOME", self.home.path().join("xdg-config"))
-            .env("XDG_DATA_HOME", self.home.path().join("xdg-data"))
-            .current_dir(self.home.path())
+        super::common::isolated_command(&self.home.path().join("home"))
             .arg("--config")
             .arg(&self.config_path)
             .arg("merge")
             .args(args)
-            .stdin(Stdio::null())
             .output()
             .unwrap()
     }

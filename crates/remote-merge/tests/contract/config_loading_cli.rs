@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::common::{TestDirs, gen_config};
+use super::common::{TestDirs, gen_config, isolated_command};
 
 /// 設定を置く場所とカレントディレクトリをテストごとに選べる、隔離した実行環境。
 ///
@@ -129,15 +129,11 @@ impl Workspace {
         for (path, local_root) in self.written.clone() {
             self.dirs.assert_isolated_config_at(&path, &local_root);
         }
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env_clear();
-        cmd.env("HOME", self.home());
+        let mut cmd = isolated_command(&self.home());
         if xdg {
             cmd.env("XDG_CONFIG_HOME", self.xdg_config_home());
-        }
-        cmd.env("XDG_DATA_HOME", self.root().join("xdg-data"));
-        if let Ok(path) = std::env::var("PATH") {
-            cmd.env("PATH", path);
+        } else {
+            cmd.env_remove("XDG_CONFIG_HOME");
         }
         cmd.current_dir(cwd);
         if let Some(config) = config {
@@ -586,12 +582,7 @@ fn logs_warns_that_config_is_ignored_and_runs_without_reading_it() {
     let missing = home.path().join("missing.toml");
     assert!(!missing.exists());
 
-    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env_clear()
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
-        .env("XDG_CONFIG_HOME", home.path().join(".config"))
-        .current_dir(home.path())
+    let output = isolated_command(home.path())
         .arg("--config")
         .arg(&missing)
         .args(["logs", "--format", "json"])

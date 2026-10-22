@@ -14,11 +14,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
 use tempfile::TempDir;
 
-use super::common::{TestDirs, gen_config, place_files, place_symlink};
+use super::common::{TestDirs, gen_config, isolated_command, place_files, place_symlink};
 use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
@@ -40,29 +40,19 @@ pub(super) fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
 
 /// `config_path` の設定で全件表示の status を JSON で起動する。隔離の確認は呼び出し側で済ませる
 ///
-/// `--config` を必ず渡し、作業ディレクトリを一時ディレクトリの下にする。渡さないと実行ファイルは
-/// 作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に接続しうる。
-/// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリ `temp` の下に向け、PATH だけを引き継ぐ。
-/// `extra_args` は status の引数の後に足す（走査の上限の `--max-entries` など）。
+/// `--config` を必ず渡し、[`isolated_command`] で一時ディレクトリ `temp` の下の "home" から起動する。
+/// 渡さないと実行ファイルは作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に
+/// 接続しうる。`extra_args` は status の引数の後に足す（走査の上限の `--max-entries` など）。
 pub(super) fn launch_status(temp: &Path, config_path: &Path, extra_args: &[&str]) -> Output {
-    let home: PathBuf = temp.join("home");
-    fs::create_dir_all(&home).unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-    cmd.env_clear();
-    cmd.env("HOME", &home);
-    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
-    cmd.current_dir(&home);
-    cmd.arg("--config").arg(config_path);
-    cmd.args([
-        "status", "--left", "local", "--right", "develop", "--all", "--format", "json",
-    ]);
-    cmd.args(extra_args);
-    cmd.stdin(Stdio::null());
-    cmd.output().expect("failed to execute status")
+    isolated_command(&temp.join("home"))
+        .arg("--config")
+        .arg(config_path)
+        .args([
+            "status", "--left", "local", "--right", "develop", "--all", "--format", "json",
+        ])
+        .args(extra_args)
+        .output()
+        .expect("failed to execute status")
 }
 
 /// `config` を書き、既存の隔離の確認を通してから status を起動する
@@ -456,22 +446,13 @@ impl AgentFixture {
         let config_path = self.temp.path().join("command-agent-config.toml");
         fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
         self.assert_isolated_agent_config(&config_path);
-        let home = self.temp.path().join("home");
-        fs::create_dir_all(&home).unwrap();
         let received_before = self.server.commands().len();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env_clear();
-        cmd.env("HOME", &home);
-        cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-        cmd.env("XDG_DATA_HOME", self.temp.path().join("xdg-data"));
-        if let Ok(path) = std::env::var("PATH") {
-            cmd.env("PATH", path);
-        }
-        cmd.current_dir(&home);
-        cmd.arg("--config").arg(&config_path);
-        cmd.args(args);
-        cmd.stdin(Stdio::null());
-        let output = cmd.output().expect("failed to execute remote-merge");
+        let output = isolated_command(&self.temp.path().join("home"))
+            .arg("--config")
+            .arg(&config_path)
+            .args(args)
+            .output()
+            .expect("failed to execute remote-merge");
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.server.commands().split_off(received_before);
         assert!(

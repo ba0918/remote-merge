@@ -1,5 +1,4 @@
 use std::fs;
-use std::process::Command;
 
 use tempfile::TempDir;
 
@@ -120,16 +119,8 @@ impl SshRun {
         self.home.path().join("cache")
     }
 
-    fn command(&self) -> Command {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env_clear()
-            .env("HOME", self.home.path())
-            .env("XDG_CACHE_HOME", self.cache())
-            .env("XDG_CONFIG_HOME", self.home.path().join("config"))
-            .env("XDG_DATA_HOME", self.home.path().join("data"))
-            .current_dir(self.home.path())
-            .stdin(std::process::Stdio::null());
-        cmd
+    fn command(&self) -> std::process::Command {
+        isolated_command(self.home.path())
     }
 
     fn status(&self, extra: &[&str]) -> std::process::Output {
@@ -192,14 +183,10 @@ fn the_agent_subcommand_saves_no_diagnostics() {
     let root = home.path().join("root");
     fs::create_dir_all(&root).unwrap();
 
-    let _ = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env_clear()
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
+    let _ = isolated_command(home.path())
         .arg("agent")
         .arg("--root")
         .arg(&root)
-        .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
 

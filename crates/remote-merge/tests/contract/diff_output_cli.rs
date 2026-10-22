@@ -8,35 +8,26 @@
 //! `launch_status` と同じで、補助は status に固定されているため diff 用に同じ形で書く。
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::path::Path;
+use std::process::Output;
 
-use super::common::{TestDirs, gen_config};
+use super::common::{TestDirs, gen_config, isolated_command};
 
 const NOT_FOUND: &str = "specified path(s) not found on either side";
 
 /// `config_path` の設定で diff を起動する。隔離の確認は呼び出し側で済ませる
 ///
-/// `--config` を必ず渡し、作業ディレクトリを一時ディレクトリの下にする。渡さないと実行ファイルは
-/// 作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に接続しうる。
-/// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリ `temp` の下に向け、PATH だけを引き継ぐ。
+/// `--config` を必ず渡し、[`isolated_command`] で一時ディレクトリ `temp` の下の "home" から起動する。
+/// 渡さないと実行ファイルは作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に
+/// 接続しうる。
 pub(super) fn launch_diff(temp: &Path, config_path: &Path, args: &[&str]) -> Output {
-    let home: PathBuf = temp.join("home");
-    fs::create_dir_all(&home).unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-    cmd.env_clear();
-    cmd.env("HOME", &home);
-    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
-    cmd.current_dir(&home);
-    cmd.arg("--config").arg(config_path);
-    cmd.args(["diff", "--left", "local", "--right", "develop"]);
-    cmd.args(args);
-    cmd.stdin(Stdio::null());
-    cmd.output().expect("failed to execute diff")
+    isolated_command(&temp.join("home"))
+        .arg("--config")
+        .arg(config_path)
+        .args(["diff", "--left", "local", "--right", "develop"])
+        .args(args)
+        .output()
+        .expect("failed to execute diff")
 }
 
 /// 左右に `files` を中身を違えて置き、設定を書いて隔離の確認を通してから diff を起動する

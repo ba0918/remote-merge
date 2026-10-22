@@ -50,7 +50,7 @@ async fn status_against(
     answer: Option<&str>,
 ) -> StatusRun {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     let (home, server) = (&fixture.home, &fixture.server);
     let root = home.path().join("files");
@@ -65,13 +65,7 @@ async fn status_against(
         "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 3\n{}",
         root.to_str().unwrap(), server.port(), root.to_str().unwrap(), super::common::agent_section(home.path()), ssh_settings,
     )).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env_clear()
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", home.path().join("cache"))
-        .env("XDG_CONFIG_HOME", home.path().join("config"))
-        .env("XDG_DATA_HOME", home.path().join("data"))
-        .current_dir(home.path())
+    let mut child = super::common::isolated_command(home.path())
         .arg("--config")
         .arg(&config_path)
         .args([

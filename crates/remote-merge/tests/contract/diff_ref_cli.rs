@@ -13,15 +13,9 @@ use serde_json::Value;
 
 use super::common::CliEnv;
 
-/// 作業ディレクトリを一時ディレクトリの下にして diff を起動する
-///
-/// 実行ファイルは作業ディレクトリの ".remote-merge.toml" で設定を上書きするため、
-/// リポジトリの中で起動しない。
+/// diff を起動する
 pub(super) fn diff(env: &CliEnv, args: &[&str]) -> Output {
-    let home = env.temp_root().join("home");
-    fs::create_dir_all(&home).unwrap();
     env.cmd_with("diff")
-        .current_dir(&home)
         .args(args)
         .output()
         .expect("failed to execute diff")

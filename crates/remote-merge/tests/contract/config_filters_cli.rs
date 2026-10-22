@@ -9,10 +9,10 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::path::Path;
+use std::process::Output;
 
-use super::common::{TestDirs, gen_config, strip_ansi};
+use super::common::{TestDirs, gen_config, isolated_command, strip_ansi};
 
 /// `gen_config` の [filter] の exclude の行を `include_line` に置き換えた設定
 pub(super) fn with_include(config: &str, include_line: &str) -> String {
@@ -21,30 +21,20 @@ pub(super) fn with_include(config: &str, include_line: &str) -> String {
     replaced
 }
 
-/// `config` を書き、隔離を確かめてから `status --left local --right develop` を `extra_args` を足して起動する
-///
-/// 環境変数は全て消し、HOME・XDG の変数・PATH だけを一時ディレクトリの下に向けて渡す。
+/// `config` を書き、隔離を確かめてから `status --left local --right develop` を `extra_args` を足して
+/// [`isolated_command`] で起動する
 pub(super) fn status(dirs: &mut TestDirs, config: &str, extra_args: &[&str]) -> Output {
     let config_path = dirs.temp.path().join("filters-config.toml");
     fs::write(&config_path, config).unwrap();
     let local_root = dirs.local_dir.clone();
     dirs.assert_isolated_config_at(&config_path, &local_root);
-    let home: PathBuf = dirs.temp.path().join("home");
-    fs::create_dir_all(&home).unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-    cmd.env_clear();
-    cmd.env("HOME", &home);
-    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-    cmd.env("XDG_DATA_HOME", dirs.temp.path().join("xdg-data"));
-    if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
-    }
-    cmd.current_dir(&home);
-    cmd.arg("--config").arg(&config_path);
-    cmd.args(["status", "--left", "local", "--right", "develop"]);
-    cmd.args(extra_args);
-    cmd.stdin(Stdio::null());
-    cmd.output().expect("failed to execute status")
+    isolated_command(&dirs.temp.path().join("home"))
+        .arg("--config")
+        .arg(&config_path)
+        .args(["status", "--left", "local", "--right", "develop"])
+        .args(extra_args)
+        .output()
+        .expect("failed to execute status")
 }
 
 /// 標準出力と標準エラーをつないだもの

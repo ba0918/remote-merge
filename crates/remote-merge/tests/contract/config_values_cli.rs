@@ -7,9 +7,9 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 
-use super::common::{TestDirs, gen_config, strip_ansi};
+use super::common::{TestDirs, gen_config, isolated_command, strip_ansi};
 
 /// ローカルの側にだけ置くファイル。接続できたときに status の JSON の "files" に出る
 const LOCAL_ONLY: &str = "only-local.txt";
@@ -58,21 +58,12 @@ impl Workspace {
             &self.home(),
             require_no_host_key_checking,
         );
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env_clear();
-        cmd.env("HOME", self.home());
-        cmd.env("XDG_CONFIG_HOME", self.home().join(".config"));
-        cmd.env("XDG_DATA_HOME", self.dirs.temp.path().join("xdg-data"));
-        if let Ok(path) = std::env::var("PATH") {
-            cmd.env("PATH", path);
-        }
+        // ask のもとでのホスト鍵の確認が入力を待たないのは、isolated_command が標準入力を空にするため
+        let mut cmd = isolated_command(&self.home());
         cmd.envs(envs.iter().copied());
-        cmd.current_dir(self.home());
         cmd.arg("--config").arg(&config_path);
         cmd.args(["status", "--left", "local", "--right", "develop"]);
         cmd.args(format);
-        // ask のもとでのホスト鍵の確認が入力を待たないよう、標準入力を引き継がない
-        cmd.stdin(Stdio::null());
         cmd.output().expect("failed to execute status")
     }
 
