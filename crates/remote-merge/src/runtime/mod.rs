@@ -51,6 +51,8 @@ pub(crate) mod scripted_agent;
 mod side_facts;
 mod stopped_target;
 pub(crate) mod target_io;
+#[cfg(test)]
+mod test_support;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

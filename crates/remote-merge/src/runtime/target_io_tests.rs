@@ -138,35 +138,13 @@ fn a_batch_answers_a_file_over_the_limit_as_too_large_and_reads_the_rest() {
 
 // ── エージェントの経路 ──
 
-/// サーバ "develop"（root_dir は "/srv/app"）を足した runtime
-fn runtime_with_server() -> CoreRuntime {
-    let mut rt = CoreRuntime::new_for_test();
-    rt.config.servers.insert(
-        "develop".to_string(),
-        crate::config::ServerConfig {
-            host: "10.0.0.1".to_string(),
-            port: 22,
-            user: "deploy".to_string(),
-            auth: crate::config::AuthMethod::Key,
-            password: None,
-            key: None,
-            root_dir: std::path::PathBuf::from("/srv/app"),
-            ssh_options: None,
-            sudo: false,
-            file_permissions: None,
-            dir_permissions: None,
-        },
-    );
-    rt
-}
-
 /// サーバ "develop" に、最初の問い合わせに `response` を返す（None なら答えずに接続を切る）
 /// 試験用のエージェントをつないだ runtime と、エージェントが受けた問い合わせの数
 #[cfg(unix)]
 fn runtime_with_scripted_agent(
     response: Option<crate::agent::protocol::AgentResponse>,
 ) -> (CoreRuntime, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    let mut rt = runtime_with_server();
+    let mut rt = crate::runtime::test_support::runtime_with_server("develop", "/srv/app", false);
     let received = crate::runtime::scripted_agent::connect(&mut rt, "develop", response);
     (rt, received)
 }
