@@ -1,6 +1,6 @@
 #![cfg(unix)]
 //! rollback コマンドの振る舞い（docs/ir/backup/rollback-cli.md）の契約テストのうち、
-//! 関数呼び出しで確かめるもの。
+//! 関数呼び出しで確かめるものと、書き込み先がローカルだけの設定で実行ファイルを起動するもの。
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -674,4 +674,42 @@ fn session_missing_the_content_of_one_of_its_files_is_omitted_from_the_list() {
 
         assert!(sessions.is_empty(), "missing {missing}: {sessions:?}");
     }
+}
+
+/// 書き込み先がローカルだけの設定で、`rollback --list --target local <extra>` を隔離して起動する
+fn list_local_sessions(extra: &[&str]) -> std::process::Output {
+    let home = TempDir::new().unwrap();
+    let local = home.path().join("local");
+    fs::create_dir_all(&local).unwrap();
+    let config = home.path().join("config.toml");
+    fs::write(
+        &config,
+        format!("[local]\nroot_dir = {:?}\n", local.display().to_string()),
+    )
+    .unwrap();
+    super::common::isolated_command(home.path())
+        .arg("--config")
+        .arg(&config)
+        .args(["rollback", "--list", "--target", "local"])
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+// バックアップがまだないときの一覧は、テキストでも JSON でも空であることを示して 0 で終わる
+// @kotowari[REQ-backup-038, REQ-backup-040]
+#[test]
+fn an_empty_local_session_list_is_shown_as_empty_in_text_and_json() {
+    let text = list_local_sessions(&[]);
+    assert_eq!(text.status.code(), Some(0), "{text:?}");
+    assert!(
+        String::from_utf8_lossy(&text.stdout).contains("(no backup sessions found)"),
+        "{text:?}"
+    );
+
+    let json = list_local_sessions(&["--format", "json"]);
+    assert_eq!(json.status.code(), Some(0), "{json:?}");
+    let listed: serde_json::Value = serde_json::from_slice(&json.stdout)
+        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {json:?}"));
+    assert_eq!(listed["sessions"], serde_json::json!([]), "{listed}");
 }
