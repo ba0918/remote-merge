@@ -851,7 +851,7 @@ async fn test_connect_with_verifier_reject_fails() {
 #[tokio::test]
 async fn test_known_host_skips_verifier() {
     // 既知ホスト → verifier が呼ばれない
-    // connect_insecure は skip_host_key_check=true なので verifier は不要
+    // connect_insecure はホスト鍵を確かめないので verifier は不要
     let handle = start_test_server().await;
     handle.registry.register("echo ok", "ok\n", 0);
 
