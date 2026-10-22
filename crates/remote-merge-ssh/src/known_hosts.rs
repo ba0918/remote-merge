@@ -711,6 +711,47 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         assert!(!accepted);
     }
 
+    // ── 登録のない鍵（未知のホスト） ──
+
+    #[tokio::test]
+    async fn an_unknown_host_key_is_handed_to_the_approval_with_its_fingerprint() {
+        use russh::client::Handler;
+        use russh::keys::HashAlg;
+        let presented = random_ed25519_key();
+        let dir = tempfile::tempdir().unwrap();
+        let known_hosts = dir.path().join("known_hosts");
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        let mut handler = SshHandler::new("example.invalid".into(), 2222);
+        handler.unknown_host_sender = Some(sender);
+        handler.known_hosts = Some(known_hosts.clone());
+
+        let accepted = handler
+            .check_server_key(&presented.clone().into())
+            .await
+            .unwrap();
+
+        assert!(
+            !accepted,
+            "an unknown key is accepted only after the approval"
+        );
+        let info = receiver
+            .try_recv()
+            .expect("the key is handed to the approval");
+        let openssh = presented.to_openssh().unwrap();
+        let (key_type, key_base64) = openssh.split_once(' ').unwrap();
+        assert_eq!((info.host.as_str(), info.port), ("example.invalid", 2222));
+        assert_eq!(info.key_type, key_type);
+        assert_eq!(info.key_base64, key_base64);
+        assert_eq!(
+            info.fingerprint,
+            presented.fingerprint(HashAlg::Sha256).to_string()
+        );
+        assert!(
+            !known_hosts.exists(),
+            "known_hosts is written only after the approval"
+        );
+    }
+
     // ── 登録と違う鍵（鍵が変わったホスト） ──
 
     // 未知のホストとして承認に回すと、--yes や strict_host_key_checking = "no" で差し替えられた鍵を
