@@ -14,25 +14,9 @@ use crate::agent::receipt::split_entries;
 /// 一つの FileContents に載せる中身の大きさの目安。フレームの上限（16MB）に余裕を持たせる
 const RESPONSE_BUDGET: usize = 8 * 1024 * 1024;
 
-/// 中身をパスごとに読む。`size_limit` を超えるファイルは読まずに上限を超える失敗にし、
-/// 大きい中身は `chunk_size_limit` ずつに分け、応答は大きさの目安で分ける
-pub(super) fn read_files(
-    root: &Path,
-    paths: &[String],
-    chunk_size_limit: usize,
-    size_limit: Option<u64>,
-) -> Vec<AgentResponse> {
-    let mut responses = Vec::new();
-    read_files_into(root, paths, chunk_size_limit, size_limit, &mut |response| {
-        responses.push(response);
-        Ok(())
-    })
-    .expect("collecting the answers does not fail");
-    responses
-}
-
-/// [`read_files`] と同じに読み、応答を一つ作るたびに `send` に渡す。読んだ中身を、まとめて求められた
-/// 分だけ持たないようにする（送るのは応答の大きさの目安ごと）
+/// 中身をパスごとに読み、応答を一つ作るたびに `send` に渡す。`size_limit` を超えるファイルは読まずに
+/// 上限を超える失敗にし、大きい中身は `chunk_size_limit` ずつに分け、応答は大きさの目安で分ける。
+/// 読んだ中身を、まとめて求められた分だけ持たないようにする（送るのは応答の大きさの目安ごと）
 pub(super) fn read_files_into(
     root: &Path,
     paths: &[String],

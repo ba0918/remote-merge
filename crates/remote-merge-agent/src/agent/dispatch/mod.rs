@@ -48,30 +48,8 @@ impl Dispatcher {
         request: AgentRequest,
         send: &mut dyn FnMut(AgentResponse) -> anyhow::Result<()>,
     ) -> anyhow::Result<bool> {
-        if let AgentRequest::ReadFiles {
-            paths,
-            chunk_size_limit,
-            size_limit,
-        } = &request
-        {
-            reads::read_files_into(&self.root_dir, paths, *chunk_size_limit, *size_limit, send)?;
-            return Ok(true);
-        }
-        match self.dispatch(request) {
-            Some(responses) => {
-                for response in responses {
-                    send(response)?;
-                }
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
-    /// 要求に答える。Shutdown なら None
-    pub fn dispatch(&mut self, request: AgentRequest) -> Option<Vec<AgentResponse>> {
         let root = &self.root_dir;
-        Some(match request {
+        let responses = match request {
             AgentRequest::ListTree { request, exclude } => {
                 super::tree_listing::list_tree(root, &request, &exclude)
             }
@@ -79,7 +57,10 @@ impl Dispatcher {
                 paths,
                 chunk_size_limit,
                 size_limit,
-            } => reads::read_files(root, &paths, chunk_size_limit, size_limit),
+            } => {
+                reads::read_files_into(root, &paths, chunk_size_limit, size_limit, send)?;
+                return Ok(true);
+            }
             AgentRequest::HashFiles { paths } => vec![reads::hash_files(root, &paths)],
             AgentRequest::HashContents { paths } => vec![reads::hash_contents(root, &paths)],
             AgentRequest::InspectPath { path } => match RelPath::parse(&path) {
@@ -128,8 +109,24 @@ impl Dispatcher {
                 Err(refusal) => refused(refusal),
             },
             AgentRequest::Ping => vec![AgentResponse::Pong],
-            AgentRequest::Shutdown => return None,
-        })
+            AgentRequest::Shutdown => return Ok(false),
+        };
+        for response in responses {
+            send(response)?;
+        }
+        Ok(true)
+    }
+
+    /// 要求に答え、応答をまとめて返す。Shutdown なら None
+    pub fn dispatch(&mut self, request: AgentRequest) -> Option<Vec<AgentResponse>> {
+        let mut responses = Vec::new();
+        let open = self
+            .dispatch_into(request, &mut |response| {
+                responses.push(response);
+                Ok(())
+            })
+            .expect("collecting the answers does not fail");
+        open.then_some(responses)
     }
 
     /// 書き込みの一つの分を書く。分けて送られるときは、最初の分で開いたファイルを最後の分まで持ち、
