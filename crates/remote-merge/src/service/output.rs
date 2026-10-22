@@ -792,7 +792,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -829,7 +828,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1012,7 +1010,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1047,7 +1044,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1081,7 +1077,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1122,7 +1117,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1285,7 +1279,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         }
@@ -1425,7 +1418,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1461,7 +1453,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1494,7 +1485,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1528,7 +1518,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1565,7 +1554,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1678,7 +1666,6 @@ mod tests {
             note: None,
             conflict_count: 2,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1711,7 +1698,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1778,7 +1764,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -1923,7 +1908,6 @@ mod tests {
             right_hash: None,
             ref_hash: None,
             note: None,
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
             conflict_count: 1,

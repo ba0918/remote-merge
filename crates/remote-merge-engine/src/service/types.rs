@@ -134,9 +134,6 @@ pub struct DiffOutput {
     /// コンフリクト領域（3way diff 時のみ。空なら省略）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflict_regions: Vec<ConflictArea>,
-    /// 片側にだけあるファイル（もう一方がディレクトリのときを含む）。中身が空でも変更のあるファイルと数える
-    #[serde(skip)]
-    pub one_sided: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -585,7 +582,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -743,7 +739,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -777,7 +772,6 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
         };
@@ -895,7 +889,6 @@ mod tests {
                 note: None,
                 conflict_count: 0,
                 conflict_regions: vec![],
-                one_sided: false,
                 encodings: Default::default(),
                 byte_only_difference: false,
             }],
@@ -956,7 +949,6 @@ mod tests {
             right_hash: None,
             ref_hash: None,
             note: None,
-            one_sided: false,
             encodings: Default::default(),
             byte_only_difference: false,
             conflict_count: 1,

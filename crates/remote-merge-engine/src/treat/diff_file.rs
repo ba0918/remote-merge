@@ -90,7 +90,6 @@ pub fn prepared_file(
         }),
         conflict_count: 0,
         conflict_regions: Vec::new(),
-        one_sided: matches!(change, Some(Change::OneSided(_) | Change::KindDiffers)),
     };
     match texts {
         Some((left_text, right_text)) => {
