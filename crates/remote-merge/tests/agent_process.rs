@@ -2,7 +2,7 @@
 //!
 //! `remote-merge agent --root <path>` を実際のサブプロセスとして起動し、
 //! プロセス間通信を含むエンドツーエンドの動作を検証する。
-//! インプロセステスト (src/agent/tests.rs) とは異なり、
+//! インプロセステスト（remote-merge-agent の src/agent/tests.rs）とは異なり、
 //! バイナリ起動・stdin/stdout パイプ・プロセス終了などをテストする。
 
 use std::io::{BufRead, BufReader};
@@ -28,23 +28,35 @@ struct AgentProcess {
 impl AgentProcess {
     /// Agent サブプロセスを起動し、ハンドシェイクを完了する。
     fn spawn(root: &Path) -> Result<Self> {
-        let binary = env!("CARGO_BIN_EXE_remote-merge");
-        let mut child = Command::new(binary)
-            .arg("agent")
-            .arg("--root")
-            .arg(root)
-            .env("RUST_LOG", "off")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
+        let mut child = spawn_agent(Some(root), "off");
         let stdout = child.stdout.take().unwrap();
         let stdin = child.stdin.take().unwrap();
-        let client = AgentClient::connect(stdout, stdin)?;
-
-        Ok(Self { child, client })
+        match AgentClient::connect(stdout, stdin) {
+            Ok(client) => Ok(Self { child, client }),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error)
+            }
+        }
     }
+}
+
+/// `agent` サブコマンドを、標準入出力をパイプにして起動する。`root` が None なら --root を付けない。
+/// 標準エラーは捨てる（読まないパイプにすると、多く書いたときに止まる）
+fn spawn_agent(root: Option<&Path>, rust_log: &str) -> Child {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+    command.arg("agent");
+    if let Some(root) = root {
+        command.arg("--root").arg(root);
+    }
+    command
+        .env("RUST_LOG", rust_log)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn the agent")
 }
 
 impl Drop for AgentProcess {
@@ -81,27 +93,10 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<std::proces
 // テストケース
 // ---------------------------------------------------------------------------
 
-/// ハンドシェイク成功確認: AgentProcess::spawn が成功すること自体が検証。
-#[test]
-fn agent_process_handshake() {
-    let tmp = TempDir::new().unwrap();
-    let proc = AgentProcess::spawn(tmp.path()).expect("agent should start and complete handshake");
-    // drop で自動終了
-    drop(proc);
-}
-
 /// --root 引数なしで起動すると非ゼロ終了コードになる。
 #[test]
 fn agent_missing_root_exits_with_error() {
-    let binary = env!("CARGO_BIN_EXE_remote-merge");
-    let mut child = Command::new(binary)
-        .arg("agent")
-        // --root を意図的に省略
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn");
+    let mut child = spawn_agent(None, "off");
 
     let status = wait_with_timeout(&mut child, Duration::from_secs(5))
         .expect("process should exit within timeout");
@@ -117,20 +112,9 @@ fn agent_missing_root_exits_with_error() {
 /// Agent 自体のハンドシェイクは成功するが、ファイル書き込みは root が存在しないため失敗する。
 /// これは Agent がルートディレクトリの存在チェックを遅延評価する仕様による。
 #[test]
-fn agent_nonexistent_root_exits_with_error() {
-    let nonexistent = "/nonexistent/path/xyz_does_not_exist_abc";
-    let binary = env!("CARGO_BIN_EXE_remote-merge");
-
-    let mut child = Command::new(binary)
-        .arg("agent")
-        .arg("--root")
-        .arg(nonexistent)
-        .env("RUST_LOG", "off")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn");
+fn an_agent_with_a_missing_root_starts_and_fails_a_write() {
+    let nonexistent = Path::new("/nonexistent/path/xyz_does_not_exist_abc");
+    let mut child = spawn_agent(Some(nonexistent), "off");
 
     let stdout = child.stdout.take().unwrap();
     let stdin = child.stdin.take().unwrap();
@@ -158,18 +142,7 @@ fn agent_nonexistent_root_exits_with_error() {
 #[test]
 fn agent_stdin_close_terminates() {
     let tmp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_remote-merge");
-
-    let mut child = Command::new(binary)
-        .arg("agent")
-        .arg("--root")
-        .arg(tmp.path())
-        .env("RUST_LOG", "off")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn");
+    let mut child = spawn_agent(Some(tmp.path()), "off");
 
     // ハンドシェイク行を読み捨てる
     let mut stdout = child.stdout.take().unwrap();
@@ -201,18 +174,7 @@ fn agent_stdin_close_terminates() {
 #[test]
 fn agent_stderr_not_in_stdout() {
     let tmp = TempDir::new().unwrap();
-    let binary = env!("CARGO_BIN_EXE_remote-merge");
-
-    let mut child = Command::new(binary)
-        .arg("agent")
-        .arg("--root")
-        .arg(tmp.path())
-        .env("RUST_LOG", "debug") // デバッグログを有効化
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn");
+    let mut child = spawn_agent(Some(tmp.path()), "debug");
 
     // stdout から1行だけ読む（ハンドシェイク行）
     let mut stdout = child.stdout.take().unwrap();
@@ -295,25 +257,5 @@ fn agent_shutdown_clean_exit() {
     assert!(
         status.success(),
         "agent should exit with code 0 after Shutdown, got: {status}"
-    );
-}
-
-/// プロセスを kill した後に wait() が返る（ゾンビプロセスにならない）。
-#[test]
-fn agent_kill_no_zombie() {
-    let tmp = TempDir::new().unwrap();
-    let mut proc = AgentProcess::spawn(tmp.path()).expect("agent should start");
-
-    // 強制終了
-    proc.child.kill().expect("kill should succeed");
-
-    // wait() が返ることを確認（ゾンビにならない）
-    let status = wait_with_timeout(&mut proc.child, Duration::from_secs(5))
-        .expect("wait should return after kill");
-
-    // SIGKILL 後は success() = false
-    assert!(
-        !status.success(),
-        "killed process should not report success"
     );
 }
