@@ -137,10 +137,7 @@ pub(crate) fn merge_configs(
         .as_ref()
         .and_then(|p| p.backup.as_ref())
         .or(global.backup.as_ref());
-    let backup = backup_raw.map_or_else(BackupConfig::default, |raw| BackupConfig {
-        enabled: raw.enabled.unwrap_or(true),
-        retention_days: raw.retention_days.unwrap_or(7),
-    });
+    let backup = convert_backup_config(backup_raw);
 
     let agent = if let Some(ref proj) = project {
         proj.agent.as_ref().map_or_else(

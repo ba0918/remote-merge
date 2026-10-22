@@ -3,7 +3,9 @@ use crate::error::AppError;
 use crate::loading::*;
 #[cfg(test)]
 use crate::merge::{merge_raw_defaults, split_suspicious_excludes};
-use crate::schema::{RawAgentConfig, RawDefaultsConfig, RawServerConfig, RawSshConfig};
+use crate::schema::{
+    RawAgentConfig, RawBackupConfig, RawDefaultsConfig, RawServerConfig, RawSshConfig,
+};
 use anyhow::bail;
 use remote_merge_settings::expand_tilde;
 pub use remote_merge_settings::{
@@ -210,19 +212,30 @@ pub(crate) fn convert_agent_config(raw: Option<&RawAgentConfig>) -> AgentConfig 
     }
 }
 
+pub(crate) fn convert_backup_config(raw: Option<&RawBackupConfig>) -> BackupConfig {
+    let defaults = BackupConfig::default();
+    match raw {
+        None => defaults,
+        Some(r) => BackupConfig {
+            enabled: r.enabled.unwrap_or(defaults.enabled),
+            retention_days: r.retention_days.unwrap_or(defaults.retention_days),
+        },
+    }
+}
+
 /// RawSshConfig を SshConfig に変換する
 pub(crate) fn convert_raw_ssh_config(raw: &RawSshConfig) -> crate::error::Result<SshConfig> {
+    let defaults = SshConfig::default();
     let strict_host_key_checking = match raw.strict_host_key_checking.as_deref() {
         Some(value) => parse_strict_host_key_checking(value)?,
-        None => StrictHostKeyChecking::Ask,
+        None => defaults.strict_host_key_checking,
     };
     Ok(SshConfig {
-        timeout_sec: raw.timeout_sec.unwrap_or(300),
+        timeout_sec: raw.timeout_sec.unwrap_or(defaults.timeout_sec),
         strict_host_key_checking,
-        // auto_yes は TOML から設定しない（CLI フラグで上書きする）
-        auto_yes: false,
-        // known_hosts は TOML から設定しない（利用者の ~/.ssh/known_hosts を使う）
-        known_hosts: None,
+        // auto_yes は TOML から設定しない（CLI フラグで上書きする）。known_hosts も TOML から
+        // 設定しない（利用者の ~/.ssh/known_hosts を使う）
+        ..defaults
     })
 }
 
