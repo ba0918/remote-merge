@@ -14,7 +14,7 @@ pub trait HostKeyVerifier: Send + Sync {
 
 /// 未知ホスト検出時の情報
 #[derive(Debug, Clone)]
-pub struct UnknownHostInfo {
+pub(crate) struct UnknownHostInfo {
     pub host: String,
     pub port: u16,
     pub key_type: String,
@@ -23,7 +23,7 @@ pub struct UnknownHostInfo {
 }
 
 /// 自動承認（strict_host_key_checking = "no" / Agent 接続）
-pub struct AutoAcceptVerifier;
+pub(crate) struct AutoAcceptVerifier;
 
 impl HostKeyVerifier for AutoAcceptVerifier {
     fn verify_host_key(&self, host: &str, port: u16, _key_type: &str, _fingerprint: &str) -> bool {
@@ -33,7 +33,7 @@ impl HostKeyVerifier for AutoAcceptVerifier {
 }
 
 /// 自動拒否（strict_host_key_checking = "yes"）
-pub struct RejectVerifier;
+pub(crate) struct RejectVerifier;
 
 impl HostKeyVerifier for RejectVerifier {
     fn verify_host_key(&self, host: &str, port: u16, key_type: &str, fingerprint: &str) -> bool {

@@ -45,13 +45,13 @@ impl PassphraseProvider for CliPassphraseProvider {
 ///
 /// 正規化ルール: ハイフン → アンダースコア、大文字化。
 /// 例: "my-server" → "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"
-pub fn passphrase_env_key(server_name: &str) -> String {
+pub(crate) fn passphrase_env_key(server_name: &str) -> String {
     let normalized = server_name.replace('-', "_").to_uppercase();
     format!("REMOTE_MERGE_KEY_PASSPHRASE_{}", normalized)
 }
 
 /// パスフレーズ入力のリトライ上限
-pub const MAX_PASSPHRASE_RETRIES: u32 = 3;
+pub(crate) const MAX_PASSPHRASE_RETRIES: u32 = 3;
 
 /// CLI/TUI 共通のデフォルトプロバイダを作成する。
 ///

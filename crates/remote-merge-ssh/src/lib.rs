@@ -1,7 +1,7 @@
 #![warn(clippy::unwrap_used)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 pub mod client;
-pub mod hint;
+pub(crate) mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;
 pub mod quote;

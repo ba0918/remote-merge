@@ -9,7 +9,7 @@ use crate::preferred;
 /// 例には、サーバが申し出た方式のうちこのツールが使えるものを並べる。どの方式が合わなかったかは
 /// russh の誤りの種類で見る（表示の文言は版で変わりうる）。使えるものがないとき、方式の設定が
 /// ないとき（圧縮）、ほかの失敗のときは `None` を返す。
-pub fn ssh_algorithm_hint(error: &anyhow::Error) -> Option<String> {
+pub(crate) fn ssh_algorithm_hint(error: &anyhow::Error) -> Option<String> {
     let Some(russh::Error::NoCommonAlgo { kind, theirs, .. }) =
         error.downcast_ref::<russh::Error>()
     else {
