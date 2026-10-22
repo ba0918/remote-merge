@@ -312,21 +312,11 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
     let mut lines = Vec::new();
 
     for result in &output.merged {
-        let backup_info = if result.status == "would merge" {
-            // dry-run: バックアップパスは未生成なので有効/無効のみ表示
-            if result.backup.is_some() {
-                " (backup enabled)".to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            // 実行時: 実際のバックアップパスを表示
-            result
-                .backup
-                .as_ref()
-                .map(|b| format!(" (backup: {})", b))
-                .unwrap_or_default()
-        };
+        let backup_info = result
+            .backup
+            .as_ref()
+            .map(|b| format!(" (backup: {})", b))
+            .unwrap_or_default();
         let ref_badge_str = result
             .ref_badge
             .as_ref()
@@ -1902,27 +1892,6 @@ mod tests {
     }
 
     // ── format_merge_text: dry-run / actual backup 表示 ──
-
-    #[test]
-    fn test_format_merge_text_dryrun_backup_enabled() {
-        // dry-run + backup 設定あり → "(backup enabled)" を表示（実パスは未生成）
-        let output = MergeOutput {
-            merged: vec![MergeFileResult {
-                path: "src/main.rs".into(),
-                status: "would merge".into(),
-                backup: Some("/tmp/main.rs.bak".into()), // dry-run 中はパスが仮でも enabled 表示
-                ref_badge: None,
-                hunk_info: None,
-            }],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            ref_: None,
-        };
-        let text = format_merge_text(&output);
-        assert!(text.contains("Would merge: src/main.rs (backup enabled)"));
-        assert!(!text.contains("backup: /tmp"));
-    }
 
     #[test]
     fn test_format_merge_text_actual_backup_path() {
