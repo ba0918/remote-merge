@@ -4,8 +4,8 @@ use remote_merge_core::compare::{Present, Role, SideState, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
 use super::super::merge::MergeEntry;
-use super::super::test_support::file;
-use super::tests::{PLAIN, paths, plan_for, two};
+use super::super::test_support::{file, left_right, paths};
+use super::tests::{PLAIN, plan_for};
 use super::*;
 
 // 書き換えるか消す書き込み先のハッシュを読めなければ、読み込みの失敗として書かず消さない
@@ -16,7 +16,7 @@ fn a_destination_whose_hash_could_not_be_read_fails_as_a_read_failure() {
     use remote_merge_core::compare::{SideFailure, Undecidable};
     use remote_merge_core::op_failure::OpFailure;
 
-    let mut unreadable = two(file(), file(), Verdict::Differs);
+    let mut unreadable = left_right(file(), file(), Verdict::Differs);
     unreadable
         .hashes
         .insert(Role::Right, Err(OpFailure::PermissionDenied));
@@ -24,7 +24,7 @@ fn a_destination_whose_hash_could_not_be_read_fails_as_a_read_failure() {
         role: Role::Left,
         failure: OpFailure::PermissionDenied,
     }]));
-    let mut both = two(file(), file(), left_failed);
+    let mut both = left_right(file(), file(), left_failed);
     both.hashes
         .insert(Role::Right, Err(OpFailure::PermissionDenied));
     let listed = paths(vec![("a.txt", unreadable), ("b.txt", both)]);
@@ -54,10 +54,13 @@ fn a_destination_whose_hash_could_not_be_read_fails_as_a_read_failure() {
 #[test]
 fn a_missing_name_under_a_kind_mismatch_fails_without_skipping_the_ancestor() {
     let listed = paths(vec![
-        ("x", two(file(), SideState::Directory, Verdict::KindDiffers)),
+        (
+            "x",
+            left_right(file(), SideState::Directory, Verdict::KindDiffers),
+        ),
         (
             "x/only.txt",
-            two(
+            left_right(
                 SideState::Absent,
                 file(),
                 Verdict::OneSided(Present::Second),
@@ -86,11 +89,11 @@ fn a_destination_link_whose_target_is_not_plain_utf8_is_not_replaced() {
     let listed = paths(vec![
         (
             "bytes",
-            two(link_to(b"a.txt"), link_to(b"\xff.txt"), Verdict::Differs),
+            left_right(link_to(b"a.txt"), link_to(b"\xff.txt"), Verdict::Differs),
         ),
         (
             "replacement",
-            two(
+            left_right(
                 link_to(b"a.txt"),
                 link_to("\u{fffd}.txt".as_bytes()),
                 Verdict::Differs,
@@ -98,7 +101,7 @@ fn a_destination_link_whose_target_is_not_plain_utf8_is_not_replaced() {
         ),
         (
             "plain",
-            two(link_to(b"a.txt"), link_to(b"b.txt"), Verdict::Differs),
+            left_right(link_to(b"a.txt"), link_to(b"b.txt"), Verdict::Differs),
         ),
     ]);
 
@@ -129,7 +132,7 @@ fn a_source_link_whose_target_is_not_utf8_fails_in_the_plan() {
     let listed = paths(vec![
         (
             "new",
-            two(
+            left_right(
                 link_to(b"\xff.txt"),
                 SideState::Absent,
                 Verdict::OneSided(Present::First),
@@ -137,7 +140,7 @@ fn a_source_link_whose_target_is_not_utf8_fails_in_the_plan() {
         ),
         (
             "plain",
-            two(
+            left_right(
                 link_to(b"a.txt"),
                 SideState::Absent,
                 Verdict::OneSided(Present::First),

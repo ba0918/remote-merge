@@ -1,59 +1,11 @@
 //! 参照先を使う merge の確認（docs/ir/cli/merge.md の TBL-cli-009・REQ-cli-051・REQ-cli-092）の単体テスト
-use std::collections::BTreeMap;
-
 use remote_merge_core::compare::{
-    Pair, PairVerdict, PathComparison, PathStates, Present, Role, SideFailure, SideState,
-    Undecidable, Verdict,
+    PathComparison, Present, Role, SideFailure, SideState, Undecidable, Verdict,
 };
 use remote_merge_core::op_failure::OpFailure;
-use remote_merge_core::scan::outcome::LinkPoint;
 
+use super::super::test_support::{file, link, three};
 use super::*;
-
-fn file() -> SideState {
-    SideState::File {
-        size: Some(1),
-        mtime: None,
-    }
-}
-
-fn pair(first: Role, second: Role, verdict: Verdict) -> PairVerdict {
-    PairVerdict {
-        pair: Pair { first, second },
-        verdict,
-        followed: None,
-    }
-}
-
-/// 読み込み元・書き込み先・参照先の状態と、左右・左と参照先・右と参照先の判定
-fn three(states: [SideState; 3], verdicts: [Verdict; 3]) -> PathComparison {
-    let [source, destination, reference] = states;
-    let [lr, lref, rref] = verdicts;
-    PathComparison {
-        states: PathStates {
-            states: BTreeMap::from([
-                (Role::Left, source),
-                (Role::Right, destination),
-                (Role::Ref, reference),
-            ]),
-            ..PathStates::default()
-        },
-        pairs: vec![
-            pair(Role::Left, Role::Right, lr),
-            pair(Role::Left, Role::Ref, lref),
-            pair(Role::Right, Role::Ref, rref),
-        ],
-        hashes: BTreeMap::new(),
-        contents: BTreeMap::new(),
-    }
-}
-
-fn link_to(target: &str) -> SideState {
-    SideState::Symlink {
-        target: target.as_bytes().to_vec(),
-        points_to: LinkPoint::NotDirectory,
-    }
-}
 
 use Verdict::{BothAbsent, Differs, KindDiffers, OneSided, Same};
 
@@ -120,7 +72,7 @@ fn a_reference_of_another_kind_than_both_sides_is_a_three_way_conflict() {
 #[test]
 fn which_side_changed_from_the_reference_decides_the_write() {
     let files = |_: &str| file();
-    for kind in [files, link_to] {
+    for kind in [files, link] {
         let states = |source: &str, destination: &str| [kind(source), kind(destination), kind("r")];
         let both_changed = three(states("a", "b"), [Differs, Differs, Differs]);
         let destination_changed = three(states("r", "b"), [Differs, Same, Differs]);

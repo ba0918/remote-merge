@@ -2,8 +2,8 @@
 //! 097・099）の単体テスト
 use remote_merge_core::compare::{Role, SideState, Verdict};
 
-use super::super::test_support::{compared_with, file, link, pair};
-use super::tests::{DIFFERS, diff_file, sources, three, two_files};
+use super::super::test_support::{compared_with, file, link, pair, sources};
+use super::tests::{DIFFERS, diff_file, three, two_files};
 use crate::service::types::ConflictArea;
 
 // @kotowari[REQ-cli-063, REQ-cli-016]

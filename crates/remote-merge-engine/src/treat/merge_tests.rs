@@ -1,44 +1,15 @@
 //! merge と sync の扱いの表（REQ-merge-001・002・003・008・023・024、TBL-compare-005、REQ-cli-047）の
 //! 単体テスト
-use std::collections::BTreeMap;
-
-use remote_merge_core::compare::{
-    Pair, PairVerdict, PathComparison, PathStates, Present, Role, SideState, Undecidable, Verdict,
-};
+use remote_merge_core::compare::{Present, Role, SideState, Undecidable, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
+use super::super::test_support::{file, left_right};
 use super::*;
-
-fn file() -> SideState {
-    SideState::File {
-        size: Some(1),
-        mtime: None,
-    }
-}
 
 fn link(points_to: LinkPoint) -> SideState {
     SideState::Symlink {
         target: b"t".to_vec(),
         points_to,
-    }
-}
-
-fn compared(source: SideState, destination: SideState, verdict: Verdict) -> PathComparison {
-    PathComparison {
-        states: PathStates {
-            states: BTreeMap::from([(Role::Left, source), (Role::Right, destination)]),
-            ..PathStates::default()
-        },
-        pairs: vec![PairVerdict {
-            pair: Pair {
-                first: Role::Left,
-                second: Role::Right,
-            },
-            verdict,
-            followed: None,
-        }],
-        hashes: BTreeMap::new(),
-        contents: BTreeMap::new(),
     }
 }
 
@@ -55,7 +26,7 @@ fn a_path_only_in_the_source_is_written_as_its_kind() {
         (SideState::Directory, MergeEntry::Nothing),
     ];
     for (source, expected) in cases {
-        let comparison = compared(source.clone(), SideState::Absent, first.clone());
+        let comparison = left_right(source.clone(), SideState::Absent, first.clone());
         for options in [KEEP, DELETE] {
             assert_eq!(merge_entry(&comparison, options), expected, "{source:?}");
         }
@@ -66,13 +37,13 @@ fn a_path_only_in_the_source_is_written_as_its_kind() {
 #[test]
 fn a_path_only_in_the_destination_is_skipped_or_deleted() {
     let second = Verdict::OneSided(Present::Second);
-    let only_file = compared(SideState::Absent, file(), second.clone());
+    let only_file = left_right(SideState::Absent, file(), second.clone());
     assert_eq!(
         merge_entry(&only_file, KEEP),
         MergeEntry::Skip(SkipReason::DestinationOnly)
     );
     assert_eq!(merge_entry(&only_file, DELETE), MergeEntry::Delete);
-    let only_link = compared(
+    let only_link = left_right(
         SideState::Absent,
         link(LinkPoint::NotDirectory),
         second.clone(),
@@ -85,7 +56,7 @@ fn a_path_only_in_the_destination_is_skipped_or_deleted() {
         merge_entry(&only_link, DELETE),
         MergeEntry::Skip(SkipReason::LinkNotDeleted)
     );
-    let only_directory = compared(SideState::Absent, SideState::Directory, second);
+    let only_directory = left_right(SideState::Absent, SideState::Directory, second);
     for options in [KEEP, DELETE] {
         assert_eq!(merge_entry(&only_directory, options), MergeEntry::Nothing);
     }
@@ -102,7 +73,7 @@ fn different_kinds_are_skipped_except_a_directory_and_a_link_to_a_directory() {
         (link(LinkPoint::NotDirectory), file()),
         (link(LinkPoint::Missing), SideState::Directory),
     ] {
-        let comparison = compared(source.clone(), destination.clone(), kinds.clone());
+        let comparison = left_right(source.clone(), destination.clone(), kinds.clone());
         assert_eq!(
             merge_entry(&comparison, KEEP),
             MergeEntry::Skip(SkipReason::KindMismatch {
@@ -116,7 +87,7 @@ fn different_kinds_are_skipped_except_a_directory_and_a_link_to_a_directory() {
         (SideState::Directory, link(LinkPoint::Directory)),
         (link(LinkPoint::Directory), SideState::Directory),
     ] {
-        let comparison = compared(source, destination, kinds.clone());
+        let comparison = left_right(source, destination, kinds.clone());
         assert_eq!(merge_entry(&comparison, DELETE), MergeEntry::Nothing);
     }
 }
@@ -124,9 +95,9 @@ fn different_kinds_are_skipped_except_a_directory_and_a_link_to_a_directory() {
 // @kotowari[REQ-merge-018, REQ-merge-003, REQ-merge-021]
 #[test]
 fn a_differing_pair_is_written_and_the_same_pair_is_left() {
-    let files = compared(file(), file(), Verdict::Differs);
+    let files = left_right(file(), file(), Verdict::Differs);
     assert_eq!(merge_entry(&files, KEEP), MergeEntry::WriteFile);
-    let links = compared(
+    let links = left_right(
         link(LinkPoint::NotDirectory),
         link(LinkPoint::Missing),
         Verdict::Differs,
@@ -137,7 +108,7 @@ fn a_differing_pair_is_written_and_the_same_pair_is_left() {
         (link(LinkPoint::NotDirectory), link(LinkPoint::NotDirectory)),
         (SideState::Directory, SideState::Directory),
     ] {
-        let comparison = compared(source, destination, Verdict::Same);
+        let comparison = left_right(source, destination, Verdict::Same);
         assert_eq!(merge_entry(&comparison, DELETE), MergeEntry::Nothing);
     }
 }
@@ -146,7 +117,7 @@ fn a_differing_pair_is_written_and_the_same_pair_is_left() {
 #[test]
 fn an_undecidable_pair_fails_with_its_reason() {
     let why = Undecidable::NotRegularFile(vec![Role::Right]);
-    let comparison = compared(
+    let comparison = left_right(
         SideState::Absent,
         SideState::Other,
         Verdict::Undecidable(why),
@@ -162,7 +133,7 @@ fn an_undecidable_pair_fails_with_its_reason() {
 // @kotowari[REQ-merge-035]
 #[test]
 fn a_path_on_neither_side_is_absent() {
-    let comparison = compared(SideState::Absent, SideState::Absent, Verdict::BothAbsent);
+    let comparison = left_right(SideState::Absent, SideState::Absent, Verdict::BothAbsent);
     assert_eq!(merge_entry(&comparison, KEEP), MergeEntry::Absent);
 }
 

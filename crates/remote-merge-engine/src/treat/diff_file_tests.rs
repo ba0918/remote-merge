@@ -3,9 +3,8 @@
 use remote_merge_core::compare::{Present, Role, SideState, Verdict};
 
 use super::super::content::{Context, Overrides, prepare};
-use super::super::test_support::{compared_with, file, link, pair};
+use super::super::test_support::{compared_with, file, link, pair, sources};
 use super::*;
-use crate::service::types::SourceInfo;
 
 /// 内容の設定と指定がないときの `path` の項目
 pub(super) fn diff_file(
@@ -23,21 +22,6 @@ pub(super) fn diff_file(
     };
     let view = prepare(comparison, path, &context, sources.reference.is_some());
     prepared_file(path, comparison, change, sources, max_lines, &view)
-}
-
-pub(super) fn source(label: &str) -> SourceInfo {
-    SourceInfo {
-        label: label.into(),
-        root: format!("/{label}"),
-    }
-}
-
-pub(super) fn sources(with_ref: bool) -> Sources {
-    Sources {
-        left: source("left"),
-        right: source("right"),
-        reference: with_ref.then(|| source("ref")),
-    }
 }
 
 pub(super) fn two_files(left: &[u8], right: &[u8]) -> PathComparison {

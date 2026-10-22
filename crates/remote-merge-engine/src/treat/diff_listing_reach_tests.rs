@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use remote_merge_core::compare::{Role, SideState, Verdict};
 
-use super::super::test_support::{compared_with, file, pair};
-use super::tests::{diff_listing, limits, paths, sources, whole};
+use super::super::test_support::{compared_with, file, pair, paths, sources};
+use super::tests::{diff_listing, limits, whole};
 use super::*;
 
 // 参照先がないか読めない symlink は、項目を残してエラーにする（REQ-cli-022）

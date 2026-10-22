@@ -38,7 +38,7 @@ fn the_contents_or_the_link_strings_decide_even_when_the_metadata_says_same() {
         ReferenceCheck::Fail(ReferenceFailure::Incomplete)
     );
     let links = three(
-        [link_to("same"), link_to("other"), link_to("same")],
+        [link("same"), link("other"), link("same")],
         [Differs, Same, Same],
     );
     assert_eq!(

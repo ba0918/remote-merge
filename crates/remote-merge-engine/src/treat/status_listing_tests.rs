@@ -1,39 +1,11 @@
 //! 比べた結果から status の一覧と errors と参照先の集計を作る単体テスト
 use std::collections::BTreeMap;
 
-use remote_merge_core::compare::{
-    Pair, PairVerdict, PathComparison, PathStates, Present, Role, SideState, Undecidable, Verdict,
-};
+use remote_merge_core::compare::{Present, Role, SideState, Undecidable, Verdict};
 
+use super::super::test_support::{compared_with, file, pair};
 use super::*;
 use crate::service::types::FileStatusKind;
-
-fn file() -> SideState {
-    SideState::File {
-        size: Some(1),
-        mtime: None,
-    }
-}
-
-fn pair(first: Role, second: Role, verdict: Verdict) -> PairVerdict {
-    PairVerdict {
-        pair: Pair { first, second },
-        verdict,
-        followed: None,
-    }
-}
-
-fn compared(states: &[(Role, SideState)], pairs: Vec<PairVerdict>) -> PathComparison {
-    PathComparison {
-        states: PathStates {
-            states: states.iter().cloned().collect(),
-            ..PathStates::default()
-        },
-        pairs,
-        hashes: BTreeMap::new(),
-        contents: BTreeMap::new(),
-    }
-}
 
 // @kotowari[REQ-cli-027, REQ-cli-088, TBL-compare-005]
 #[test]
@@ -41,14 +13,15 @@ fn the_listing_has_the_listed_files_and_the_undecidable_ones_in_errors() {
     let paths = BTreeMap::from([
         (
             "a.txt".to_string(),
-            compared(
+            compared_with(
                 &[(Role::Left, file()), (Role::Right, file())],
                 vec![pair(Role::Left, Role::Right, Verdict::Differs)],
+                &[],
             ),
         ),
         (
             "dir".to_string(),
-            compared(
+            compared_with(
                 &[
                     (Role::Left, SideState::Directory),
                     (Role::Right, SideState::Absent),
@@ -58,17 +31,19 @@ fn the_listing_has_the_listed_files_and_the_undecidable_ones_in_errors() {
                     Role::Right,
                     Verdict::OneSided(Present::First),
                 )],
+                &[],
             ),
         ),
         (
             "pipe".to_string(),
-            compared(
+            compared_with(
                 &[(Role::Left, SideState::Other), (Role::Right, file())],
                 vec![pair(
                     Role::Left,
                     Role::Right,
                     Verdict::Undecidable(Undecidable::NotRegularFile(vec![Role::Left])),
                 )],
+                &[],
             ),
         ),
     ]);
@@ -93,7 +68,7 @@ fn with_a_ref_each_file_gets_its_badge_and_the_paths_only_in_the_ref_are_counted
     let paths = BTreeMap::from([
         (
             "new.txt".to_string(),
-            compared(
+            compared_with(
                 &[
                     (Role::Left, file()),
                     (Role::Right, SideState::Absent),
@@ -104,22 +79,24 @@ fn with_a_ref_each_file_gets_its_badge_and_the_paths_only_in_the_ref_are_counted
                     pair(Role::Left, Role::Ref, Verdict::OneSided(Present::First)),
                     pair(Role::Right, Role::Ref, Verdict::BothAbsent),
                 ],
+                &[],
             ),
         ),
         (
             "only-ref.txt".to_string(),
-            compared(
+            compared_with(
                 &[
                     (Role::Left, SideState::Absent),
                     (Role::Right, SideState::Absent),
                     (Role::Ref, file()),
                 ],
                 vec![pair(Role::Left, Role::Right, Verdict::BothAbsent)],
+                &[],
             ),
         ),
         (
             "x".to_string(),
-            compared(
+            compared_with(
                 &[
                     (Role::Left, file()),
                     (Role::Right, file()),
@@ -138,6 +115,7 @@ fn with_a_ref_each_file_gets_its_badge_and_the_paths_only_in_the_ref_are_counted
                         Verdict::Undecidable(Undecidable::NotRegularFile(vec![Role::Ref])),
                     ),
                 ],
+                &[],
             ),
         ),
     ]);

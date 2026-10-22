@@ -9,9 +9,8 @@ use remote_merge_core::op_failure::OpFailure;
 
 use super::super::content::Overrides;
 use super::super::diff_file::Sources;
-use super::super::test_support::{compared_with, file, link, pair};
+use super::super::test_support::{compared_with, file, link, pair, paths, sources};
 use super::*;
-use crate::service::types::SourceInfo;
 
 /// 内容の設定と指定がないときの diff の出力
 pub(super) fn diff_listing(
@@ -27,18 +26,6 @@ pub(super) fn diff_listing(
         overrides: Overrides::default(),
     };
     diff_listing_with_content(paths, sources, limits, coverage, &context)
-}
-
-pub(super) fn sources(with_ref: bool) -> Sources {
-    let source = |label: &str| SourceInfo {
-        label: label.into(),
-        root: label.into(),
-    };
-    Sources {
-        left: source("l"),
-        right: source("r"),
-        reference: with_ref.then(|| source("ref")),
-    }
 }
 
 fn files_pair(verdict: Verdict) -> PathComparison {
@@ -61,13 +48,6 @@ pub(super) fn whole() -> Coverage<'static> {
         named: &[],
         incomplete: BTreeSet::new(),
     }
-}
-
-pub(super) fn paths(entries: Vec<(&str, PathComparison)>) -> BTreeMap<String, PathComparison> {
-    entries
-        .into_iter()
-        .map(|(path, comparison)| (path.to_string(), comparison))
-        .collect()
 }
 
 fn denied(role: Role) -> Verdict {

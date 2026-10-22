@@ -1,47 +1,9 @@
 //! status の扱いの表（TBL-cli-001・TBL-cli-005・TBL-cli-002・TBL-compare-005）の単体テスト
-use std::collections::BTreeMap;
+use remote_merge_core::compare::{Present, Role, SideState, Undecidable, Verdict};
 
-use remote_merge_core::compare::{
-    Pair, PairVerdict, PathComparison, PathStates, Present, Role, SideState, Undecidable, Verdict,
-};
-
+use super::super::test_support::{compared_with, file, left_right, pair, three};
 use super::*;
 use crate::service::types::{FileStatus, FileStatusKind};
-
-fn file() -> SideState {
-    SideState::File {
-        size: Some(1),
-        mtime: None,
-    }
-}
-
-fn pair(first: Role, second: Role, verdict: Verdict) -> PairVerdict {
-    PairVerdict {
-        pair: Pair { first, second },
-        verdict,
-        followed: None,
-    }
-}
-
-/// 側ごとの状態と、組ごとの判定から作る比べた結果
-fn compared(states: &[(Role, SideState)], pairs: Vec<PairVerdict>) -> PathComparison {
-    PathComparison {
-        states: PathStates {
-            states: states.iter().cloned().collect(),
-            ..PathStates::default()
-        },
-        pairs,
-        hashes: BTreeMap::new(),
-        contents: BTreeMap::new(),
-    }
-}
-
-fn left_right(left: SideState, right: SideState, verdict: Verdict) -> PathComparison {
-    compared(
-        &[(Role::Left, left), (Role::Right, right)],
-        vec![pair(Role::Left, Role::Right, verdict)],
-    )
-}
 
 // @kotowari[REQ-cli-027, TBL-cli-001]
 #[test]
@@ -105,13 +67,14 @@ fn an_undecidable_pair_is_not_given_a_value_and_goes_to_errors_with_its_reason()
 // @kotowari[REQ-cli-035]
 #[test]
 fn a_path_absent_on_both_sides_is_not_listed() {
-    let comparison = compared(
+    let comparison = compared_with(
         &[
             (Role::Left, SideState::Absent),
             (Role::Right, SideState::Absent),
             (Role::Ref, file()),
         ],
         vec![pair(Role::Left, Role::Right, Verdict::BothAbsent)],
+        &[],
     );
     assert_eq!(status_entry(&comparison), StatusEntry::NotListed);
 }
@@ -132,26 +95,8 @@ fn a_directory_on_every_side_where_it_is_is_not_listed() {
 // 集めなかった側を含む組は判定されないので、載せない
 #[test]
 fn a_path_without_a_left_right_pair_is_not_listed() {
-    let comparison = compared(&[(Role::Left, file())], Vec::new());
+    let comparison = compared_with(&[(Role::Left, file())], Vec::new(), &[]);
     assert_eq!(status_entry(&comparison), StatusEntry::NotListed);
-}
-
-/// 左右と参照先の状態と、左右・左と参照先・右と参照先の判定
-fn three(states: [SideState; 3], verdicts: [Verdict; 3]) -> PathComparison {
-    let [left, right, reference] = states;
-    let [lr, lref, rref] = verdicts;
-    compared(
-        &[
-            (Role::Left, left),
-            (Role::Right, right),
-            (Role::Ref, reference),
-        ],
-        vec![
-            pair(Role::Left, Role::Right, lr),
-            pair(Role::Left, Role::Ref, lref),
-            pair(Role::Right, Role::Ref, rref),
-        ],
-    )
 }
 
 // @kotowari[REQ-cli-035, TBL-cli-005, EX-cli-099]

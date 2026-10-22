@@ -8,23 +8,8 @@ use remote_merge_core::scan::outcome::LinkPoint;
 
 use super::super::merge::{Kind, MergeEntry, SkipReason};
 use super::super::merge_scope::merge_targets;
-use super::super::test_support::{compared_with, file, pair};
+use super::super::test_support::{file, left_right, pair, paths};
 use super::*;
-
-pub(super) fn two(source: SideState, destination: SideState, verdict: Verdict) -> PathComparison {
-    compared_with(
-        &[(Role::Left, source), (Role::Right, destination)],
-        vec![pair(Role::Left, Role::Right, verdict)],
-        &[],
-    )
-}
-
-pub(super) fn paths(entries: Vec<(&str, PathComparison)>) -> BTreeMap<String, PathComparison> {
-    entries
-        .into_iter()
-        .map(|(path, comparison)| (path.to_string(), comparison))
-        .collect()
-}
 
 pub(super) fn plan_for(
     listed: &BTreeMap<String, PathComparison>,
@@ -55,17 +40,17 @@ fn kind_mismatch() -> MergeEntry {
 #[test]
 fn only_the_named_paths_and_their_changes_are_planned() {
     let listed = paths(vec![
-        ("a.txt", two(file(), file(), Verdict::Differs)),
+        ("a.txt", left_right(file(), file(), Verdict::Differs)),
         (
             "d",
-            two(SideState::Directory, SideState::Directory, Verdict::Same),
+            left_right(SideState::Directory, SideState::Directory, Verdict::Same),
         ),
         (
             "d/b.txt",
-            two(file(), SideState::Absent, Verdict::OneSided(Present::First)),
+            left_right(file(), SideState::Absent, Verdict::OneSided(Present::First)),
         ),
-        ("d/same.txt", two(file(), file(), Verdict::Same)),
-        ("other.txt", two(file(), file(), Verdict::Differs)),
+        ("d/same.txt", left_right(file(), file(), Verdict::Same)),
+        ("other.txt", left_right(file(), file(), Verdict::Differs)),
     ]);
 
     let planned = plan_for(&listed, &["a.txt", "d"], PLAIN);
@@ -83,7 +68,10 @@ fn only_the_named_paths_and_their_changes_are_planned() {
 // @kotowari[REQ-merge-035]
 #[test]
 fn a_name_on_neither_side_fails() {
-    let listed = paths(vec![("a.txt", two(file(), file(), Verdict::Differs))]);
+    let listed = paths(vec![(
+        "a.txt",
+        left_right(file(), file(), Verdict::Differs),
+    )]);
 
     let planned = plan_for(&listed, &["a.txt", "gone.txt"], PLAIN);
 
@@ -97,10 +85,13 @@ fn a_name_on_neither_side_fails() {
 #[test]
 fn an_ancestor_of_another_kind_in_the_scan_range_is_skipped_once() {
     let listed = paths(vec![
-        ("x", two(file(), SideState::Directory, Verdict::KindDiffers)),
+        (
+            "x",
+            left_right(file(), SideState::Directory, Verdict::KindDiffers),
+        ),
         (
             "x/a.txt",
-            two(
+            left_right(
                 SideState::Absent,
                 file(),
                 Verdict::OneSided(Present::Second),
@@ -128,10 +119,13 @@ fn an_ancestor_of_another_kind_in_the_scan_range_is_skipped_once() {
         points_to: LinkPoint::Directory,
     };
     let through_link = paths(vec![
-        ("x", two(file(), link_to_directory, Verdict::KindDiffers)),
+        (
+            "x",
+            left_right(file(), link_to_directory, Verdict::KindDiffers),
+        ),
         (
             "x/a.txt",
-            two(
+            left_right(
                 SideState::Absent,
                 file(),
                 Verdict::OneSided(Present::Second),
@@ -145,7 +139,7 @@ fn an_ancestor_of_another_kind_in_the_scan_range_is_skipped_once() {
 // @kotowari[REQ-cli-051, REQ-cli-092]
 #[test]
 fn the_reference_check_applies_only_to_writes() {
-    let mut changed = two(file(), file(), Verdict::Differs);
+    let mut changed = left_right(file(), file(), Verdict::Differs);
     changed.states.states.insert(Role::Ref, file());
     changed
         .pairs
@@ -153,7 +147,7 @@ fn the_reference_check_applies_only_to_writes() {
     changed
         .pairs
         .push(pair(Role::Right, Role::Ref, Verdict::Differs));
-    let mismatch = two(file(), SideState::Directory, Verdict::KindDiffers);
+    let mismatch = left_right(file(), SideState::Directory, Verdict::KindDiffers);
     let listed = paths(vec![("a.txt", changed), ("x", mismatch)]);
     let checked = PlanOptions {
         reference_check: true,
