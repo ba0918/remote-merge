@@ -89,11 +89,7 @@ pub fn prepare<'a>(
             return Ok(Prepared::Unavailable);
         };
         let bytes = bytes.as_ref().map_err(|failure| failure.to_string())?;
-        let name = match context.sides.get(&role) {
-            Some(Side::Local) => "local",
-            Some(Side::Remote(name)) => name,
-            None => "local",
-        };
+        let name = context.sides.get(&role).map_or("local", Side::display_name);
         let override_ = match role {
             Role::Left => context.overrides.left,
             Role::Right => context.overrides.right,
