@@ -39,7 +39,6 @@ pub struct StatusArgs {
 pub struct StatusCommandResult {
     pub output: StatusOutput,
     pub exit_code: i32,
-    pub summary: bool,
 }
 
 /// status サブコマンドを実行する
@@ -137,7 +136,6 @@ fn compare_and_list(
     Ok(StatusCommandResult {
         output,
         exit_code: code,
-        summary: args.summary,
     })
 }
 
@@ -148,7 +146,8 @@ fn print_status_result(result: &StatusCommandResult, format: OutputFormat) -> an
         }
     }
     let text = match format {
-        OutputFormat::Text => format_status_text(&result.output, result.summary),
+        // --summary のときだけ files を持たない
+        OutputFormat::Text => format_status_text(&result.output, result.output.files.is_none()),
         OutputFormat::Json => format_json(&result.output)?,
     };
     println!("{}", text);
