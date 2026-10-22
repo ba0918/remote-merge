@@ -9,9 +9,8 @@ use remote_merge_core::compare::{Follow, Method, Role, SideState, state_table};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::path_resolution::ResolveError;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
-use remote_merge_engine::treat::rollback::{Recorded, TargetFacts};
+use remote_merge_engine::treat::rollback::TargetFacts;
 
-use super::backup_store::BackupRecord;
 use super::compare_flow::{
     CompareRequest, CompareScope, EntryLimit, ExternalLinks, LostDestination, UnfollowableLinks,
 };
@@ -129,29 +128,6 @@ fn unresolved_cause(error: &anyhow::Error) -> String {
         Some(error) => error.cause().to_string(),
         None => format!("{error:#}"),
     }
-}
-
-/// 記録の種類（記録したときの実パスが UTF-8 でなければ、比べられない誤り）
-pub(super) fn recorded(record: &BackupRecord) -> anyhow::Result<Recorded> {
-    let text = |path: &std::path::Path| {
-        path.to_str()
-            .map(str::to_string)
-            .ok_or_else(|| anyhow::anyhow!("the recorded path {} is not UTF-8", path.display()))
-    };
-    Ok(match record {
-        BackupRecord::File { real_path, .. } => Recorded::File {
-            real_path: text(real_path)?,
-        },
-        BackupRecord::Symlink {
-            expected_target: Some(expected_target),
-            real_parent: Some(real_parent),
-            ..
-        } => Recorded::LinkUpdate {
-            expected_target: text(expected_target)?,
-            real_parent: text(real_parent)?,
-        },
-        BackupRecord::Symlink { .. } => Recorded::ReplacedLink,
-    })
 }
 
 #[cfg(test)]

@@ -8,11 +8,10 @@ use std::collections::{BTreeMap, HashMap};
 use remote_merge_core::change_check::Before;
 use remote_merge_core::compare::SideState;
 use remote_merge_core::relative_path::EntryPath;
-use remote_merge_engine::treat::rollback::{RestoreEntry, TargetFacts, rollback_plan};
+use remote_merge_engine::treat::rollback::{RestoreEntry, TargetFacts, recorded, rollback_plan};
 
 use super::backup_store::BackupRecord;
 use super::core::CoreRuntime;
-use super::rollback_facts::recorded;
 use crate::side::Side;
 
 /// 一つのパスの書き戻しの結果

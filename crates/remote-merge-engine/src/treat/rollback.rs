@@ -7,6 +7,8 @@ use std::path::Path;
 use remote_merge_core::compare::{Role, SideState, Undecidable};
 use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 
+use crate::backup_store::BackupRecord;
+
 /// 親のディレクトリがなくなったファイルのスキップの理由（REQ-backup-031）
 pub const PARENT_GONE: &str = "parent directory no longer exists";
 /// 置き換えた symlink の記録のスキップの理由（REQ-backup-032）
@@ -45,6 +47,29 @@ pub enum TargetFacts {
         /// 親のパスの確認の答え
         parent: ResolvedPath,
     },
+}
+
+/// 記録の種類（記録したときの実パスが UTF-8 でなければ、比べられない誤り）
+pub fn recorded(record: &BackupRecord) -> anyhow::Result<Recorded> {
+    let text = |path: &Path| {
+        path.to_str()
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("the recorded path {} is not UTF-8", path.display()))
+    };
+    Ok(match record {
+        BackupRecord::File { real_path, .. } => Recorded::File {
+            real_path: text(real_path)?,
+        },
+        BackupRecord::Symlink {
+            expected_target: Some(expected_target),
+            real_parent: Some(real_parent),
+            ..
+        } => Recorded::LinkUpdate {
+            expected_target: text(expected_target)?,
+            real_parent: text(real_parent)?,
+        },
+        BackupRecord::Symlink { .. } => Recorded::ReplacedLink,
+    })
 }
 
 /// 一つのパスの扱い
