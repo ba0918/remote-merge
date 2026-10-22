@@ -8,23 +8,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use super::dispatch::Dispatcher;
+use super::dispatch::{Dispatcher, MetadataConfig};
 use super::framing;
 use super::protocol::{self, AgentRequest, AgentResponse};
-
-// ---------------------------------------------------------------------------
-// MetadataConfig
-// ---------------------------------------------------------------------------
-
-/// Agent 起動時に渡されるメタデータ設定。
-///
-/// sudo のエージェントが新しく作ったものに付ける所有者（ログインした利用者）を保持する。
-/// None の場合は所有者を変えない。新しいファイルとディレクトリの権限は merge が付ける。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MetadataConfig {
-    pub default_uid: Option<u32>,
-    pub default_gid: Option<u32>,
-}
 
 // ---------------------------------------------------------------------------
 // Public entry point

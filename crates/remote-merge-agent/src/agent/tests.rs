@@ -13,7 +13,8 @@ use std::os::unix::net::UnixStream;
 use tempfile::TempDir;
 
 use super::client::AgentClient;
-use super::server::{MetadataConfig, run_agent_loop};
+use super::dispatch::MetadataConfig;
+use super::server::run_agent_loop;
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::outcome::{ListedEntry, ListedKind, ScanRequest, ScanScope};

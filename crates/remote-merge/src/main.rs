@@ -555,7 +555,7 @@ fn try_main() -> anyhow::Result<()> {
         } => {
             #[cfg(unix)]
             {
-                let metadata_config = remote_merge::agent::server::MetadataConfig {
+                let metadata_config = remote_merge::agent::dispatch::MetadataConfig {
                     default_uid,
                     default_gid,
                 };

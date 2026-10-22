@@ -20,7 +20,8 @@ pub(super) fn entry(path: &str) -> EntryPath {
 pub(super) fn rels(paths: &[&str]) -> Vec<EntryPath> {
     paths.iter().map(|path| entry(path)).collect()
 }
-pub(super) use crate::agent::server::{MetadataConfig, run_agent_loop};
+pub(super) use crate::agent::dispatch::MetadataConfig;
+pub(super) use crate::agent::server::run_agent_loop;
 pub(super) use std::os::unix::net::UnixStream;
 pub(super) use tempfile::TempDir;
 

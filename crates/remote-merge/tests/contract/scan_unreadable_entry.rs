@@ -6,9 +6,8 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
-use remote_merge::agent::dispatch::Dispatcher;
+use remote_merge::agent::dispatch::{Dispatcher, MetadataConfig};
 use remote_merge::agent::protocol::{AgentRequest, AgentResponse};
-use remote_merge::agent::server::MetadataConfig;
 use remote_merge_core::scan::outcome::{ReadCause, ScanFailure, ScanRequest, ScanScope};
 
 /// エージェントの受け取り口で root_dir 全体を走査した応答

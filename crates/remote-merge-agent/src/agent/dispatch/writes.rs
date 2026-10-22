@@ -13,8 +13,8 @@ use remote_merge_core::machine_ops;
 use remote_merge_core::op_failure::{OpFailure, from_io_error};
 use remote_merge_core::relative_path::EntryPath;
 
+use super::MetadataConfig;
 use super::ownership::{OwnerOps, own_created};
-use crate::agent::server::MetadataConfig;
 
 /// 最初の分を書く。書き込み先を開き（ないときは新しいファイルとして O_EXCL で作る）、root で動くとき
 /// は、新しく作ったファイルと親ディレクトリの所有者を、中身を書く前に既定の利用者にする

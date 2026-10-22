@@ -14,7 +14,16 @@ use remote_merge_core::relative_path::{EntryPath, RelPath, RelPathError};
 
 use super::file_io;
 use super::protocol::{AgentPathCheck, AgentRequest, AgentResponse, WireFailure};
-use super::server::MetadataConfig;
+
+/// Agent 起動時に渡されるメタデータ設定。
+///
+/// sudo のエージェントが新しく作ったものに付ける所有者（ログインした利用者）を保持する。
+/// None の場合は所有者を変えない。新しいファイルとディレクトリの権限は merge が付ける。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetadataConfig {
+    pub default_uid: Option<u32>,
+    pub default_gid: Option<u32>,
+}
 
 pub struct Dispatcher {
     root_dir: PathBuf,
