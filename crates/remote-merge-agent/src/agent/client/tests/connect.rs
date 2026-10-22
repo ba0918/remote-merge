@@ -41,6 +41,66 @@ fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
     }
 }
 
+/// 一つのパスの要求のすべてを、決まった応答を一つだけ返すエージェントに送った結果
+fn answer_each_single_path_request(response: &AgentResponse) -> Vec<anyhow::Error> {
+    let path = entry("ok.txt");
+    vec![
+        answering(response)
+            .write_file(&path, b"x", false)
+            .expect_err("the answer fails the request"),
+        answering(response)
+            .symlink(&path, "t")
+            .expect_err("the answer fails the request"),
+        answering(response)
+            .remove(&path)
+            .expect_err("the answer fails the request"),
+        answering(response)
+            .chmod(&path, 0o644)
+            .expect_err("the answer fails the request"),
+        answering(response)
+            .read_entry_link(&path)
+            .map(|_| ())
+            .expect_err("the answer fails the request"),
+        answering(response)
+            .inspect_path(&rel("ok.txt"))
+            .map(|_| ())
+            .expect_err("the answer fails the request"),
+    ]
+}
+
+#[test]
+fn a_refused_path_fails_every_single_path_request_with_the_typed_refusal() {
+    let refusal = protocol::RelPathError::Traversal("../x".into());
+    let errors = answer_each_single_path_request(&AgentResponse::PathRefused {
+        refusal: refusal.clone(),
+    });
+    for error in &errors {
+        assert_eq!(refusal_of(error), Some(&refusal), "{error:#}");
+    }
+}
+
+#[test]
+fn an_error_answer_fails_every_request_as_refused_by_the_agent_with_its_text() {
+    let response = AgentResponse::Error {
+        message: "agent said no".into(),
+    };
+    let mut errors = answer_each_single_path_request(&response);
+    errors.push(
+        answering(&response)
+            .inspect_paths(&[rel("ok.txt")])
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    for error in &errors {
+        let refused = error.downcast_ref::<AgentRefused>();
+        assert_eq!(
+            refused.map(|refused| refused.0.as_str()),
+            Some("agent said no"),
+            "{error:#}"
+        );
+    }
+}
+
 // ---- Handshake ----
 
 #[test]
