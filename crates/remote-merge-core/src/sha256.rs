@@ -1,5 +1,6 @@
 //! 中身の SHA-256 を小文字の16進で表す。比べる流れ・バックアップ・エージェントの照合が同じ表し方を使う
 
+use std::fmt::Write as _;
 use std::io::{ErrorKind, Read};
 
 use sha2::{Digest as _, Sha256};
@@ -24,7 +25,11 @@ pub fn hex_of_reader(mut reader: impl Read) -> std::io::Result<String> {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 #[cfg(test)]
