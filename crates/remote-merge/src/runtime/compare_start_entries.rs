@@ -50,7 +50,7 @@ impl CoreRuntime {
         listing
             .entries
             .retain(|entry| !scan.iter().any(|path| path == &entry.path));
-        Ok(joined(listing, themselves))
+        Ok(listing.join(themselves))
     }
 }
 
@@ -68,21 +68,3 @@ pub(super) fn listed_links(listing: &Listing) -> impl Iterator<Item = &str> {
             _ => None,
         })
 }
-
-/// 二つの走査の一覧を一つにする。どちらかが打ち切ったか循環に出会えば、一つにした一覧もそう
-fn joined(mut listing: Listing, other: Listing) -> Listing {
-    listing.entries.extend(other.entries);
-    listing.entries.sort_by(|a, b| a.path.cmp(&b.path));
-    listing.unreadable_names.extend(other.unreadable_names);
-    listing.unreadable_names.sort();
-    listing.unresolvable_names.extend(other.unresolvable_names);
-    listing.unresolvable_names.sort();
-    listing.truncated |= other.truncated;
-    listing.cycle = listing.cycle.or(other.cycle);
-    listing.counted += other.counted;
-    listing
-}
-
-#[cfg(test)]
-#[path = "compare_start_entries_tests.rs"]
-mod tests;

@@ -139,6 +139,22 @@ pub struct Listing {
     pub counted: usize,
 }
 
+impl Listing {
+    /// 二つの走査の一覧を一つにする。どちらかが打ち切ったか循環に出会えば、一つにした一覧もそう
+    pub fn join(mut self, other: Listing) -> Listing {
+        self.entries.extend(other.entries);
+        self.entries.sort_by(|a, b| a.path.cmp(&b.path));
+        self.unreadable_names.extend(other.unreadable_names);
+        self.unreadable_names.sort();
+        self.unresolvable_names.extend(other.unresolvable_names);
+        self.unresolvable_names.sort();
+        self.truncated |= other.truncated;
+        self.cycle = self.cycle.or(other.cycle);
+        self.counted += other.counted;
+        self
+    }
+}
+
 /// ディレクトリを読めなかった理由。経路によらず同じ文言にするため、OS や道具の文言は運ばない
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ReadCause {
@@ -231,3 +247,7 @@ impl From<super::raw::CollectError> for ScanError {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "outcome_tests.rs"]
+mod tests;

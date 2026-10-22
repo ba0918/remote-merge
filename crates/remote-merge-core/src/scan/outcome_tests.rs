@@ -16,7 +16,7 @@ fn joining_keeps_the_truncation_and_the_count_of_both_scans() {
         ..Listing::default()
     };
 
-    let joined = joined(below, themselves);
+    let joined = below.join(themselves);
 
     assert!(joined.truncated);
     assert_eq!(joined.counted, 3);
