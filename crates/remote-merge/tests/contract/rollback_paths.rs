@@ -7,12 +7,12 @@ use chrono::{TimeZone, Utc};
 use remote_merge::cli::merge::{MergeArgs, MergeCommandOutput, execute_merge};
 use remote_merge::cli::rollback::{RollbackArgs, RollbackCommandOutput, execute_rollback};
 use remote_merge::cli::sync::{SyncCommandOutput, execute_sync};
-use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
 use tempfile::TempDir;
 
 use super::args_support::{merge_args, rollback_args, sync_args};
+use super::local_route_support::setup;
 
 // @kotowari[EX-backup-005, EX-backup-016]
 #[test]
@@ -26,16 +26,7 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
     fs::write(old_dir.path().join("second.txt"), "second before\n").unwrap();
     fs::write(new_dir.path().join("second.txt"), "third party\n").unwrap();
     symlink(old_dir.path(), destination.path().join("shared")).unwrap();
-    let config_path = local.path().join("config.toml");
-    fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
-        local.path().display().to_string(), destination.path().display().to_string()
-    )).unwrap();
-    let config = load_config_from_paths(Some(&config_path), None).unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", destination.path())
-        .with_backup_store(Some(backup.path().to_path_buf()))
-        .with_startup_directory(std::env::current_dir().unwrap());
+    let (config, targets) = setup(&local, &destination, &backup);
     let side = Side::Remote("develop".into());
     let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
     let session = core.reserve_backup_session(&[]).unwrap();
@@ -116,7 +107,7 @@ fn unchanged_parent_link_allows_every_file_in_the_session_to_be_restored() {
     fs::write(destination.path().join("first.txt"), "first before\n").unwrap();
     fs::write(shared.path().join("second.txt"), "second before\n").unwrap();
     symlink(shared.path(), destination.path().join("shared")).unwrap();
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
     let session = core.reserve_backup_session(&[]).unwrap();
     let side = Side::Remote("develop".into());
@@ -171,7 +162,7 @@ fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
     fs::write(destination.path().join("new.txt"), "new\n").unwrap();
     symlink("new.txt", local.path().join("link.txt")).unwrap();
     symlink("old.txt", destination.path().join("link.txt")).unwrap();
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_merge(
         symlink_merge_args(&["link.txt"]),
         config.clone(),
@@ -211,7 +202,7 @@ fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_s
     symlink("old.txt", destination.path().join("link.txt")).unwrap();
     fs::write(local.path().join("file.txt"), "brand new content\n").unwrap();
     fs::write(destination.path().join("file.txt"), "old content\n").unwrap();
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_merge(
         symlink_merge_args(&["file.txt", "link.txt"]),
         config.clone(),
@@ -252,7 +243,7 @@ fn expired_backup_fixture() -> (
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
     fs::write(destination.path().join("file.txt"), "before\n").unwrap();
-    let (mut config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (mut config, targets) = setup(&local, &destination, &backup);
     config.backup.retention_days = 1;
     let old = targets
         .clone()
@@ -388,7 +379,7 @@ fn one_sync_of_two_files_appears_as_one_rollback_session() {
         fs::write(local.path().join(path), "new\n").unwrap();
         fs::write(destination.path().join(path), "old\n").unwrap();
     }
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         sync_args(&["first.txt", "second.txt"]),
         config.clone(),
@@ -434,7 +425,7 @@ fn previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged() {
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
     let session = core.reserve_backup_session(&[]).unwrap();
     let side = Side::Remote("develop".into());
@@ -486,7 +477,7 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
     let backup = TempDir::new().unwrap();
     fs::write(local.path().join("file.txt"), "first\n").unwrap();
     fs::write(destination.path().join("file.txt"), "old\n").unwrap();
-    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let (config, targets) = setup(&local, &destination, &backup);
     let first = execute_merge(
         symlink_merge_args(&["file.txt"]),
         config.clone(),
@@ -533,24 +524,6 @@ fn separate_merges_appear_as_distinct_rollback_sessions() {
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "second\n"
     );
-}
-
-fn symlink_merge_setup(
-    local: &TempDir,
-    destination: &TempDir,
-    backup: &TempDir,
-) -> (remote_merge::config::AppConfig, RuntimeTargets) {
-    let config_path = local.path().join("config.toml");
-    fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
-        local.path().display().to_string(), destination.path().display().to_string()
-    )).unwrap();
-    let config = load_config_from_paths(Some(&config_path), None).unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", destination.path())
-        .with_backup_store(Some(backup.path().to_path_buf()))
-        .with_startup_directory(std::env::current_dir().unwrap());
-    (config, targets)
 }
 
 fn symlink_merge_args(paths: &[&str]) -> MergeArgs {
