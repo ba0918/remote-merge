@@ -584,34 +584,6 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
     }
 
     #[test]
-    fn test_mitm_warning_contains_line_number() {
-        // ホストキー変更時のエラーメッセージに行番号が含まれることを検証
-        let content = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx\n";
-        let entries = parse_known_hosts(content);
-        assert_eq!(entries[0].line_number, 1);
-
-        // 行番号がメッセージに含められることを間接的に検証
-        // (実際のcheck_server_keyは非同期+SSHが必要なのでフォーマットだけテスト)
-        let msg = format!(
-            "The ssh-ed25519 host key for example.com has changed (line {} in ~/.ssh/known_hosts).",
-            entries[0].line_number
-        );
-        assert!(msg.contains("line 1"));
-    }
-
-    #[test]
-    fn test_mitm_warning_contains_keygen_hint() {
-        // ssh-keygen -R の案内が含まれることを検証（フォーマットのみ）
-        let host_entry = format_host_entry("example.com", 22);
-        let msg = format!("ssh-keygen -R {}", host_entry);
-        assert!(msg.contains("ssh-keygen -R example.com"));
-
-        let host_entry_port = format_host_entry("example.com", 2222);
-        let msg_port = format!("ssh-keygen -R {}", host_entry_port);
-        assert!(msg_port.contains("ssh-keygen -R [example.com]:2222"));
-    }
-
-    #[test]
     fn test_parse_known_hosts_empty() {
         let entries = parse_known_hosts("");
         assert!(entries.is_empty());
@@ -737,5 +709,44 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
             .unwrap_or(false);
 
         assert!(!accepted);
+    }
+
+    // ── 登録と違う鍵（鍵が変わったホスト） ──
+
+    // 未知のホストとして承認に回すと、--yes や strict_host_key_checking = "no" で差し替えられた鍵を
+    // 受け入れて known_hosts に書き足してしまう
+    #[tokio::test]
+    async fn a_changed_host_key_is_refused_without_asking_or_recording_it() {
+        use russh::client::Handler;
+        let registered = random_ed25519_key();
+        let presented = random_ed25519_key();
+        let dir = tempfile::tempdir().unwrap();
+        let known_hosts = dir.path().join("known_hosts");
+        let content = format!(
+            "# registered\nexample.invalid {}\n",
+            registered.to_openssh().unwrap()
+        );
+        std::fs::write(&known_hosts, &content).unwrap();
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        let mut handler = SshHandler::new("example.invalid".into(), 22);
+        handler.unknown_host_sender = Some(sender);
+        handler.known_hosts = Some(known_hosts.clone());
+
+        let error = handler
+            .check_server_key(&presented.into())
+            .await
+            .expect_err("a changed host key must stop the connection")
+            .to_string();
+
+        assert!(error.contains("line 2 in ~/.ssh/known_hosts"), "{error}");
+        assert!(error.contains("ssh-keygen -R example.invalid"), "{error}");
+        assert!(
+            matches!(
+                receiver.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ),
+            "the changed key was handed to the approval"
+        );
+        assert_eq!(std::fs::read_to_string(&known_hosts).unwrap(), content);
     }
 }
