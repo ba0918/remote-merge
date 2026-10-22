@@ -289,6 +289,7 @@ impl WriteFixture {
     fn targets(&self) -> RuntimeTargets {
         RuntimeTargets::production()
             .with_local("develop", self.destination.path())
+            .with_backup_store(None)
             .with_startup_directory(self.config_dir.path().to_path_buf())
     }
 

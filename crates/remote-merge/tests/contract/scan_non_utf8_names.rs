@@ -182,6 +182,7 @@ fn fixture() -> Fixture {
     let config = load_config_from_paths(Some(&config_path), None).unwrap();
     let targets = RuntimeTargets::production()
         .with_local("develop", destination.path())
+        .with_backup_store(None)
         .with_startup_directory(config_dir.path().to_path_buf());
     Fixture {
         _source: source,

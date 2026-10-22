@@ -768,6 +768,7 @@ fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
     second.port = closed_port;
     let targets = RuntimeTargets::production()
         .with_local("first", fixture.first.path())
+        .with_backup_store(None)
         .with_startup_directory(fixture.source.path().to_path_buf());
     let result = execute_sync(sync_args(), config, targets).unwrap();
     let SyncCommandOutput::Result(output) = result.output else {
