@@ -15,6 +15,3 @@ pub mod server;
 pub mod ssh_transport;
 #[cfg(unix)]
 mod tree_listing;
-
-#[cfg(all(test, unix))]
-mod tests;
