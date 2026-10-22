@@ -78,7 +78,7 @@ fn each_scan_failure_carries_the_kind_of_operation_failure_it_is() {
 fn an_operation_failure_inside_a_scan_error_keeps_its_kind() {
     use crate::op_failure::{OpError, Operation};
     let denied = anyhow::Error::from(OpError::new(
-        Operation::Scan,
+        Operation::Read,
         "/root".to_string(),
         OpFailure::PermissionDenied,
     ))

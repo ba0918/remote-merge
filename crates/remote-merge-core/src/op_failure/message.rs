@@ -12,13 +12,8 @@ pub enum Operation {
     Remove,
     Chmod,
     CreateSymlink,
-    Stat,
-    Size,
     Hash,
     ReadEntryLink,
-    ListChildren,
-    /// root_dir の下の走査（パスは root_dir）
-    Scan,
 }
 
 impl Operation {
@@ -29,12 +24,8 @@ impl Operation {
             Self::Remove => "remove",
             Self::Chmod => "change permissions of",
             Self::CreateSymlink => "create symlink",
-            Self::Stat => "stat",
-            Self::Size => "get the size of",
             Self::Hash => "hash",
             Self::ReadEntryLink => "read the link of",
-            Self::ListChildren => "list the children of",
-            Self::Scan => "scan",
         }
     }
 }
