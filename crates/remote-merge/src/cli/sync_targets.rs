@@ -2,10 +2,11 @@
 //! （docs/ir/cli/sync.md の REQ-cli-041・045、TBL-cli-007）
 
 use remote_merge_engine::treat::merge::SkipReason;
+use remote_merge_engine::treat::merge_plan::skip_reasons;
 use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::sync::target_status;
 
-use super::plan_apply::{apply_plan, skip_reasons, start_backup_session};
+use super::plan_apply::{apply_plan, start_backup_session};
 use super::sync::SyncArgs;
 use super::sync_plan::{TargetPlan, TargetState};
 use crate::runtime::{ApplyOptions, CoreRuntime};

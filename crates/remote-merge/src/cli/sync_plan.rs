@@ -8,12 +8,11 @@ use remote_merge_core::compare::{Incomplete, PathComparison, Role};
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::MergeEntry;
-use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, merge_plan};
+use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, change_counts, merge_plan};
 use remote_merge_engine::treat::merge_scope::merge_targets;
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
 use super::merge_files::{compare_named_files, merge_request};
-use super::plan_apply::change_counts;
 use super::sync::SyncArgs;
 use crate::runtime::{CompareRequest, CompareSides, CoreRuntime, Reused};
 use crate::service::path_resolver::paths_not_found;

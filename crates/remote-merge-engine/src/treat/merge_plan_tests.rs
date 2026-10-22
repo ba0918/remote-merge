@@ -173,3 +173,29 @@ fn the_reference_check_applies_only_to_writes() {
         ]
     );
 }
+
+// 書き込む数は通常ファイルと symlink を書くパス、消す数は消すパスを数え、スキップの理由はスキップの
+// パスだけを順に並べる（終了コードと sync の書き込み先の状態に使う。REQ-cli-047・TBL-cli-007）
+#[test]
+fn the_change_counts_and_the_skip_reasons_come_from_the_entries() {
+    let plan = vec![
+        ("a".to_string(), MergeEntry::WriteFile),
+        ("b".to_string(), MergeEntry::WriteLink),
+        ("c".to_string(), MergeEntry::Delete),
+        (
+            "d".to_string(),
+            MergeEntry::Skip(SkipReason::DestinationOnly),
+        ),
+        ("e".to_string(), MergeEntry::Fail("broken".to_string())),
+        (
+            "f".to_string(),
+            MergeEntry::Skip(SkipReason::LinkNotDeleted),
+        ),
+    ];
+
+    assert_eq!(change_counts(&plan), (2, 1));
+    assert_eq!(
+        skip_reasons(&plan),
+        [SkipReason::DestinationOnly, SkipReason::LinkNotDeleted]
+    );
+}

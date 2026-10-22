@@ -4,35 +4,12 @@
 use std::collections::BTreeMap;
 
 use remote_merge_core::compare::PathComparison;
-use remote_merge_engine::treat::merge::{MergeEntry, SkipReason};
+use remote_merge_engine::treat::merge::MergeEntry;
 use remote_merge_engine::treat::merge_result::Outcome;
 use remote_merge_engine::treat::status::{RefMark, ref_mark};
 
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CoreRuntime, PlannedChange};
 use crate::side::Side;
-
-/// 書き込むか消すパスの数（書き込む・消す）
-pub(super) fn change_counts(plan: &[(String, MergeEntry)]) -> (usize, usize) {
-    let writes = plan
-        .iter()
-        .filter(|(_, entry)| matches!(entry, MergeEntry::WriteFile | MergeEntry::WriteLink))
-        .count();
-    let deletes = plan
-        .iter()
-        .filter(|(_, entry)| *entry == MergeEntry::Delete)
-        .count();
-    (writes, deletes)
-}
-
-/// スキップの理由（終了コードと書き込み先の status に使う）
-pub(super) fn skip_reasons(plan: &[(String, MergeEntry)]) -> Vec<SkipReason> {
-    plan.iter()
-        .filter_map(|(_, entry)| match entry {
-            MergeEntry::Skip(reason) => Some(reason.clone()),
-            _ => None,
-        })
-        .collect()
-}
 
 /// 書き込み先を変える前のバックアップの準備。--dry-run でなければ期限切れのバックアップを先に整理し
 /// （REQ-backup-025）、バックアップが有効で変える書き込み先 `changing` があるときだけセッションを

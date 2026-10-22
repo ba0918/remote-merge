@@ -13,6 +13,34 @@ use super::merge::{MergeEntry, MergeOptions, SkipReason, merge_entry, without_sk
 use super::merge_reference::{ReferenceCheck, reference_check};
 use super::merge_scope::{MergeScope, MergeTargets};
 
+/// 扱いの並びのうち、書き込むパスと消すパスの数（書き込む・消す）
+pub fn change_counts(plan: &[(String, MergeEntry)]) -> (usize, usize) {
+    let writes = plan
+        .iter()
+        .filter(|(_, entry)| matches!(entry, MergeEntry::WriteFile | MergeEntry::WriteLink))
+        .count();
+    let deletes = plan
+        .iter()
+        .filter(|(_, entry)| *entry == MergeEntry::Delete)
+        .count();
+    (writes, deletes)
+}
+
+/// 扱いの並びのスキップの理由（終了コードと書き込み先の status に使う）
+pub fn skip_reasons(plan: &[(String, MergeEntry)]) -> Vec<SkipReason> {
+    plan.iter()
+        .filter_map(|(_, entry)| match entry {
+            MergeEntry::Skip(reason) => Some(reason.clone()),
+            MergeEntry::WriteFile
+            | MergeEntry::WriteLink
+            | MergeEntry::Delete
+            | MergeEntry::Fail(_)
+            | MergeEntry::Absent
+            | MergeEntry::Nothing => None,
+        })
+        .collect()
+}
+
 /// 書き込み先の symlink のリンク先が UTF-8 として読めないか置換文字を含むときの error（REQ-merge-033。
 /// 文言は IR で決めない）
 pub const LINK_UNVERIFIABLE: &str = "the destination symlink target is not plain UTF-8, so it \

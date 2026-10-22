@@ -7,14 +7,16 @@ use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::{MergeEntry, exit_code};
-use remote_merge_engine::treat::merge_plan::{NOT_FOUND, PlanOptions, merge_plan};
+use remote_merge_engine::treat::merge_plan::{
+    NOT_FOUND, PlanOptions, change_counts, merge_plan, skip_reasons,
+};
 use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::merge_scope::{MergeScope, MergeTargets, merge_targets};
 use remote_merge_engine::treat::merge_uses::MergeUses;
 
 use super::compare_steps::{absorb_comparison, connect_sides};
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult};
-use super::plan_apply::{apply_plan, change_counts, skip_reasons, start_backup_session};
+use super::plan_apply::{apply_plan, start_backup_session};
 use crate::runtime::{
     ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
     ExternalLinks, LostDestination, NamedFiles, UnfollowableLinks,
