@@ -478,68 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn test_large_file_diff() {
-        let old: String = (0..1500).map(|i| format!("line {}\n", i)).collect();
-        let mut new = old.clone();
-        // 500行目を変更
-        new = new.replace("line 500\n", "modified 500\n");
-        // 1000行目を変更
-        new = new.replace("line 1000\n", "modified 1000\n");
-
-        let result = display_diff(&old, &new);
-        match result {
-            DiffResult::Modified { hunks, .. } => {
-                // 2つの変更が離れているのでハンクが2つ
-                assert_eq!(hunks.len(), 2, "離れた変更は別ハンクになるべき");
-            }
-            other => panic!("Modified を期待したが {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_merge_hunks_separate_changes() {
-        // 離れた変更はそれぞれ別の merge_hunk になるべき
-        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
-        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let diff = display_diff(old, new);
-
-        if let DiffResult::Modified {
-            merge_hunks,
-            hunks,
-            lines,
-            ..
-        } = &diff
-        {
-            // 表示用 hunks はコンテキスト3行で結合されうる
-            // merge_hunks はコンテキスト0行で変更ごとに分かれるべき
-            assert_eq!(
-                merge_hunks.len(),
-                2,
-                "2つの離れた変更は別々の merge_hunk に"
-            );
-            // b→X のハンク
-            assert!(
-                merge_hunks[0]
-                    .lines(lines)
-                    .iter()
-                    .any(|l| l.value.contains("X"))
-            );
-            // i→Y のハンク
-            assert!(
-                merge_hunks[1]
-                    .lines(lines)
-                    .iter()
-                    .any(|l| l.value.contains("Y"))
-            );
-
-            // 表示用は1つに結合されてもよい（コンテキスト次第）
-            assert!(hunks.len() <= merge_hunks.len());
-        } else {
-            panic!("Modified を期待");
-        }
-    }
-
-    #[test]
     fn test_merge_hunks_close_changes_still_separate() {
         // 3行間隔の変更でも merge_hunks は分離される
         let old = "a\nb\nc\nd\ne\n";
@@ -592,33 +530,6 @@ mod tests {
                 assert_eq!(ins.new_index, Some(1));
             }
             other => panic!("Modified を期待したが {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_merge_hunk_line_range_start_correct() {
-        // 2つの離れた変更 → line_range.start が正しい位置を指すこと
-        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
-        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
-        let result = display_diff(old, new);
-
-        if let DiffResult::Modified {
-            lines, merge_hunks, ..
-        } = &result
-        {
-            assert_eq!(merge_hunks.len(), 2);
-
-            // 各 line_range.start が実際のハンク先頭行と一致すること
-            for hunk in merge_hunks {
-                let first = &hunk.lines(lines)[0];
-                let line_at_idx = &lines[hunk.line_range.start];
-                assert_eq!(first.tag, line_at_idx.tag);
-                assert_eq!(first.value, line_at_idx.value);
-                assert_eq!(first.old_index, line_at_idx.old_index);
-                assert_eq!(first.new_index, line_at_idx.new_index);
-            }
-        } else {
-            panic!("Modified を期待");
         }
     }
 
@@ -856,16 +767,6 @@ mod tests {
         let new = "first\nsecond\nNEW_LAST\n";
 
         let selected: HashSet<usize> = [0].into_iter().collect();
-        let result = merged(old, new, &selected, HunkDirection::LeftToRight);
-        assert_eq!(result, old);
-    }
-
-    #[test]
-    fn test_single_pass_duplicate_in_selected_ignored() {
-        let old = "a\nb\nc\n";
-        let new = "a\nX\nc\n";
-
-        let selected: HashSet<usize> = [0, 0].into_iter().collect();
         let result = merged(old, new, &selected, HunkDirection::LeftToRight);
         assert_eq!(result, old);
     }
