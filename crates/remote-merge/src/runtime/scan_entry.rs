@@ -9,42 +9,17 @@ use remote_merge_core::scan::include::decide_value;
 use super::core::CoreRuntime;
 use crate::side::Side;
 
-/// 側ごとに確かめた include の値と、確かめたときの root_dir と include の設定。設定が変われば
-/// 確かめ直す
-#[derive(Debug, Clone)]
-pub(crate) struct CheckedInclude {
-    basis: (Option<std::path::PathBuf>, Vec<String>),
-    values: Option<Vec<String>>,
-}
-
 impl CoreRuntime {
     /// 走査する側で確かめて残った include の値。include の指定がなければ None。ない値と root_dir
     /// の外へ解決される値は警告して飛ばし、確認がエラーになった値はそのエラーで止める
     /// （docs/ir/config/include.md の REQ-config-032・033）
     pub(crate) fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
-        let basis = (self.root_dir_of(side), self.config.filter.include.clone());
-        if let Some(checked) = self.checked_include.get(side)
-            && checked.basis == basis
-        {
-            return Ok(checked.values.clone());
+        if let Some(values) = self.checked_include.get(side) {
+            return Ok(values.clone());
         }
         let values = self.check_include(side)?;
-        self.checked_include.insert(
-            side.clone(),
-            CheckedInclude {
-                basis,
-                values: values.clone(),
-            },
-        );
+        self.checked_include.insert(side.clone(), values.clone());
         Ok(values)
-    }
-
-    /// 設定に書いた `side` の root_dir（確かめた値を使い回してよいかを決めるのに使う）
-    fn root_dir_of(&self, side: &Side) -> Option<std::path::PathBuf> {
-        match side {
-            Side::Local => Some(self.config.local.root_dir.clone()),
-            Side::Remote(name) => self.config.servers.get(name).map(|s| s.root_dir.clone()),
-        }
     }
 
     fn check_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
@@ -98,29 +73,11 @@ impl CoreRuntime {
 }
 
 #[cfg(test)]
-mod cache_tests {
+mod tests {
     use remote_merge_core::scan::outcome::ScanRequest;
     use remote_merge_core::scan::starts::scope_for;
 
     use super::*;
-
-    #[test]
-    fn changed_include_values_are_checked_again() {
-        let temp = tempfile::tempdir().unwrap();
-        for path in ["a/x.txt", "b/y.txt"] {
-            let file = temp.path().join(path);
-            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-            std::fs::write(file, "x").unwrap();
-        }
-        let mut core = CoreRuntime::new_for_test();
-        core.config.local.root_dir = temp.path().to_path_buf();
-        core.config.filter.include = vec!["a".into()];
-        let first = core.checked_include(&Side::Local).unwrap();
-        assert_eq!(first, Some(vec!["a".to_string()]));
-        core.config.filter.include = vec!["b".into()];
-        let second = core.checked_include(&Side::Local).unwrap();
-        assert_eq!(second, Some(vec!["b".to_string()]));
-    }
 
     // root_dir がない・ディレクトリでない・辿れないときは、include の確認は走査の最初の問いに任せ、
     // include を設定していない同じ場面と同じ誤りにする（REQ-merge-044・E38）

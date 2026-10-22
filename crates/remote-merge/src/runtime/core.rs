@@ -44,7 +44,7 @@ pub struct CoreRuntime {
     pub(crate) stopped: HashMap<super::route_retry::StopKey, super::route_retry::Stop>,
     /// 側ごとに一度だけ確かめた include の値（None は include の指定がない）。一つのコマンドで
     /// 何度走査しても、root_dir と include の値の確認と警告は側ごとに一度にする
-    pub(crate) checked_include: HashMap<crate::side::Side, super::scan_entry::CheckedInclude>,
+    pub(crate) checked_include: HashMap<crate::side::Side, Option<Vec<String>>>,
     /// テストだけ: rollback が書き戻す前の内容を退避した直後に呼ぶ（退避した記録を読めなくして、
     /// 読み戻しの失敗を起こすため）
     #[cfg(feature = "test-utils")]
