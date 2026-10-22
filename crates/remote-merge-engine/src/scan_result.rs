@@ -31,7 +31,7 @@ pub fn into_listing(
 /// root_dir そのものが走査の途中でなくなったかディレクトリでなくなった（REQ-scan-017）。
 /// 利用者が読んで分かるよう、root_dir のパスを添える
 #[derive(Debug)]
-pub struct RootChanged {
+pub(crate) struct RootChanged {
     /// 利用者に見せる root_dir（リモートなら "サーバ名:パス"）
     pub root: String,
 }

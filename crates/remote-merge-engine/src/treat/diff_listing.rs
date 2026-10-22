@@ -13,11 +13,11 @@ use super::diff_file::{Sources, prepared_file};
 use crate::service::types::{DiffError, MultiDiffOutput, MultiDiffSummary};
 
 /// root_dir の外へ解決される symlink を --follow-external-links なしで比べたときの理由
-pub const OUTSIDE_NOT_COMPARED: &str = "the link resolves outside root_dir and its target was not \
+pub(crate) const OUTSIDE_NOT_COMPARED: &str = "the link resolves outside root_dir and its target was not \
      compared; use --follow-external-links to compare it";
 
 /// 参照先のない symlink の理由（読めない参照先を空のファイルとしない。REQ-cli-022）
-pub const LINK_TARGET_MISSING: &str = "the link target is unreadable: it does not exist";
+pub(crate) const LINK_TARGET_MISSING: &str = "the link target is unreadable: it does not exist";
 
 /// 出す差分の枠
 #[derive(Debug, Clone, Copy)]

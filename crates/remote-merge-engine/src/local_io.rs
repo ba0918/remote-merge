@@ -26,7 +26,11 @@ pub fn inspect_local_path(root: &Path, rel_path: &RelPath) -> anyhow::Result<Res
 
 /// root_dir の下をこのマシンで走査する。エージェントも同じ集め方と規則を使う
 /// （docs/decision/records/2026-10-12-foundation-2.md の C6）
-pub fn scan(root: &Path, exclude: &[String], request: &ScanRequest) -> Result<Listing, ScanError> {
+pub(crate) fn scan(
+    root: &Path,
+    exclude: &[String],
+    request: &ScanRequest,
+) -> Result<Listing, ScanError> {
     let mut collector = MachineCollector::new(root.to_path_buf());
     remote_merge_core::scan::drive::scan(&mut collector, &Exclude::new(exclude), request)
 }

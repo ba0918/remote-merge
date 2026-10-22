@@ -10,13 +10,13 @@ use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 use crate::backup_store::BackupRecord;
 
 /// 親のディレクトリがなくなったファイルのスキップの理由（REQ-backup-031）
-pub const PARENT_GONE: &str = "parent directory no longer exists";
+pub(crate) const PARENT_GONE: &str = "parent directory no longer exists";
 /// 置き換えた symlink の記録のスキップの理由（REQ-backup-032）
-pub const LINK_NOT_SUPPORTED: &str = "symlink restore not supported";
+pub(crate) const LINK_NOT_SUPPORTED: &str = "symlink restore not supported";
 /// 記録と違う場所に解決されるパスのスキップの理由（REQ-backup-033）
-pub const CHANGED_LOCATION: &str = "path now resolves to a different location";
+pub(crate) const CHANGED_LOCATION: &str = "path now resolves to a different location";
 /// merge の後に第三者が変えた symlink のスキップの理由（REQ-backup-033）
-pub const LINK_CHANGED: &str = "symlink changed after merge";
+pub(crate) const LINK_CHANGED: &str = "symlink changed after merge";
 /// リンク先を辿れないパスの failed の error の頭（REQ-backup-003）
 const UNRESOLVABLE: &str = "cannot resolve path: ";
 

@@ -8,7 +8,7 @@ use crate::service::types::{FileStatus, FileStatusKind, StatusSummary, exit_code
 
 /// 一つのパスの status の扱い
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StatusEntry {
+pub(crate) enum StatusEntry {
     /// 一覧に載せる値
     Listed(FileStatusKind),
     /// 値を付けず、パスと理由を errors に出す（TBL-compare-005）
@@ -18,7 +18,7 @@ pub enum StatusEntry {
 }
 
 /// 左右の組の判定を status の扱いに訳す（TBL-cli-001）
-pub fn status_entry(comparison: &PathComparison) -> StatusEntry {
+pub(crate) fn status_entry(comparison: &PathComparison) -> StatusEntry {
     let Some(left_right) = comparison.pair(Role::Left, Role::Right) else {
         return StatusEntry::NotListed;
     };
@@ -121,7 +121,7 @@ pub struct RefCounts {
 }
 
 /// 一覧に載せたファイルの印と、参照先にだけあるパスの数から集計する
-pub fn ref_counts(marks: &[RefMark], only_in_ref: usize) -> RefCounts {
+pub(crate) fn ref_counts(marks: &[RefMark], only_in_ref: usize) -> RefCounts {
     let count = |badge: RefBadge| {
         marks
             .iter()

@@ -16,7 +16,7 @@ pub fn backup_store_path(xdg_data_home: Option<&Path>, home_dir: Option<&Path>) 
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LocalTargetIdentity {
+pub(crate) struct LocalTargetIdentity {
     root_dir: PathBuf,
 }
 
@@ -33,7 +33,7 @@ impl LocalTargetIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RemoteTargetIdentity {
+pub(crate) struct RemoteTargetIdentity {
     host: String,
     port: u16,
     root_dir: PathBuf,
@@ -53,7 +53,7 @@ impl RemoteTargetIdentity {
     }
 }
 
-pub fn local_target_identity(
+pub(crate) fn local_target_identity(
     config: &LocalConfig,
     startup_directory: &Path,
 ) -> LocalTargetIdentity {
@@ -72,7 +72,7 @@ fn identity_from_startup_directory(
     LocalTargetIdentity::new(&root_dir)
 }
 
-pub fn remote_target_identity(config: &ServerConfig) -> RemoteTargetIdentity {
+pub(crate) fn remote_target_identity(config: &ServerConfig) -> RemoteTargetIdentity {
     RemoteTargetIdentity {
         host: config.host.clone(),
         port: config.port,
@@ -121,12 +121,12 @@ pub fn next_session_id(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SessionId {
+pub(crate) struct SessionId {
     timestamp: DateTime<Utc>,
     sequence: u64,
 }
 
-pub fn parse_session_id(session_id: &str) -> Option<SessionId> {
+pub(crate) fn parse_session_id(session_id: &str) -> Option<SessionId> {
     let timestamp_text = session_id.get(..15)?;
     let timestamp = parse_backup_timestamp(timestamp_text)?;
     let sequence = match session_id.get(15..) {
@@ -147,7 +147,7 @@ pub fn compare_session_ids(left: &str, right: &str) -> Option<std::cmp::Ordering
     Some(parse_session_id(left)?.cmp(&parse_session_id(right)?))
 }
 
-pub fn is_session_expired(
+pub(crate) fn is_session_expired(
     session_id: &str,
     retention_days: u32,
     now: DateTime<Utc>,

@@ -8,14 +8,14 @@ use super::merge::Kind;
 
 /// 書くか
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReferenceCheck {
+pub(crate) enum ReferenceCheck {
     Write,
     Fail(ReferenceFailure),
 }
 
 /// 書かずに failed に出す理由
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReferenceFailure {
+pub(crate) enum ReferenceFailure {
     /// 書き込み先だけが参照先から変わった
     DestinationChanged,
     /// 左右の両方が参照先から変わったか、参照先だけが左右と種類が違う
@@ -46,7 +46,7 @@ impl ReferenceFailure {
 
 /// 読み込み元（左）・書き込み先（右）・参照先の状態と判定から、書くかを決める（TBL-cli-009 を
 /// 上の行から当てる）
-pub fn reference_check(comparison: &PathComparison) -> ReferenceCheck {
+pub(crate) fn reference_check(comparison: &PathComparison) -> ReferenceCheck {
     let state = |role: Role| comparison.states.states.get(&role);
     let present = |role: Role| state(role).is_some_and(|state| !matches!(state, SideState::Absent));
     let verdict =

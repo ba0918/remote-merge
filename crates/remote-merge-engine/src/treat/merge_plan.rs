@@ -77,7 +77,7 @@ pub fn missing_names<'a>(
 
 /// 書き込み先の symlink のリンク先が UTF-8 として読めないか置換文字を含むときの error（REQ-merge-033。
 /// 文言は IR で決めない）
-pub const LINK_UNVERIFIABLE: &str = "the destination symlink target is not plain UTF-8, so it \
+pub(crate) const LINK_UNVERIFIABLE: &str = "the destination symlink target is not plain UTF-8, so it \
      cannot be told unchanged since it was compared";
 
 /// 読み込み元の symlink のリンク文字列が UTF-8 として読めず、作れないときの error（文言は IR で

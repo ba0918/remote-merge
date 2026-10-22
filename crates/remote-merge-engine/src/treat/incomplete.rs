@@ -8,7 +8,7 @@ use crate::service::types::DiffError;
 /// 走査が件数の上限に当たって打ち切られたこと（REQ-scan-008）。文は上限の上げ方とパスの指定の
 /// 仕方を案内する
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScanTruncated {
+pub(crate) struct ScanTruncated {
     pub max_entries: usize,
 }
 
@@ -28,7 +28,7 @@ impl std::error::Error for ScanTruncated {}
 
 /// 循環で止めた走査
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CycleFound {
+pub(crate) struct CycleFound {
     pub path: String,
 }
 

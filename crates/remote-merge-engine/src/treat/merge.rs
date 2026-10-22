@@ -9,7 +9,7 @@ use crate::service::types::exit_code as codes;
 
 /// merge と sync の指定のうち、扱いを変えるもの
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MergeOptions {
+pub(crate) struct MergeOptions {
     /// --delete
     pub delete: bool,
 }
@@ -92,7 +92,7 @@ impl SkipReason {
 }
 
 /// 左右の組の判定を merge と sync の扱いに訳す
-pub fn merge_entry(comparison: &PathComparison, options: MergeOptions) -> MergeEntry {
+pub(crate) fn merge_entry(comparison: &PathComparison, options: MergeOptions) -> MergeEntry {
     let Some(pair) = comparison.pair(Role::Left, Role::Right) else {
         return MergeEntry::Nothing;
     };
@@ -154,7 +154,9 @@ fn directory_and_link_to_directory(source: &SideState, destination: &SideState) 
 
 /// 種類の違いでスキップしたパスの配下を外す（配下は書かず、消さず、結果に出さない）。`entries` は
 /// パスの順に並んでいる
-pub fn without_skipped_subtrees(entries: Vec<(String, MergeEntry)>) -> Vec<(String, MergeEntry)> {
+pub(crate) fn without_skipped_subtrees(
+    entries: Vec<(String, MergeEntry)>,
+) -> Vec<(String, MergeEntry)> {
     let mut skipped: Vec<String> = Vec::new();
     let mut kept = Vec::new();
     for (path, entry) in entries {

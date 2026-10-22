@@ -8,7 +8,7 @@ use crate::service::types::exit_code as codes;
 
 /// 変更のあるファイルの、判定による種類
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Change {
+pub(crate) enum Change {
     Differs,
     OneSided(Present),
     KindDiffers,
@@ -16,7 +16,7 @@ pub enum Change {
 
 /// 一つのパスの diff の扱い
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DiffEntry {
+pub(crate) enum DiffEntry {
     /// 変更のあるファイルとして files に出し、変更のあるファイルに数える
     Changed(Change),
     /// 左右で同じ。項目に出さない
@@ -28,7 +28,7 @@ pub enum DiffEntry {
 }
 
 /// 左右の組の判定を diff の扱いに訳す
-pub fn diff_entry(comparison: &PathComparison) -> DiffEntry {
+pub(crate) fn diff_entry(comparison: &PathComparison) -> DiffEntry {
     let Some(pair) = comparison.pair(Role::Left, Role::Right) else {
         return DiffEntry::NotListed;
     };

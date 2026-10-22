@@ -23,7 +23,7 @@ pub fn nothing_to_sync(plan: &[(String, MergeEntry)]) -> bool {
 /// 書き込み先の状態。`changed` は書けたか消せたファイル（--dry-run では書く予定か消す予定のファイル。
 /// docs/ir/cli/safety.md の REQ-cli-091）があるか、`failed` は失敗か種類の違いのスキップがあるか
 /// （書き込み先だけのファイルのスキップは数えない）
-pub fn target_status(changed: bool, failed: bool) -> SyncTargetStatus {
+pub(crate) fn target_status(changed: bool, failed: bool) -> SyncTargetStatus {
     match (changed, failed) {
         (true, false) | (false, false) => SyncTargetStatus::Success,
         (true, true) => SyncTargetStatus::Partial,

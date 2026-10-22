@@ -23,7 +23,7 @@ pub struct Sources {
 
 /// `path` の項目。`change` は判定による変更の種類（root_dir の外へ解決されて中身を比べなかった
 /// symlink は変更がなくても項目にするので、そのときはない）。`view` は内容の設定で解釈した中身
-pub fn prepared_file(
+pub(crate) fn prepared_file(
     path: &str,
     comparison: &PathComparison,
     change: Option<Change>,
