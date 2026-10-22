@@ -1,6 +1,6 @@
 //! 比べる側の決め方（docs/ir/cli/status-targets.md の TBL-cli-004、sync.md の TBL-cli-006、merge.md の
 //! TBL-cli-008、reference.md の REQ-cli-062・066、status-targets.md の REQ-cli-037、merge.md の
-//! REQ-cli-050）。`servers` は設定のサーバの名前で、既定サーバは名前順で最初のもの（docs/ir/CONTEXT.md）
+//! REQ-cli-050・073）。`servers` は設定のサーバの名前で、既定サーバは名前順で最初のもの（docs/ir/CONTEXT.md）
 
 use crate::side::Side;
 
@@ -139,6 +139,12 @@ pub fn reference_side(
     } else {
         Reference::Use(side)
     })
+}
+
+/// 強制指定のないリモート間の merge か（つなぐ前に止める。REQ-cli-073）。--dry-run は止めない
+pub fn remote_to_remote_blocked(left: &Side, right: &Side, force: bool, dry_run: bool) -> bool {
+    let remote = |side: &Side| matches!(side, Side::Remote(_));
+    remote(left) && remote(right) && !force && !dry_run
 }
 
 #[cfg(test)]

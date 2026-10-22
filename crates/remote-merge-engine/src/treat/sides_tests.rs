@@ -1,4 +1,4 @@
-//! 比べる側の決め方（TBL-cli-004・TBL-cli-006・TBL-cli-008、REQ-cli-037・050・062・066）の単体テスト
+//! 比べる側の決め方（TBL-cli-004・TBL-cli-006・TBL-cli-008、REQ-cli-037・050・062・066・073）の単体テスト
 use super::*;
 use crate::side::Side;
 
@@ -164,4 +164,16 @@ fn a_reference_is_used_unless_it_is_one_of_the_sides() {
         reference_side(Some("nowhere"), &sides, &servers()),
         Err("Server 'nowhere' not found in config".into())
     );
+}
+
+// リモート間の merge は --force か --dry-run がなければ止め、ローカルを含む組は止めない
+// @kotowari[REQ-cli-073]
+#[test]
+fn only_a_remote_to_remote_merge_without_force_or_dry_run_is_blocked() {
+    let (local, a, b) = (Side::Local, remote("a"), remote("b"));
+    assert!(remote_to_remote_blocked(&a, &b, false, false));
+    assert!(!remote_to_remote_blocked(&a, &b, true, false));
+    assert!(!remote_to_remote_blocked(&a, &b, false, true));
+    assert!(!remote_to_remote_blocked(&local, &b, false, false));
+    assert!(!remote_to_remote_blocked(&a, &local, false, false));
 }

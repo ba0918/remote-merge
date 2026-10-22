@@ -4,7 +4,7 @@
 //! engine の treat の表で書き込み・スキップ・failed に訳し、書き込み先を変更の直前にもう一度判定して
 //! から変える。ファイル全体の merge は merge_files、--hunks は merge_hunks が行う。
 
-use remote_merge_engine::treat::sides::{merge_sides, reference_side};
+use remote_merge_engine::treat::sides::{merge_sides, reference_side, remote_to_remote_blocked};
 
 use super::compare_steps::used_reference;
 use crate::config::{AppConfig, resolve_max_entries};
@@ -15,7 +15,6 @@ use crate::service::output::{
 };
 use crate::service::path_resolver::parse_path_arguments;
 use crate::service::types::{MergeOutcome, MergeOutput, exit_code};
-use crate::side::Side;
 use remote_merge_core::relative_path::RelPath;
 
 /// merge サブコマンドの引数
@@ -111,8 +110,7 @@ pub fn execute_merge(
         .map_err(anyhow::Error::msg)?,
     );
     // 強制指定のないリモート間の merge は、つなぐ前に止める（REQ-cli-073）
-    let remote = |side: &Side| matches!(side, Side::Remote(_));
-    if remote(&left) && remote(&right) && !args.force && !args.dry_run {
+    if remote_to_remote_blocked(&left, &right, args.force, args.dry_run) {
         let blocked = MergeOutcome::R2rBlocked {
             left: left.display_name().to_string(),
             right: right.display_name().to_string(),
