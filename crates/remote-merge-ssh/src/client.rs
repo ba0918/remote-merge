@@ -463,7 +463,7 @@ impl SshClient {
     /// リモートでコマンドを実行し、stdout を文字列で返す
     ///
     /// 非ゼロ終了コードはログに記録するがエラーにはしない。
-    /// `find` 等の一部エントリでエラーが起きても結果を返すコマンド向き。
+    /// エージェントの配置先や版の確認のように、出力の文字列から結果を読み取るコマンド向き。
     pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
         let result = self.run_command(command).await?;
 
@@ -661,8 +661,6 @@ fn bytes_to_string(bytes: Vec<u8>) -> String {
     }
 }
 
-// build_preferred は ssh::preferred モジュールに移動
-
 /// パスフレーズ付き秘密鍵の読み込み。
 ///
 /// 1. `load_secret_key(path, None)` でパスフレーズなしを試みる
@@ -810,8 +808,6 @@ mod tests {
         );
     }
 
-    // ── base64 decode tests ──
-
     #[test]
     fn test_channel_data_chunk_size_is_within_ssh_window() {
         // SSH デフォルトウィンドウサイズ (64KB) より小さいことを保証
@@ -823,9 +819,7 @@ mod tests {
         assert_eq!(CHANNEL_DATA_CHUNK_SIZE, 32 * 1024);
     }
 
-    // build_preferred テストは ssh::preferred モジュールに移動
-
-    // ── is_passphrase_error テスト (C1) ──
+    // ── is_passphrase_error テスト ──
 
     #[test]
     fn test_is_passphrase_error_returns_true_for_key_is_encrypted() {
