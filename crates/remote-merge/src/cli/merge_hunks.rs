@@ -15,7 +15,7 @@ use remote_merge_engine::treat::merge_uses::HunkUses;
 
 use super::compare_steps::connect_sides;
 use super::merge::{MergeArgs, MergeCommandResult};
-use super::merge_files::{compare_named_files, merge_request};
+use super::merge_files::{compare_named_files, merge_request, warn_missing_name};
 use super::merge_hunks_result::{failed, no_changes, written};
 use super::plan_apply::start_backup_session;
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CompareSides, CoreRuntime, PlannedChange};
@@ -56,7 +56,9 @@ pub(super) fn merge_hunks(
     if let Some(incomplete) = comparison.incomplete.first() {
         return Err(incomplete_error(incomplete));
     }
+    // 左右のどちらにもない名前は、ファイル全体の merge と同じく警告してから止まる（REQ-merge-035）
     let Some(compared) = comparison.paths.get(&path) else {
+        warn_missing_name(&path);
         return Err(paths_not_found());
     };
     let state = |role: Role| compared.states.states.get(&role);

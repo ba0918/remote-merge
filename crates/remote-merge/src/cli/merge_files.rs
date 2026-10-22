@@ -205,10 +205,15 @@ pub(super) fn merge_request(
 /// 左右のどちらにもない名前を警告し、名前がすべてないなら書き込まずに止める（REQ-merge-035）
 pub(super) fn report_missing_names(missing: &MissingNames<'_>) -> anyhow::Result<()> {
     for path in &missing.names {
-        eprintln!("Warning: '{path}' not found on either side");
+        warn_missing_name(path);
     }
     if missing.all_missing {
         return Err(paths_not_found());
     }
     Ok(())
+}
+
+/// 左右のどちらにもない名前の警告（REQ-merge-035。文言は IR で決めない）
+pub(super) fn warn_missing_name(path: &str) {
+    eprintln!("Warning: '{path}' not found on either side");
 }

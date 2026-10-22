@@ -117,6 +117,31 @@ fn req_merge_035_every_path_on_neither_side_stops_without_writing() {
     }
 }
 
+// --hunks の merge も、左右のどちらにもないパスを警告してから止まる
+// @kotowari[REQ-merge-035]
+#[test]
+fn req_merge_035_a_hunk_merge_warns_of_a_path_on_neither_side_before_stopping() {
+    for dry_run in [false, true] {
+        let env = env();
+        let mut extra = vec!["missing.txt", "--hunks", "0"];
+        if dry_run {
+            extra.push("--dry-run");
+        }
+
+        let output = run(&env, "merge", &extra);
+
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "dry_run={dry_run}: {output:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("missing.txt"),
+            "dry_run={dry_run}: {output:?}"
+        );
+    }
+}
+
 /// 読み込み元の "x" は通常ファイル、書き込み先の "x" は "x/only.txt" を持つディレクトリで、
 /// "other.txt" は左右で中身が違う。"x/nope.txt" は左右のどちらにもない
 fn env_under_a_different_kind() -> CliEnv {
