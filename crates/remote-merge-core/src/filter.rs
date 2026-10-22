@@ -213,6 +213,18 @@ mod tests {
         assert!(!is_path_excluded("vendor/current/foo.rs", &patterns));
     }
 
+    // パスパターンの末尾の "/**" は、その下だけでなくディレクトリそのものにも当たる
+    #[test]
+    fn a_pattern_ending_in_double_star_matches_the_directory_itself() {
+        assert!(matches_path_pattern("vendor", "vendor/**"));
+    }
+
+    // 末尾の "/**" を除いた残りもパス全体に当てるので、深い所の同じ名前には当たらない
+    #[test]
+    fn a_pattern_ending_in_double_star_does_not_match_the_same_name_deeper() {
+        assert!(!matches_path_pattern("a/vendor", "vendor/**"));
+    }
+
     #[test]
     fn test_path_pattern_double_star_ext() {
         let patterns = vec!["**/*.generated.rs".to_string()];
