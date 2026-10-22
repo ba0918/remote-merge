@@ -68,7 +68,7 @@ const DEFAULT_DIR_PERMISSIONS: u32 = 0o775;
 pub const DEFAULT_MAX_SCAN_ENTRIES: usize = 50_000;
 
 /// max_scan_entries の有効範囲: 1 以上 1,000,000 以下
-pub fn validate_max_scan_entries(n: usize) -> Result<(), String> {
+pub(crate) fn validate_max_scan_entries(n: usize) -> Result<(), String> {
     if n == 0 || n > 1_000_000 {
         return Err(format!(
             "max_scan_entries must be between 1 and 1,000,000, got {}",
@@ -101,7 +101,7 @@ impl Default for DefaultsConfig {
 }
 
 /// パーミッション文字列（"0o664", "0664", "664"）を u32 にパース
-pub fn parse_permissions(s: &str) -> Result<u32, String> {
+pub(crate) fn parse_permissions(s: &str) -> Result<u32, String> {
     let digits = if let Some(rest) = s.strip_prefix("0o") {
         rest
     } else {
@@ -227,7 +227,9 @@ pub(crate) fn convert_raw_ssh_config(raw: &RawSshConfig) -> crate::error::Result
 
 /// strict_host_key_checking の値を読む。大文字と小文字は区別せず、知らない値は ask として扱わずに
 /// 設定のエラーにする（docs/ir/config/values.md の REQ-config-018）
-pub fn parse_strict_host_key_checking(s: &str) -> crate::error::Result<StrictHostKeyChecking> {
+pub(crate) fn parse_strict_host_key_checking(
+    s: &str,
+) -> crate::error::Result<StrictHostKeyChecking> {
     match s.to_lowercase().as_str() {
         "ask" => Ok(StrictHostKeyChecking::Ask),
         "yes" | "true" => Ok(StrictHostKeyChecking::Yes),
@@ -862,21 +864,6 @@ enabled = false
         assert!(!config.agent.enabled);
         // プロジェクト設定にない項目はデフォルト（グローバルからは引き継がない）
         assert_eq!(config.agent.deploy_dir, "/var/tmp");
-    }
-
-    #[test]
-    fn test_load_config_delegates_to_load_config_with_project_override() {
-        if !in_isolated_discovery_process(
-            "test_load_config_delegates_to_load_config_with_project_override",
-        ) {
-            return;
-        }
-        let direct = load_config_with_project_override(None).unwrap();
-        let delegated = load_config().unwrap();
-        assert_eq!(delegated.local.root_dir, PathBuf::from("/fixture-project"));
-        assert_eq!(delegated.ssh.timeout_sec, 41);
-        assert_eq!(delegated.local.root_dir, direct.local.root_dir);
-        assert_eq!(delegated.ssh.timeout_sec, direct.ssh.timeout_sec);
     }
 
     fn in_isolated_discovery_process(test_name: &str) -> bool {

@@ -5,25 +5,13 @@ use anyhow::bail;
 use std::path::{Path, PathBuf};
 
 /// グローバル設定ファイルのパスを返す
-pub fn global_config_path() -> Option<PathBuf> {
+pub(crate) fn global_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("remote-merge").join("config.toml"))
 }
 
 /// プロジェクト設定ファイルのパスを返す
-pub fn project_config_path() -> PathBuf {
+pub(crate) fn project_config_path() -> PathBuf {
     PathBuf::from(".remote-merge.toml")
-}
-
-/// 設定ファイルを読み込んでマージする
-///
-/// マージ戦略:
-/// - `[servers.*]`: プロジェクト設定で上書き
-/// - `[local]`: プロジェクト設定で上書き
-/// - `[filter].exclude`: 和集合
-/// - `[ssh]`: プロジェクト設定で上書き
-/// - `[backup]`: プロジェクト設定で上書き
-pub fn load_config() -> crate::error::Result<AppConfig> {
-    load_config_with_project_override(None)
 }
 
 /// プロジェクト設定ファイルのパスを上書きして設定を読み込む。
