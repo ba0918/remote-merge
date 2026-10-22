@@ -1,6 +1,21 @@
-//! sync の書き込み先ごとの状態（docs/ir/cli/sync.md の TBL-cli-007）と終了コード（REQ-cli-044）
+//! sync の書き込み先ごとの状態（docs/ir/cli/sync.md の TBL-cli-007）と終了コード（REQ-cli-044）、
+//! 同期するファイルがないこと（REQ-cli-072）
 
+use super::merge::MergeEntry;
 use crate::service::types::{SyncTargetStatus, exit_code as codes};
+
+/// 扱いの並びに、書く予定も消す予定も失敗もないか（REQ-cli-072 の "No files to sync."）。種類の違いの
+/// スキップは失敗に数える（TBL-cli-007）ので、空としない
+pub fn nothing_to_sync(plan: &[(String, MergeEntry)]) -> bool {
+    plan.iter().all(|(_, entry)| match entry {
+        MergeEntry::Skip(reason) => !reason.counts_as_failure(),
+        MergeEntry::Nothing | MergeEntry::Absent => true,
+        MergeEntry::WriteFile
+        | MergeEntry::WriteLink
+        | MergeEntry::Delete
+        | MergeEntry::Fail(_) => false,
+    })
+}
 
 /// 書き込み先の状態。`changed` は書けたか消せたファイル（--dry-run では書く予定か消す予定のファイル。
 /// docs/ir/cli/safety.md の REQ-cli-091）があるか、`failed` は失敗か種類の違いのスキップがあるか
