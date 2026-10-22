@@ -150,27 +150,6 @@ async fn a_single_file_that_cannot_be_written_fails_alone_and_the_rest_are_writt
     assert_eq!(fixture.read_remote("c.txt"), "local\n");
 }
 
-// @kotowari[REQ-ssh-003]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_read_lost_again_after_restarting_the_agent_stops_without_writing() {
-    let fixture = AgentFixture::new(
-        Setup::default(),
-        cut("ReadFiles", 1, CutPoint::BeforeResponse, Repeat::Every),
-    )
-    .await;
-    fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
-    fixture.put("b.txt", Some("local\n"), Some("remote old\n"));
-
-    let output = fixture.run(&["merge", "a.txt", "b.txt"]);
-
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert_eq!(fixture.read_remote("a.txt"), "remote old\n");
-    assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
-    // まとめて読む処理は一度だけやり直し、1 ファイルずつ読み直さない
-    assert_eq!(count(&fixture, "ReadFiles"), 2);
-    assert_eq!(fixture.server.faults().agent_starts(), 2);
-}
-
 // "a.txt" は書き込み先にあるのでバックアップのために読み、新しい "b.txt" は読まない。読み込みの
 // まとめは "a.txt" だけになる
 // @kotowari[REQ-ssh-003, EX-ssh-048]
@@ -636,7 +615,9 @@ async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_
         failure(&result["failed"], "c.txt").contains(UNTOUCHED),
         "{result}"
     );
+    // まとめて読む処理は一度だけやり直し、1 ファイルずつ読み直さない
     assert_eq!(count(&fixture, "ReadFiles"), 2);
+    assert_eq!(fixture.server.faults().agent_starts(), 2);
     assert_eq!(fixture.read_remote("a.txt"), "remote old\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
     assert!(!fixture.remote().join("c.txt").exists());
