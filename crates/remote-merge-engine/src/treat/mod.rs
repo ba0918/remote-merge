@@ -11,6 +11,7 @@ pub mod diff_names;
 pub mod hunk_merge;
 pub mod incomplete;
 pub mod merge;
+pub mod merge_permissions;
 pub mod merge_plan;
 pub mod merge_reference;
 pub mod merge_result;
