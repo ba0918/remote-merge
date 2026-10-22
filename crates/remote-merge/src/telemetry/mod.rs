@@ -5,7 +5,7 @@ pub mod file_filter;
 pub mod log_dir;
 pub mod log_reader;
 pub mod structured_log;
-pub mod truncate;
+pub(crate) mod truncate;
 
-pub use log_reader::{LogEntry, LogFilter, read_logs};
+pub use log_reader::LogEntry;
 pub use structured_log::JsonLogLayer;
