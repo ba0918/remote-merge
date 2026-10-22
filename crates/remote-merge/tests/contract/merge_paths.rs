@@ -1152,6 +1152,48 @@ fn permission_copy_changes_destination_mode_to_source_mode() {
     );
 }
 
+// sync の --with-permissions も、既にある書き込み先の権限を読み込み元に揃える
+// @kotowari[REQ-merge-014]
+#[test]
+fn permission_copy_in_sync_changes_an_existing_destination_mode_to_the_source_mode() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("file.txt");
+    let target = destination.path().join("file.txt");
+    fs::write(&source, "new\n").unwrap();
+    fs::write(&target, "old\n").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: true,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
 // @kotowari[EX-merge-027]
 #[test]
 fn matching_modes_stay_unchanged_on_an_existing_destination() {
