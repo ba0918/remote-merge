@@ -55,7 +55,7 @@ fn deploy_dir_check_script(remote_path: &Path, expected_uid: &str) -> String {
     let dir = remote_path.parent().unwrap_or(Path::new("/"));
     let dir = shell_escape(&dir.to_string_lossy());
     let binary = shell_escape(&remote_path.to_string_lossy());
-    let tmp = shell_escape(&format!("{}.tmp", remote_path.display()));
+    let tmp = shell_escape(&super::tmp_binary_path(remote_path));
     // 途中の親も作るときは、他人が書き込める祖先を作らないよう所有者だけのモードにする。
     // `ls -ldn` の 1 列目の 6 文字目がグループ、9 文字目がその他の書き込み権。
     // 自分の配置先を他人が書き込めたときは、祖先が安全なら直して中の Agent を除く

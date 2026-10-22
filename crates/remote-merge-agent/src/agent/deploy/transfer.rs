@@ -11,6 +11,12 @@ pub fn remote_binary_path(deploy_dir: &str, user: &str) -> PathBuf {
         .join("remote-merge")
 }
 
+/// 配置で書き込み途中のバイナリを置くパス（`{remote_path}.tmp`）。送り先と、配置先を直すときに
+/// 消すものは同じパスでなければならない。シェルに渡すときは引用する
+pub fn tmp_binary_path(remote_path: &Path) -> String {
+    format!("{}.tmp", remote_path.display())
+}
+
 /// `remote-merge --version` の期待出力を生成する。
 ///
 /// clap が生成する実際の出力形式に合わせる: `remote-merge X.Y.Z (protocol vN)`
@@ -180,6 +186,14 @@ mod tests {
         assert_eq!(
             installed_checksum_command(Path::new(REMOTE), false),
             "sha256sum '/d/remote-merge' 2>/dev/null || shasum -a 256 '/d/remote-merge' 2>/dev/null || echo __UNSUPPORTED__"
+        );
+    }
+
+    #[test]
+    fn the_binary_is_written_next_to_its_place_with_a_tmp_suffix() {
+        assert_eq!(
+            tmp_binary_path(Path::new("/d/my dir/remote-merge")),
+            "/d/my dir/remote-merge.tmp"
         );
     }
 

@@ -120,7 +120,7 @@ impl CoreRuntime {
         sudo: bool,
         remote_target: &str,
     ) -> anyhow::Result<()> {
-        let tmp_path = format!("{}.tmp", remote_path.display());
+        let tmp_path = deploy::tmp_binary_path(remote_path);
 
         // リモートターゲットに対応するバイナリを解決
         let resolved = deploy::resolve_agent_binary(remote_target)?;
