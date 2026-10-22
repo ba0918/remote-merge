@@ -704,6 +704,22 @@ fn load_secret_key_with_passphrase(
     server_name: &str,
     passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> crate::error::Result<russh::keys::PrivateKey> {
+    load_secret_key_with(
+        expanded_path,
+        original_key_path,
+        server_name,
+        passphrase_provider,
+        |key| std::env::var(key),
+    )
+}
+
+fn load_secret_key_with(
+    expanded_path: &str,
+    original_key_path: &Path,
+    server_name: &str,
+    passphrase_provider: Option<&dyn PassphraseProvider>,
+    read_env: impl FnOnce(&str) -> Result<String, std::env::VarError>,
+) -> crate::error::Result<russh::keys::PrivateKey> {
     // まずパスフレーズなしで試行
     match load_secret_key(expanded_path, None) {
         Ok(key) => return Ok(key),
@@ -722,7 +738,7 @@ fn load_secret_key_with_passphrase(
 
     // 環境変数を先にチェック（空文字列は無視）
     let env_key = super::passphrase_provider::passphrase_env_key(server_name);
-    if let Some(passphrase) = std::env::var(&env_key).ok().filter(|s| !s.is_empty()) {
+    if let Some(passphrase) = read_env(&env_key).ok().filter(|s| !s.is_empty()) {
         let passphrase = Zeroizing::new(passphrase);
         match load_secret_key(expanded_path, Some(passphrase.as_str())) {
             Ok(key) => return Ok(key),
@@ -877,5 +893,165 @@ mod tests {
             "error should mention key load: {}",
             err
         );
+    }
+
+    // ── パスフレーズの環境変数と問い合わせ ──
+
+    const PASSPHRASE: &str = "correct passphrase";
+    /// 設定に書かれた形の鍵のパス。問い合わせと誤りにはホームを展開する前の形で示す
+    const WRITTEN_KEY_PATH: &str = "~/keys/encrypted";
+
+    /// `PASSPHRASE` で暗号化した鍵を書いたファイル
+    struct EncryptedKey {
+        _dir: tempfile::TempDir,
+        path: String,
+    }
+
+    impl EncryptedKey {
+        fn new() -> Self {
+            use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
+            let key =
+                russh::keys::PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519)
+                    .unwrap();
+            // 既定の bcrypt の回数は最適化しない組み立てで遅いので、回数を最小にする
+            let kdf = Kdf::Bcrypt {
+                salt: vec![7; 16],
+                rounds: 1,
+            };
+            let encrypted = key
+                .encrypt_with(Cipher::Aes256Ctr, kdf, 0, PASSPHRASE)
+                .unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("id_ed25519");
+            std::fs::write(&path, encrypted.to_openssh(LineEnding::LF).unwrap()).unwrap();
+            Self {
+                _dir: dir,
+                path: path.to_str().unwrap().to_string(),
+            }
+        }
+
+        /// サーバ my-server の鍵として、環境変数を `read_env` で読んで読み込む
+        fn load(
+            &self,
+            provider: Option<&dyn PassphraseProvider>,
+            read_env: impl FnOnce(&str) -> Result<String, std::env::VarError>,
+        ) -> crate::error::Result<russh::keys::PrivateKey> {
+            load_secret_key_with(
+                &self.path,
+                Path::new(WRITTEN_KEY_PATH),
+                "my-server",
+                provider,
+                read_env,
+            )
+        }
+    }
+
+    fn no_environment(_: &str) -> Result<String, std::env::VarError> {
+        Err(std::env::VarError::NotPresent)
+    }
+
+    /// 決めた答えを順に返し、尋ねられた鍵のパスを記録するプロバイダ
+    struct ScriptedProvider {
+        answers: std::sync::Mutex<std::collections::VecDeque<Option<&'static str>>>,
+        asked: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(answers: &[Option<&'static str>]) -> Self {
+            Self {
+                answers: std::sync::Mutex::new(answers.iter().copied().collect()),
+                asked: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn asked(&self) -> Vec<String> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    impl PassphraseProvider for ScriptedProvider {
+        fn get_passphrase(&self, key_path: &str) -> Option<Zeroizing<String>> {
+            self.asked.lock().unwrap().push(key_path.to_string());
+            let answer = self.answers.lock().unwrap().pop_front().flatten();
+            answer.map(|passphrase| Zeroizing::new(passphrase.to_string()))
+        }
+    }
+
+    fn assert_key_load_error(result: crate::error::Result<russh::keys::PrivateKey>) {
+        let error = result.expect_err("the key must not be loaded");
+        assert!(
+            matches!(
+                error.downcast_ref::<AppError>(),
+                Some(AppError::SshKeyLoad { path }) if path == Path::new(WRITTEN_KEY_PATH)
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn the_passphrase_in_the_servers_environment_variable_unlocks_the_key_without_asking() {
+        let key = EncryptedKey::new();
+        let provider = ScriptedProvider::new(&[]);
+        let mut read_name = None;
+
+        let loaded = key.load(Some(&provider), |name| {
+            read_name = Some(name.to_string());
+            Ok(PASSPHRASE.to_string())
+        });
+
+        assert!(loaded.is_ok(), "{loaded:?}");
+        assert_eq!(
+            read_name.as_deref(),
+            Some("REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER")
+        );
+        assert!(provider.asked().is_empty());
+    }
+
+    #[test]
+    fn a_wrong_passphrase_in_the_environment_falls_back_to_asking() {
+        let key = EncryptedKey::new();
+        let provider = ScriptedProvider::new(&[Some(PASSPHRASE)]);
+
+        let loaded = key.load(Some(&provider), |_| Ok("wrong".to_string()));
+
+        assert!(loaded.is_ok(), "{loaded:?}");
+        assert_eq!(provider.asked(), [WRITTEN_KEY_PATH]);
+    }
+
+    #[test]
+    fn the_passphrase_is_asked_up_to_three_times() {
+        let key = EncryptedKey::new();
+        let third_time = ScriptedProvider::new(&[Some("wrong"), Some("wrong"), Some(PASSPHRASE)]);
+
+        let loaded = key.load(Some(&third_time), no_environment);
+
+        assert!(loaded.is_ok(), "{loaded:?}");
+        assert_eq!(third_time.asked().len(), 3);
+
+        let fourth_time = ScriptedProvider::new(&[
+            Some("wrong"),
+            Some("wrong"),
+            Some("wrong"),
+            Some(PASSPHRASE),
+        ]);
+
+        assert_key_load_error(key.load(Some(&fourth_time), no_environment));
+        assert_eq!(fourth_time.asked(), [WRITTEN_KEY_PATH; 3]);
+    }
+
+    #[test]
+    fn no_answer_from_the_provider_stops_asking() {
+        let key = EncryptedKey::new();
+        let provider = ScriptedProvider::new(&[None, Some(PASSPHRASE)]);
+
+        assert_key_load_error(key.load(Some(&provider), no_environment));
+        assert_eq!(provider.asked().len(), 1);
+    }
+
+    #[test]
+    fn an_encrypted_key_without_a_passphrase_source_cannot_be_loaded() {
+        let key = EncryptedKey::new();
+
+        assert_key_load_error(key.load(None, no_environment));
     }
 }
