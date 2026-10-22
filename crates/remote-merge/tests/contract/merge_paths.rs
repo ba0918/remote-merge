@@ -445,7 +445,14 @@ fn identical_file_sync_does_not_rewrite_the_destination() {
     fs::write(local.path().join("same.txt"), "same bytes\n").unwrap();
     let target = destination.path().join("same.txt");
     fs::write(&target, "same bytes\n").unwrap();
-    let before = fs::metadata(&target).unwrap().modified().unwrap();
+    // 書き直すと更新時刻が今になる。作った直後の時刻のままでは、時計の粗さで書き直しと見分けられない
+    let before = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    fs::File::options()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(before)
+        .unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_sync(
         SyncArgs {

@@ -209,7 +209,9 @@ fn directory_merge_overwrites_changed_files_creates_source_only_files_and_skips_
     fixture.write("local", "folder/new.txt", "only on the source\n");
     fixture.write("local", "folder/same.txt", "same bytes\n");
     fixture.write("develop", "folder/same.txt", "same bytes\n");
-    let same_time = fixture.modified("develop", "folder/same.txt");
+    // 書き直すと更新時刻が今になる。作った直後の時刻のままでは、時計の粗さで書き直しと見分けられない
+    let same_time = std::time::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+    fixture.set_modified("develop", "folder/same.txt", same_time);
 
     let (json, code) = fixture.merge_json(args(&["folder"]));
 
