@@ -44,12 +44,12 @@ impl CoreRuntime {
             server_name,
             server_config.host
         );
-        let provider = self.passphrase_provider.as_ref().map(|p| p.as_ref());
+        let provider = crate::ssh::passphrase_provider::build_default_provider();
         match self.rt.block_on(SshClient::connect_with_passphrase(
             server_name,
             server_config,
             &self.config.ssh,
-            provider,
+            Some(&provider),
         )) {
             Ok(client) => {
                 tracing::info!("SSH connected: server={}", server_name);

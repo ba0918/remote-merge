@@ -14,7 +14,6 @@ use crate::agent::client::AgentClient;
 use crate::agent::ssh_transport::TransportGuard;
 use crate::config::{AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
-use crate::ssh::passphrase_provider::PassphraseProvider;
 
 /// Agent クライアントの型エイリアス（UnixStream ペアで通信）
 #[cfg(unix)]
@@ -43,9 +42,6 @@ pub struct CoreRuntime {
     pub(crate) transport_guards: HashMap<String, TransportGuard>,
     /// つないだときにエージェントを使うと一度だけ決めたサーバ（REQ-ssh-024）。つなぎ直しても決め直さない
     pub(crate) agent_chosen: std::collections::HashSet<String>,
-    /// パスフレーズ付き SSH 鍵のパスフレーズ取得プロバイダ。
-    /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
-    pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
     pub(crate) targets: super::RuntimeTargets,
     pub(crate) backup_store: super::backup_store::BackupStore,
     /// `接続断` か root_dir がなくなったことで処理を止めた書き込み先と、止めた理由。以降の操作は
@@ -79,9 +75,6 @@ impl CoreRuntime {
             #[cfg(unix)]
             transport_guards: HashMap::new(),
             agent_chosen: std::collections::HashSet::new(),
-            passphrase_provider: Some(Arc::new(
-                crate::ssh::passphrase_provider::build_default_provider(),
-            )),
             targets,
             backup_store,
             stopped: HashMap::new(),
