@@ -35,13 +35,6 @@ fn failed(error: &std::io::Error) -> OpFailure {
     from_io_error(error)
 }
 
-/// symlink を辿った先のファイルの大きさ
-pub fn size(root: &Path, entry: &EntryPath) -> Result<u64, OpFailure> {
-    std::fs::metadata(full_path(root, entry))
-        .map(|meta| meta.len())
-        .map_err(|error| failed(&error))
-}
-
 /// 中身を読む。開く前に大きさを調べ（読む権限は要らない）、上限を超えるものは読まない
 pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>, OpFailure> {
     let path = full_path(root, entry);

@@ -64,7 +64,6 @@ fn reading_over_the_limit_is_refused_by_the_answered_size() {
             limit: 10
         })
     );
-    assert_eq!(size(temp.path(), &entry("big")), Ok(11));
 }
 
 #[test]
