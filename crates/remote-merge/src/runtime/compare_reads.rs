@@ -37,11 +37,11 @@ impl CoreRuntime {
             })
             .collect();
         // 判定が求めた側と、コマンドが告げた側のうち、中身のある状態の側のハッシュを取る
-        let to_hash = wanted(&table, |path, states| {
+        let to_hash = wanted(table.iter().map(|(path, states)| {
             let mut roles = hash_roles(&judged[path]);
             roles.extend(uses.hashes(path, states, &judged[path]));
-            roles
-        });
+            (path, states, roles)
+        }));
         let cache = reused
             .as_deref_mut()
             .map(|reused| (reused.side.clone(), &mut reused.hashes));
@@ -70,9 +70,10 @@ impl CoreRuntime {
             };
             paths.insert(path, comparison);
         }
-        let mut to_read = wanted_of(&paths, |path, comparison| {
-            uses.contents(path, &comparison.states, &comparison.pairs)
-        });
+        let mut to_read = wanted(paths.iter().map(|(path, comparison)| {
+            let roles = uses.contents(path, &comparison.states, &comparison.pairs);
+            (path, &comparison.states, roles)
+        }));
         // 止めた書き込み先には尋ねない
         if let Some(lost) = &lost {
             to_read.remove(&lost.role);
@@ -115,31 +116,19 @@ impl CoreRuntime {
     }
 }
 
-/// パスごとに求めた側を、側ごとのパスの並びにする。中身のない状態の側は尋ねない
-fn wanted(
-    table: &BTreeMap<String, PathStates>,
-    roles_of: impl Fn(&str, &PathStates) -> BTreeSet<Role>,
+/// パスごとの状態と求めた側を、側ごとのパスの並びにする。中身のない状態の側は尋ねない
+fn wanted<'a>(
+    paths: impl Iterator<Item = (&'a String, &'a PathStates, BTreeSet<Role>)>,
 ) -> BTreeMap<Role, Vec<String>> {
     let mut wanted: BTreeMap<Role, Vec<String>> = BTreeMap::new();
-    for (path, states) in table {
-        for role in roles_of(path, states) {
+    for (path, states, roles) in paths {
+        for role in roles {
             if states.states.get(&role).is_some_and(has_content) {
                 wanted.entry(role).or_default().push(path.clone());
             }
         }
     }
     wanted
-}
-
-fn wanted_of(
-    paths: &Paths,
-    roles_of: impl Fn(&str, &PathComparison) -> BTreeSet<Role>,
-) -> BTreeMap<Role, Vec<String>> {
-    let table: BTreeMap<String, PathStates> = paths
-        .iter()
-        .map(|(path, comparison)| (path.clone(), comparison.states.clone()))
-        .collect();
-    wanted(&table, |path, _| roles_of(path, &paths[path]))
 }
 
 fn asked(
