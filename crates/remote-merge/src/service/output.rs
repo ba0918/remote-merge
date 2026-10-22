@@ -377,7 +377,6 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
                 }
                 line
             }
-            DeleteStatus::Failed => format!("Delete failed: {}", del.path),
             DeleteStatus::WouldDelete => format!("Would delete: {}", del.path),
         };
         lines.push(line);
@@ -590,13 +589,8 @@ pub fn format_sync_text(output: &SyncOutput) -> String {
         for file in &target_result.deleted {
             let line = match file.status {
                 DeleteStatus::WouldDelete => format!("  {:<6} {} (delete)", "plan", file.path),
-                DeleteStatus::Ok | DeleteStatus::Failed => {
-                    let status_badge = if file.status == DeleteStatus::Ok {
-                        "D"
-                    } else {
-                        "D!"
-                    };
-                    let mut line = format!("  {:<6} {} (deleted", status_badge, file.path);
+                DeleteStatus::Ok => {
+                    let mut line = format!("  {:<6} {} (deleted", "D", file.path);
                     if let Some(ref backup) = file.backup {
                         line.push_str(&format!(", backup: {}", backup));
                     }
@@ -2021,23 +2015,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_merge_text_deleted_failed() {
-        let output = MergeOutput {
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![DeleteFileResult {
-                path: "locked.txt".into(),
-                status: DeleteStatus::Failed,
-                backup: None,
-            }],
-            failed: vec![],
-            ref_: None,
-        };
-        let text = format_merge_text(&output);
-        assert!(text.contains("Delete failed: locked.txt"), "text: {}", text);
-    }
-
-    #[test]
     fn test_format_merge_text_no_deleted_field_when_empty() {
         // deleted が空のときは何も表示しない
         let output = MergeOutput {
@@ -2309,42 +2286,6 @@ mod tests {
         };
         let text = format_sync_text(&output);
         assert!(text.contains("backup: 20260311-120000/a.txt"));
-    }
-
-    #[test]
-    fn format_sync_text_delete_failed() {
-        let output = SyncOutput {
-            left: SourceInfo {
-                label: "local".into(),
-                root: "/app".into(),
-            },
-            targets: vec![SyncTargetResult {
-                target: SourceInfo {
-                    label: "server1".into(),
-                    root: "/app".into(),
-                },
-                merged: vec![],
-                skipped: vec![],
-                deleted: vec![DeleteFileResult {
-                    path: "locked.txt".into(),
-                    status: DeleteStatus::Failed,
-                    backup: None,
-                }],
-                failed: vec![],
-                status: SyncTargetStatus::Partial,
-            }],
-            summary: SyncSummary {
-                total_servers: 1,
-                successful_servers: 0,
-                total_files_merged: 0,
-                total_files_deleted: 0,
-                total_files_failed: 0,
-            },
-        };
-        let text = format_sync_text(&output);
-        assert!(text.contains("D!"));
-        assert!(text.contains("locked.txt"));
-        assert!(text.contains("[server1] partial"));
     }
 
     // ── Step 1: JsonError serialization ──

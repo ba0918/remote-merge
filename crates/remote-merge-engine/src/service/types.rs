@@ -419,7 +419,6 @@ pub struct DeleteFileResult {
 #[serde(rename_all = "lowercase")]
 pub enum DeleteStatus {
     Ok,
-    Failed,
     /// --dry-run で消す予定（docs/ir/merge/deletion.md の REQ-merge-026）
     #[serde(rename = "would delete")]
     WouldDelete,
@@ -1042,10 +1041,6 @@ mod tests {
     #[test]
     fn delete_status_serializes_lowercase() {
         assert_eq!(serde_json::to_string(&DeleteStatus::Ok).unwrap(), "\"ok\"");
-        assert_eq!(
-            serde_json::to_string(&DeleteStatus::Failed).unwrap(),
-            "\"failed\""
-        );
     }
 
     // ── Step 4: file_count / empty sessions ──
