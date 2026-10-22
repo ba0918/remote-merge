@@ -2,9 +2,28 @@
 //! REQ-cli-097・099）の単体テスト
 use remote_merge_core::compare::{Present, Role, SideState, Verdict};
 
+use super::super::content::{Context, Overrides, prepare};
 use super::super::test_support::{compared_with, file, link, pair};
 use super::*;
 use crate::service::types::SourceInfo;
+
+/// 内容の設定と指定がないときの `path` の項目
+pub(super) fn diff_file(
+    path: &str,
+    comparison: &PathComparison,
+    change: Option<Change>,
+    sources: &Sources,
+    max_lines: Option<usize>,
+) -> DiffOutput {
+    let config = Default::default();
+    let context = Context {
+        config: &config,
+        sides: Default::default(),
+        overrides: Overrides::default(),
+    };
+    let view = prepare(comparison, path, &context, sources.reference.is_some());
+    prepared_file(path, comparison, change, sources, max_lines, &view)
+}
 
 pub(super) fn source(label: &str) -> SourceInfo {
     SourceInfo {

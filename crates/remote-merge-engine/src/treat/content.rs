@@ -171,3 +171,7 @@ pub fn empty_text() -> Text<'static> {
         Ok(Content::Binary) | Err(_) => unreachable!("empty UTF-8 is text"),
     }
 }
+
+#[cfg(test)]
+#[path = "content_conflicts_tests.rs"]
+mod conflicts_tests;

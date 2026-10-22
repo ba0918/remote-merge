@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use remote_merge_core::compare::{PathComparison, Role, SideState, Verdict};
 use remote_merge_core::scan::outcome::LinkPoint;
 
-use super::content::{Context, Overrides, prepare};
+use super::content::{Context, prepare};
 use super::diff::{DiffEntry, diff_entry};
 use super::diff_file::{Sources, prepared_file};
 use crate::service::types::{DiffError, MultiDiffOutput, MultiDiffSummary};
@@ -37,22 +37,7 @@ pub struct Coverage<'a> {
     pub incomplete: BTreeSet<Role>,
 }
 
-/// パスごとの比べた結果を diff の出力にする
-pub fn diff_listing(
-    paths: &BTreeMap<String, PathComparison>,
-    sources: &Sources,
-    limits: Limits,
-    coverage: &Coverage,
-) -> MultiDiffOutput {
-    let config = Default::default();
-    let context = Context {
-        config: &config,
-        sides: Default::default(),
-        overrides: Overrides::default(),
-    };
-    diff_listing_with_content(paths, sources, limits, coverage, &context)
-}
-
+/// パスごとの比べた結果を、`context` の内容の設定で解釈して diff の出力にする
 pub fn diff_listing_with_content(
     paths: &BTreeMap<String, PathComparison>,
     sources: &Sources,

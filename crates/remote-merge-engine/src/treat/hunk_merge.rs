@@ -1,15 +1,6 @@
 use super::content::{Prepared, View, empty_text};
-use remote_merge_core::{
-    content::{Content, Interpretation, interpret},
-    diff::engine::{HunkDirection, PairScript},
-};
+use remote_merge_core::diff::engine::{HunkDirection, PairScript};
 use std::collections::HashSet;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HunkMerge {
-    NoChanges,
-    Merged { content: String, total: usize },
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HunkError {
@@ -83,31 +74,6 @@ pub fn merge_prepared(
         content = with_bom;
     }
     Ok(Some((content, total)))
-}
-
-pub fn merge_selected_hunks(
-    left: &str,
-    right: &str,
-    reference: Option<&[u8]>,
-    selected: &[usize],
-) -> Result<HunkMerge, HunkError> {
-    let decode = |bytes| match interpret(bytes, Interpretation::Unspecified) {
-        Ok(Content::Text(text)) => Ok(Prepared::Text(text)),
-        Ok(Content::Binary) => Ok(Prepared::Binary(bytes)),
-        Err(error) => Err(error.to_string()),
-    };
-    let view = View {
-        left: decode(left.as_bytes()),
-        right: decode(right.as_bytes()),
-        reference: reference.map_or(Ok(Prepared::Unavailable), decode),
-    };
-    match merge_prepared(&view, selected, reference.is_some())? {
-        None => Ok(HunkMerge::NoChanges),
-        Some((content, total)) => Ok(HunkMerge::Merged {
-            content: String::from_utf8(content).expect("UTF-8 spans form UTF-8 output"),
-            total,
-        }),
-    }
 }
 
 #[cfg(test)]

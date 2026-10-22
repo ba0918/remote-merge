@@ -6,7 +6,7 @@ use remote_merge_core::compare::{PathComparison, Role, SideState};
 use remote_merge_core::diff::engine::PairScript;
 use remote_merge_core::sha256::hex_of_bytes;
 
-use super::content::{Context, Overrides, Prepared, View, empty_text, prepare};
+use super::content::{Prepared, View, empty_text};
 use super::diff::Change;
 use super::diff_hunks::shown_script;
 use crate::service::types::{DiffOutput, LinkTargets, SourceInfo};
@@ -21,24 +21,7 @@ pub struct Sources {
 }
 
 /// `path` の項目。`change` は判定による変更の種類（root_dir の外へ解決されて中身を比べなかった
-/// symlink は変更がなくても項目にするので、そのときはない）
-pub fn diff_file(
-    path: &str,
-    comparison: &PathComparison,
-    change: Option<Change>,
-    sources: &Sources,
-    max_lines: Option<usize>,
-) -> DiffOutput {
-    let config = Default::default();
-    let context = Context {
-        config: &config,
-        sides: Default::default(),
-        overrides: Overrides::default(),
-    };
-    let view = prepare(comparison, path, &context, sources.reference.is_some());
-    prepared_file(path, comparison, change, sources, max_lines, &view)
-}
-
+/// symlink は変更がなくても項目にするので、そのときはない）。`view` は内容の設定で解釈した中身
 pub fn prepared_file(
     path: &str,
     comparison: &PathComparison,

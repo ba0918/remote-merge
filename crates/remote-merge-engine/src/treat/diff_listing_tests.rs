@@ -7,10 +7,27 @@ use remote_merge_core::compare::{
 };
 use remote_merge_core::op_failure::OpFailure;
 
+use super::super::content::Overrides;
 use super::super::diff_file::Sources;
 use super::super::test_support::{compared_with, file, link, pair};
 use super::*;
 use crate::service::types::SourceInfo;
+
+/// 内容の設定と指定がないときの diff の出力
+pub(super) fn diff_listing(
+    paths: &BTreeMap<String, PathComparison>,
+    sources: &Sources,
+    limits: Limits,
+    coverage: &Coverage,
+) -> MultiDiffOutput {
+    let config = Default::default();
+    let context = Context {
+        config: &config,
+        sides: Default::default(),
+        overrides: Overrides::default(),
+    };
+    diff_listing_with_content(paths, sources, limits, coverage, &context)
+}
 
 pub(super) fn sources(with_ref: bool) -> Sources {
     let source = |label: &str| SourceInfo {

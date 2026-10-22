@@ -1,6 +1,34 @@
 //! --hunks の選んだ hunk だけを書き込み先に当てる規則（REQ-merge-009・031・032、TBL-merge-001）の
 //! 単体テスト
+use super::super::test_support::decoded;
 use super::*;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HunkMerge {
+    NoChanges,
+    Merged { content: String, total: usize },
+}
+
+/// UTF-8 の左右と参照先から、選んだ hunk を当てた中身
+fn merge_selected_hunks(
+    left: &str,
+    right: &str,
+    reference: Option<&[u8]>,
+    selected: &[usize],
+) -> Result<HunkMerge, HunkError> {
+    let view = View {
+        left: decoded(left.as_bytes()),
+        right: decoded(right.as_bytes()),
+        reference: reference.map_or(Ok(Prepared::Unavailable), decoded),
+    };
+    match merge_prepared(&view, selected, reference.is_some())? {
+        None => Ok(HunkMerge::NoChanges),
+        Some((content, total)) => Ok(HunkMerge::Merged {
+            content: String::from_utf8(content).expect("UTF-8 spans form UTF-8 output"),
+            total,
+        }),
+    }
+}
 
 /// 文脈の 3 行より離れた二つの変更がある左右
 fn two_changes() -> (String, String) {

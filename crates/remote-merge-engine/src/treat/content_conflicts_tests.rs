@@ -1,8 +1,29 @@
 //! 参照先との競合の求め方（REQ-cli-016・097・099）の単体テスト
+use super::super::test_support::decoded;
 use super::*;
 use crate::service::types::ConflictArea;
 
 use Body::{Absent, Bytes};
+
+#[derive(Debug, Clone, Copy)]
+enum Body<'a> {
+    Absent,
+    Bytes(&'a [u8]),
+}
+
+/// 左右と参照先の中身（ないか、内容の指定なしで解釈するバイト列）の競合
+fn conflicts(left: Body, right: Body, reference: Body) -> Vec<ConflictArea> {
+    let prepared = |body| match body {
+        Body::Absent => Ok(Prepared::Absent),
+        Body::Bytes(bytes) => decoded(bytes),
+    };
+    View {
+        left: prepared(left),
+        right: prepared(right),
+        reference: prepared(reference),
+    }
+    .conflicts()
+}
 
 fn whole() -> Vec<ConflictArea> {
     vec![ConflictArea::whole_file()]

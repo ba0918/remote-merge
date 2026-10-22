@@ -3,7 +3,6 @@
 //! 組み立てが通らない形にする。経路は呼ばない
 
 pub mod diff;
-pub mod diff_conflicts;
 pub mod diff_file;
 pub mod diff_hunks;
 pub mod diff_listing;
