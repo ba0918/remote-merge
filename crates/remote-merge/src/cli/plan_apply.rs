@@ -34,6 +34,24 @@ pub(super) fn skip_reasons(plan: &[(String, MergeEntry)]) -> Vec<SkipReason> {
         .collect()
 }
 
+/// 書き込み先を変える前のバックアップの準備。--dry-run でなければ期限切れのバックアップを先に整理し
+/// （REQ-backup-025）、バックアップが有効で変える書き込み先 `changing` があるときだけセッションを
+/// 用意する（F20）
+pub(super) fn start_backup_session(
+    core: &mut CoreRuntime,
+    dry_run: bool,
+    changing: &[&Side],
+) -> anyhow::Result<Option<String>> {
+    if !dry_run {
+        core.cleanup_expired_backups()?;
+    }
+    if core.config.backup.enabled && !dry_run && !changing.is_empty() {
+        core.reserve_backup_session(changing).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 /// 扱いの並びを書き込み先 `target` に当てる。`with_ref` は参照先を使ったか（印を付ける）
 pub(super) fn apply_plan(
     core: &mut CoreRuntime,

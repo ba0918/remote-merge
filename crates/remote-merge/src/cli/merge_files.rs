@@ -14,13 +14,14 @@ use remote_merge_engine::treat::merge_uses::MergeUses;
 
 use super::compare_steps::{absorb_comparison, connect_sides};
 use super::merge::{MergeArgs, MergeCommandOutput, MergeCommandResult};
-use super::plan_apply::{apply_plan, change_counts, skip_reasons};
+use super::plan_apply::{apply_plan, change_counts, skip_reasons, start_backup_session};
 use crate::runtime::{
     ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
     ExternalLinks, LostDestination, NamedFiles, UnfollowableLinks,
 };
 use crate::service::path_resolver::paths_not_found;
 use crate::service::types::{MergeOutcome, MergeOutput};
+use crate::side::Side;
 
 pub(super) fn merge_files(
     core: &mut CoreRuntime,
@@ -91,17 +92,13 @@ pub fn apply_merge(
     planned: PlannedMerge,
 ) -> anyhow::Result<MergeCommandResult> {
     let PlannedMerge { paths, plan } = planned;
-    if !args.dry_run {
-        // 期限切れのバックアップは、--dry-run でない merge の初めに整理する（REQ-backup-025）
-        core.cleanup_expired_backups()?;
-    }
-    // 書き込むか消すファイルがあるときだけ、バックアップのセッションを用意する（F20）
     let (writes, deletes) = change_counts(&plan);
-    let session = if core.config.backup.enabled && !args.dry_run && writes + deletes > 0 {
-        Some(core.reserve_backup_session(&[&sides.right])?)
+    let changing: &[&Side] = if writes + deletes > 0 {
+        &[&sides.right]
     } else {
-        None
+        &[]
     };
+    let session = start_backup_session(core, args.dry_run, changing)?;
     let options = ApplyOptions {
         dry_run: args.dry_run,
         session: session.as_deref(),

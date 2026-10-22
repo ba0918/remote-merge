@@ -5,7 +5,7 @@ use remote_merge_engine::treat::merge::SkipReason;
 use remote_merge_engine::treat::merge_result::target_lists;
 use remote_merge_engine::treat::sync::target_status;
 
-use super::plan_apply::{apply_plan, skip_reasons};
+use super::plan_apply::{apply_plan, skip_reasons, start_backup_session};
 use super::sync::SyncArgs;
 use super::sync_plan::{TargetPlan, TargetState};
 use crate::runtime::{ApplyOptions, CoreRuntime};
@@ -18,21 +18,12 @@ pub(super) fn sync_targets(
     args: &SyncArgs,
     plans: Vec<TargetPlan>,
 ) -> anyhow::Result<Vec<SyncTargetResult>> {
-    if !args.dry_run {
-        // 期限切れのバックアップは、--dry-run でない sync の初めに整理する（REQ-backup-025）
-        core.cleanup_expired_backups()?;
-    }
     let changing: Vec<&Side> = plans
         .iter()
         .filter(|plan| plan.changes_anything())
         .map(|plan| &plan.side)
         .collect();
-    // 書き込むか消すファイルがあるときだけ、バックアップのセッションを用意する（F20）
-    let session = if core.config.backup.enabled && !args.dry_run && !changing.is_empty() {
-        Some(core.reserve_backup_session(&changing)?)
-    } else {
-        None
-    };
+    let session = start_backup_session(core, args.dry_run, &changing)?;
     let options = ApplyOptions {
         dry_run: args.dry_run,
         session: session.as_deref(),

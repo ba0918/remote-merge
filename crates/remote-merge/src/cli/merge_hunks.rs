@@ -16,6 +16,7 @@ use super::compare_steps::connect_sides;
 use super::merge::{MergeArgs, MergeCommandResult};
 use super::merge_files::merge_request;
 use super::merge_hunks_result::{failed, no_changes, written};
+use super::plan_apply::start_backup_session;
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CompareSides, CoreRuntime, PlannedChange};
 use crate::service::path_resolver::paths_not_found;
 use crate::service::types::{HunkMergeInfo, MergeFileResult};
@@ -107,15 +108,7 @@ pub(super) fn merge_hunks(
         kind: ChangeKind::WriteFile,
         content: Some(&merged),
     };
-    if !args.dry_run {
-        // 期限切れのバックアップは、--dry-run でない merge の初めに整理する（REQ-backup-025）
-        core.cleanup_expired_backups()?;
-    }
-    let session = if core.config.backup.enabled && !args.dry_run {
-        Some(core.reserve_backup_session(&[&sides.right])?)
-    } else {
-        None
-    };
+    let session = start_backup_session(core, args.dry_run, &[&sides.right])?;
     let options = ApplyOptions {
         dry_run: args.dry_run,
         session: session.as_deref(),
