@@ -157,14 +157,7 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
             lines.push("Resolved content differs".into());
         }
         for hunk in &output.hunks {
-            for line in &hunk.lines {
-                let prefix = match line.line_type {
-                    DiffLineType::Removed => '-',
-                    DiffLineType::Added => '+',
-                    DiffLineType::Context => ' ',
-                };
-                lines.push(format!("{prefix}{}", line.content));
-            }
+            push_hunk_lines(&mut lines, hunk);
         }
         if output.truncated {
             lines.push(TRUNCATED_MARKER.into());
@@ -184,27 +177,7 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     }
 
     for hunk in &output.hunks {
-        lines.push(format!(
-            "@@ -{},{} +{},{} @@",
-            hunk.left_start,
-            hunk.lines
-                .iter()
-                .filter(|l| l.line_type != DiffLineType::Added)
-                .count(),
-            hunk.right_start,
-            hunk.lines
-                .iter()
-                .filter(|l| l.line_type != DiffLineType::Removed)
-                .count(),
-        ));
-        for line in &hunk.lines {
-            let prefix = match line.line_type {
-                DiffLineType::Context => " ",
-                DiffLineType::Added => "+",
-                DiffLineType::Removed => "-",
-            };
-            lines.push(format!("{}{}", prefix, line.content));
-        }
+        push_hunk(&mut lines, hunk);
     }
 
     if output.truncated {
@@ -220,32 +193,42 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
             ref_info.label, output.path
         ));
         for hunk in ref_hunks {
-            lines.push(format!(
-                "@@ -{},{} +{},{} @@",
-                hunk.left_start,
-                hunk.lines
-                    .iter()
-                    .filter(|l| l.line_type != DiffLineType::Added)
-                    .count(),
-                hunk.right_start,
-                hunk.lines
-                    .iter()
-                    .filter(|l| l.line_type != DiffLineType::Removed)
-                    .count(),
-            ));
-            for line in &hunk.lines {
-                let prefix = match line.line_type {
-                    DiffLineType::Context => " ",
-                    DiffLineType::Added => "+",
-                    DiffLineType::Removed => "-",
-                };
-                lines.push(format!("{}{}", prefix, line.content));
-            }
+            push_hunk(&mut lines, hunk);
         }
     }
 
     push_conflicts(&mut lines, output);
     lines.join("\n")
+}
+
+/// hunk を、左右の行の数を添えた見出しとその行で足す
+fn push_hunk(lines: &mut Vec<String>, hunk: &DiffHunk) {
+    lines.push(format!(
+        "@@ -{},{} +{},{} @@",
+        hunk.left_start,
+        hunk.lines
+            .iter()
+            .filter(|l| l.line_type != DiffLineType::Added)
+            .count(),
+        hunk.right_start,
+        hunk.lines
+            .iter()
+            .filter(|l| l.line_type != DiffLineType::Removed)
+            .count(),
+    ));
+    push_hunk_lines(lines, hunk);
+}
+
+/// hunk の行を、文脈・追加・削除の印を頭に付けて足す
+fn push_hunk_lines(lines: &mut Vec<String>, hunk: &DiffHunk) {
+    for line in &hunk.lines {
+        let prefix = match line.line_type {
+            DiffLineType::Context => " ",
+            DiffLineType::Added => "+",
+            DiffLineType::Removed => "-",
+        };
+        lines.push(format!("{}{}", prefix, line.content));
+    }
 }
 
 /// 競合があれば、その数の行を足す
