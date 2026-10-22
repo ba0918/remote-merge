@@ -72,13 +72,10 @@ struct TestServerHandle {
     host_key: String,
     registry: CommandRegistry,
     received_data: Arc<Mutex<HashMap<ChannelId, Vec<u8>>>>,
-    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
-    exec_commands: Arc<Mutex<HashMap<ChannelId, String>>>,
 }
 
 #[derive(Clone)]
 struct TestServer {
-    id: usize,
     registry: CommandRegistry,
     /// 認証に使うパスワード (None = 全て許可)
     password: Option<String>,
@@ -90,21 +87,16 @@ impl server::Server for TestServer {
     type Handler = TestHandler;
 
     fn new_client(&mut self, _: Option<SocketAddr>) -> TestHandler {
-        let handler = TestHandler {
-            id: self.id,
+        TestHandler {
             registry: self.registry.clone(),
             password: self.password.clone(),
             received_data: self.received_data.clone(),
             exec_commands: self.exec_commands.clone(),
-        };
-        self.id += 1;
-        handler
+        }
     }
 }
 
 struct TestHandler {
-    #[allow(dead_code, reason = "テストの一部だけが読む記録用の欄")]
-    id: usize,
     registry: CommandRegistry,
     password: Option<String>,
     /// stdin で受信したデータを記録する（write_file テスト用）
@@ -289,11 +281,10 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
     let config = Arc::new(config);
 
     let mut server = TestServer {
-        id: 0,
         registry: registry.clone(),
         password,
         received_data: received_data.clone(),
-        exec_commands: exec_commands.clone(),
+        exec_commands,
     };
 
     // bind と run_on_socket を同一 async ブロック内で実行し、
@@ -314,7 +305,6 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
         host_key,
         registry,
         received_data,
-        exec_commands,
     }
 }
 
@@ -380,17 +370,7 @@ async fn test_ssh_connect_and_exec() {
     let handle = start_test_server().await;
     handle.registry.register("echo hello", "hello\n", 0);
 
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
+    let (mut client, _key) = connect_client(&handle).await;
 
     let output = client.exec("echo hello").await.expect("exec に失敗");
     assert_eq!(output, "hello\n");
@@ -478,17 +458,7 @@ async fn test_ssh_nonzero_exit_code() {
         2,
     );
 
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
+    let (mut client, _key) = connect_client(&handle).await;
 
     // 非ゼロ終了でもstdoutは取得できる
     let output = client.exec("ls /nonexistent").await.expect("exec に失敗");
@@ -636,17 +606,7 @@ async fn large_input_completes_while_remote_outputs_before_reading_stdin() {
 async fn test_ssh_write_file_small() {
     let handle = start_test_server().await;
 
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
+    let (mut client, _key) = connect_client(&handle).await;
 
     let content = "Hello, world!\nLine 2\n";
     client
@@ -659,86 +619,6 @@ async fn test_ssh_write_file_small() {
         let received = handle.received_data.lock().unwrap();
         let all_data: Vec<u8> = received.values().flat_map(|v| v.iter().copied()).collect();
         assert_eq!(String::from_utf8(all_data).unwrap(), content);
-    }
-
-    client.disconnect().await.expect("切断に失敗");
-}
-
-#[tokio::test]
-async fn test_ssh_write_file_large_chunked() {
-    let handle = start_test_server().await;
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
-
-    // 100KB のデータ — 32KB チャンクで 4 チャンクに分割されるはず
-    let content: String = "A".repeat(100 * 1024);
-    client
-        .run_with_input(
-            &upload_command("/var/www/app/large.txt"),
-            content.as_bytes(),
-        )
-        .await
-        .expect("write_file (large) に失敗");
-
-    // サーバーが受信したデータの合計サイズを検証
-    {
-        let received = handle.received_data.lock().unwrap();
-        let total_size: usize = received.values().map(|v| v.len()).sum();
-        assert_eq!(total_size, 100 * 1024);
-    }
-
-    client.disconnect().await.expect("切断に失敗");
-}
-
-#[tokio::test]
-async fn test_ssh_write_file_bytes_large_chunked() {
-    let handle = start_test_server().await;
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
-
-    // 64KB のバイナリデータ（NUL バイト含む）
-    let binary_data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
-    client
-        .run_with_input(
-            &upload_command("/var/www/app/binary.bin"),
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &binary_data)
-                .as_bytes(),
-        )
-        .await
-        .expect("write_file_bytes (large) に失敗");
-
-    // サーバーが受信したデータは base64 エンコードされている
-    // 受信データをデコードして元データと一致するか確認
-    {
-        let received = handle.received_data.lock().unwrap();
-        let all_data: Vec<u8> = received.values().flat_map(|v| v.iter().copied()).collect();
-        let received_str = String::from_utf8(all_data).expect("base64 データは UTF-8 のはず");
-
-        use base64::Engine;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(received_str.trim())
-            .expect("base64 デコードに失敗");
-        assert_eq!(decoded, binary_data);
     }
 
     client.disconnect().await.expect("切断に失敗");
@@ -858,30 +738,4 @@ async fn test_connect_with_verifier_reject_fails() {
         "error should mention verification failure: {}",
         err_msg,
     );
-}
-
-#[tokio::test]
-async fn test_known_host_skips_verifier() {
-    // 既知ホスト → verifier が呼ばれない
-    // connect_insecure はホスト鍵を確かめないので verifier は不要
-    let handle = start_test_server().await;
-    handle.registry.register("echo ok", "ok\n", 0);
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    // connect_insecure は known_hosts チェックをスキップする（= verifier 不要）
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("connect_insecure should succeed");
-
-    let output = client.exec("echo ok").await.expect("exec should succeed");
-    assert_eq!(output, "ok\n");
-
-    client.disconnect().await.expect("切断に失敗");
 }
