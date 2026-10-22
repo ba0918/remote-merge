@@ -41,10 +41,18 @@ pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>,
     let meta = std::fs::metadata(&path).map_err(|error| failed(&error))?;
     regular_file(&meta)?;
     check_size(meta.len(), limit)?;
-    let mut file = open_regular(&path)?;
+    // 調べた後に伸びたか差し替わったファイルを上限を超えてメモリに持たないよう、上限の次の 1 バイト
+    // まで読んだら止めて、読めた大きさをもう一度上限に当てる
+    let most = match limit {
+        SizeLimit::Bytes(limit) => limit.saturating_add(1),
+        SizeLimit::Unlimited => u64::MAX,
+    };
     let mut content = Vec::new();
-    file.read_to_end(&mut content)
+    open_regular(&path)?
+        .take(most)
+        .read_to_end(&mut content)
         .map_err(|error| failed(&error))?;
+    check_size(content.len() as u64, limit)?;
     Ok(content)
 }
 
