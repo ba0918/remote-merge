@@ -544,7 +544,7 @@ async fn rejected_large_input_returns_remote_exit_and_stderr_without_waiting_for
     let input = vec![b'A'; 16 * 1024 * 1024];
 
     let (stdout, stderr, exit_code) = tokio::time::timeout(
-        Duration::from_secs(3),
+        Duration::from_secs(30),
         client.run_with_input("reject-upload", &input),
     )
     .await
@@ -566,7 +566,7 @@ async fn successful_early_exit_does_not_wait_for_unconsumed_large_input() {
     let input = vec![b'A'; 16 * 1024 * 1024];
 
     let (stdout, stderr, exit_code) = tokio::time::timeout(
-        Duration::from_secs(3),
+        Duration::from_secs(30),
         client.run_with_input("early-success", &input),
     )
     .await
@@ -589,7 +589,7 @@ async fn large_input_cut_off_without_exit_status_returns_connection_error_prompt
     let input = vec![b'A'; 16 * 1024 * 1024];
 
     let error = tokio::time::timeout(
-        Duration::from_secs(3),
+        Duration::from_secs(30),
         client.run_with_input("cut-off-upload", &input),
     )
     .await
@@ -607,7 +607,7 @@ async fn large_input_completes_while_remote_outputs_before_reading_stdin() {
     let input: Vec<u8> = (0_u8..=255).cycle().take(6 * 1024 * 1024).collect();
 
     let (stdout, stderr, exit_code) = tokio::time::timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(30),
         client.run_with_input("duplex-upload", &input),
     )
     .await

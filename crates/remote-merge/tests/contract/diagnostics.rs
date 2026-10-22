@@ -105,7 +105,7 @@ impl SshRun {
         fs::write(root.join("example.txt"), "original\n").unwrap();
         let config_path = home.path().join("config.toml");
         fs::write(&config_path, format!(
-            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = {:?}\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = {:?}\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
             root.to_str().unwrap(), server.port(), CREDENTIAL, root.to_str().unwrap(), super::common::agent_section(home.path()),
         )).unwrap();
         Self {

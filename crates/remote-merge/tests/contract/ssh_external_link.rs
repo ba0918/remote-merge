@@ -114,7 +114,7 @@ async fn external_parent_links_are_backed_up_and_updated_locally_and_through_the
         let server = TestServer::filesystem_with_agent(home.path()).await;
         let config_path = home.path().join("config.toml");
         fs::write(&config_path, format!(
-            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
             local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
         )).unwrap();
         let output = isolated_command(home.path())

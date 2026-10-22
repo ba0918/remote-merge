@@ -17,7 +17,7 @@ async fn a_server_without_sudo_performs_its_remote_scan_without_elevation() {
     fs::create_dir_all(&root).unwrap();
     let config_path = home.path().join("config.toml");
     fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
         root.to_str().unwrap(), server.port(), root.to_str().unwrap(), super::common::agent_section(home.path()),
     )).unwrap();
     let result = isolated_command(home.path())
@@ -45,7 +45,7 @@ async fn rejected_noninteractive_sudo_stops_before_any_unprivileged_file_operati
     fs::create_dir_all(&root).unwrap();
     let config_path = home.path().join("config.toml");
     fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\nsudo = true\n[agent]\nenabled = true\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\nsudo = true\n[agent]\nenabled = true\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
         root.to_str().unwrap(), server.port(), root.to_str().unwrap(),
     )).unwrap();
     let result = isolated_command(home.path())

@@ -64,7 +64,7 @@ impl AgentFixture {
         fs::write(
             &config,
             format!(
-                "[local]\nroot_dir = {local:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {port}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {remote:?}\nsudo = {sudo}\n[agent]\nenabled = {enabled}\ndeploy_dir = {agent:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+                "[local]\nroot_dir = {local:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {port}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {remote:?}\nsudo = {sudo}\n[agent]\nenabled = {enabled}\ndeploy_dir = {agent:?}\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
                 local = home.path().join("local").to_str().unwrap(),
                 port = server.port(),
                 remote = home.path().join("remote").to_str().unwrap(),

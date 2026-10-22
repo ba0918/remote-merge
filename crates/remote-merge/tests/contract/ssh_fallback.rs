@@ -32,7 +32,7 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     let server = TestServer::filesystem_with_agent(home.path()).await;
     let config_path = home.path().join("config.toml");
     fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
         local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
     )).unwrap();
     let run = |subcommand: &str| {

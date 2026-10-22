@@ -154,7 +154,8 @@ impl TestServer {
         let mut config = server::Config {
             auth_rejection_time: Duration::from_millis(10),
             auth_rejection_time_initial: Some(Duration::ZERO),
-            inactivity_timeout: Some(Duration::from_secs(10)),
+            // クライアントの keepalive の間隔（10 秒）より十分に長くし、待つ間に切らない
+            inactivity_timeout: Some(Duration::from_secs(60)),
             ..Default::default()
         };
         if legacy {

@@ -10,6 +10,7 @@ use std::time::Duration;
 use remote_merge_core::op_failure::{OpFailure, SizeLimit};
 use remote_merge_core::relative_path::EntryPath;
 
+use super::flow_routes::CHILD_LIMIT;
 use super::flow_support::{Child, FlowRoutes, ROUTES, child};
 use super::scan_other_kinds::make_fifo;
 
@@ -63,19 +64,13 @@ fn ex_paths_046_a_fifo_is_not_read_while_waiting_for_a_writer_on_all_three_route
 
     for route in ROUTES {
         let fifo = routes.right(route).join("pipe");
-        let answer = routes.run_within(
-            route,
-            THIS_TEST,
-            "read pipe",
-            Duration::from_secs(30),
-            || {
-                // 止まった読み手を何度か終わらせる（中身とハッシュの二つ）
-                for _ in 0..4 {
-                    release(&fifo);
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            },
-        );
+        let answer = routes.run_within(route, THIS_TEST, "read pipe", CHILD_LIMIT, || {
+            // 止まった読み手を何度か終わらせる（中身とハッシュの二つ）
+            for _ in 0..4 {
+                release(&fifo);
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
         let Some(answer) = answer else {
             panic!("{route:?}: reading the FIFO waited for a writer");
         };

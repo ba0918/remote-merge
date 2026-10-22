@@ -30,7 +30,7 @@ fn config(port: u16, legacy: bool) -> ServerConfig {
 
 fn ssh_config() -> SshConfig {
     SshConfig {
-        timeout_sec: 3,
+        timeout_sec: 10,
         ..Default::default()
     }
 }

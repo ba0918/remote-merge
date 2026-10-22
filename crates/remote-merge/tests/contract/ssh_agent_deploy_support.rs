@@ -94,7 +94,7 @@ impl DeployFixture {
         let home = self.home.path();
         let config_path = home.join("config.toml");
         fs::write(&config_path, format!(
-            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
             home.join("local").to_str().unwrap(), self.server.port(), home.join("remote").to_str().unwrap(), home.join("agent").to_str().unwrap(),
         )).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));

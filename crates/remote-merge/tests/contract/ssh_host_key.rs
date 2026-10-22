@@ -62,7 +62,7 @@ async fn status_against(
     }
     let config_path = home.path().join("config.toml");
     std::fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 3\n{}",
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n{}[ssh]\ntimeout_sec = 10\n{}",
         root.to_str().unwrap(), server.port(), root.to_str().unwrap(), super::common::agent_section(home.path()), ssh_settings,
     )).unwrap();
     let mut child = super::common::isolated_command(home.path())

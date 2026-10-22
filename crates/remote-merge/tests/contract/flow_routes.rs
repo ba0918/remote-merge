@@ -13,6 +13,9 @@ use super::flow_support::{CONFIG, HOME, REQUEST, RESULT, ROUTE, ROUTES, Roots, R
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 
+/// 子のプロセスが答えるまで待つ時間の上限。並行して走るテストの負荷で遅れても届く長さにする
+pub(super) const CHILD_LIMIT: Duration = Duration::from_secs(120);
+
 /// 二つの経路の root_dir と、エージェントの経路の偽サーバ
 pub(super) struct FlowRoutes {
     home: tempfile::TempDir,
@@ -90,7 +93,7 @@ impl FlowRoutes {
             )
         };
         format!(
-            "[local]\nroot_dir = {:?}\n{}{}[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+            "[local]\nroot_dir = {:?}\n{}{}[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
             roots.left.to_str().unwrap(),
             server("fixture", &roots.right),
             server("reference", &roots.reference),
@@ -101,7 +104,7 @@ impl FlowRoutes {
     /// テスト `test`（初めに子のプロセスかを見て、そうなら求めに答えて終わるもの）を子のプロセスで
     /// 動かし、`route` の経路で `request` を行った答えを返す
     pub(super) fn run(&self, route: Route, test: &str, request: &str) -> String {
-        self.run_within(route, test, request, Duration::from_secs(120), || {})
+        self.run_within(route, test, request, CHILD_LIMIT, || {})
             .unwrap_or_else(|| panic!("{route:?}: {request} did not finish"))
     }
 
