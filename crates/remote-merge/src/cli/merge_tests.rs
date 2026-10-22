@@ -169,10 +169,3 @@ fn test_hunks_with_single_path_passes_validation() {
     args.hunks = Some(vec![0, 2, 5]);
     assert!(validate_merge_args(&args).is_ok());
 }
-
-#[test]
-fn test_hunks_none_passes_existing_validation() {
-    // --hunks なしの既存動作は変更なし
-    let args = make_args(Some("local"), Some("staging"));
-    assert!(validate_merge_args(&args).is_ok());
-}

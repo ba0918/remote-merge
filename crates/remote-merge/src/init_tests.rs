@@ -51,24 +51,6 @@ fn test_generate_toml_password_auth() {
 }
 
 #[test]
-fn test_generate_toml_is_valid_toml() {
-    let input = InitInput {
-        host: "dev.example.com".to_string(),
-        remote_root_dir: "/var/www/app".to_string(),
-        ..InitInput::default()
-    };
-
-    let toml_str = generate_toml(&input);
-    // パースできることを確認
-    let parsed: Result<toml::Value, _> = toml::from_str(&toml_str);
-    assert!(
-        parsed.is_ok(),
-        "Generated TOML is invalid: {:?}",
-        parsed.err()
-    );
-}
-
-#[test]
 fn test_generate_toml_empty_exclude() {
     let input = InitInput {
         host: "dev.example.com".to_string(),

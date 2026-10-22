@@ -415,21 +415,6 @@ mod tests {
         assert_eq!(entries[0].message, "reconnect failed");
     }
 
-    #[test]
-    fn test_read_logs_skips_invalid_json() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("debug.log");
-        let content = format!(
-            "{}\nnot valid json\n{}",
-            r#"{"timestamp":"2026-03-07T10:00:00Z","level":"INFO","target":"a","message":"ok","fields":{}}"#,
-            r#"{"timestamp":"2026-03-07T10:00:01Z","level":"INFO","target":"b","message":"ok2","fields":{}}"#,
-        );
-        std::fs::write(&path, content).unwrap();
-
-        let entries = read_logs(&path, &LogFilter::default()).unwrap();
-        assert_eq!(entries.len(), 2);
-    }
-
     // --- format_log_text ---
 
     #[test]

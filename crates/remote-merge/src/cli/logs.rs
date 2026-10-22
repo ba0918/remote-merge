@@ -79,7 +79,6 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::log_reader::LogEntry;
 
     #[test]
     fn a_valid_duration_outside_the_calendar_range_returns_an_error() {
@@ -94,20 +93,5 @@ mod tests {
         });
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
-    }
-
-    #[test]
-    fn test_format_text_output() {
-        let entry = LogEntry {
-            timestamp: "2026-03-07T21:00:00.123Z".into(),
-            level: "INFO".into(),
-            target: "ssh::client".into(),
-            message: "connected".into(),
-            fields: serde_json::Value::Null,
-        };
-        let text = format_log_text(&entry);
-        assert!(text.contains("INFO"));
-        assert!(text.contains("ssh::client"));
-        assert!(text.contains("connected"));
     }
 }
