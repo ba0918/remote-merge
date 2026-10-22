@@ -645,26 +645,27 @@ pub fn permissions_apply() -> bool {
 
 /// 持っている間、手元で何も待ち受けないと決まっているポート。そこへの接続は拒否される。
 ///
-/// 待ち受けを開いて閉じただけの番号は、並行して走る他のテストが待ち受けに使いうる。ここでは、
-/// つないだままの接続の手元の側の番号を使う。その接続を持っている間は誰もこの番号に bind できず、
-/// 待ち受けもないので、接続は拒否される
+/// 待ち受けを開いて閉じただけの番号は、並行して走る他のテストが待ち受けに使いうる。つないだままの
+/// 接続の手元の番号も使えない。その番号は別の宛先への接続の手元の番号として使い回されうるので、
+/// その番号自身へつなぐと、まれに自分自身とつながって拒否されない。ここでは bind だけして listen
+/// しないソケットを持つ。持っている間は誰もこの番号に bind できず、接続の手元の番号にも選ばれない
 pub struct ClosedPort {
     port: u16,
-    _connection: [std::net::TcpStream; 2],
+    _socket: tokio::net::TcpSocket,
 }
 
 impl ClosedPort {
     pub fn new() -> Self {
-        use std::net::{TcpListener, TcpStream};
-        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind a port");
-        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (server, _) = listener.accept().unwrap();
-        let port = client.local_addr().unwrap().port();
+        let socket = tokio::net::TcpSocket::new_v4().expect("failed to create a socket");
+        socket
+            .bind("127.0.0.1:0".parse().unwrap())
+            .expect("failed to bind a port");
+        let port = socket.local_addr().unwrap().port();
         assert!(
-            TcpListener::bind(("127.0.0.1", port)).is_err(),
+            std::net::TcpListener::bind(("127.0.0.1", port)).is_err(),
             "port {port} can still be bound"
         );
-        let refused = TcpStream::connect(("127.0.0.1", port)).map(|_| ());
+        let refused = std::net::TcpStream::connect(("127.0.0.1", port)).map(|_| ());
         assert_eq!(
             refused.map_err(|error| error.kind()),
             Err(std::io::ErrorKind::ConnectionRefused),
@@ -672,7 +673,7 @@ impl ClosedPort {
         );
         Self {
             port,
-            _connection: [client, server],
+            _socket: socket,
         }
     }
 
