@@ -36,6 +36,22 @@ fn sync_writes_a_named_file_that_the_exclude_matches() {
     assert_eq!(fixture.read("develop", "app.log"), "local\n");
 }
 
+// --hunks の merge も、exclude に当たる名前で指定したファイルに選んだ変更を当てる
+// @kotowari[REQ-merge-022]
+#[test]
+fn hunk_merge_writes_a_named_file_that_the_exclude_matches() {
+    let fixture = fixture_with_filter("exclude = [\"*.log\"]");
+    fixture.write("local", "app.log", "local\n");
+    fixture.write("develop", "app.log", "remote\n");
+    let mut args = merge_args(&["app.log"]);
+    args.hunks = Some(vec![0]);
+
+    let (json, code) = fixture.merge_json(args);
+
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(fixture.read("develop", "app.log"), "local\n");
+}
+
 // include の外の名前で指定したファイルも、同じく書く
 // @kotowari[REQ-merge-022]
 #[test]

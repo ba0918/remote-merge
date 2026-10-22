@@ -15,7 +15,7 @@ use remote_merge_engine::treat::merge_uses::HunkUses;
 
 use super::compare_steps::connect_sides;
 use super::merge::{MergeArgs, MergeCommandResult};
-use super::merge_files::merge_request;
+use super::merge_files::{compare_named_files, merge_request};
 use super::merge_hunks_result::{failed, no_changes, written};
 use super::plan_apply::start_backup_session;
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CompareSides, CoreRuntime, PlannedChange};
@@ -46,6 +46,10 @@ pub(super) fn merge_hunks(
     let comparison = core
         .compare(sides, &request, &uses)
         .map_err(|error| core.root_gone_stop().unwrap_or(error))?;
+    // 名前で指定したファイルがフィルタに当たって走査に載らなかったときは、ファイル全体の merge と
+    // 同じく起点そのものとしてもう一度比べる（REQ-merge-022）
+    let comparison =
+        compare_named_files(core, sides, &request, targets.named(), &uses, comparison)?;
     if let Some(stopped) = core.root_gone_stop() {
         return Err(stopped);
     }

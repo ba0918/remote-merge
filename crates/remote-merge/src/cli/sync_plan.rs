@@ -127,7 +127,14 @@ fn compare_target(
         reference: None,
     };
     let compared = match core.compare_reusing(&sides, request, uses, reused) {
-        Ok(comparison) => compare_named_files(core, &sides, request, uses, comparison),
+        Ok(comparison) => compare_named_files(
+            core,
+            &sides,
+            request,
+            uses.targets.named(),
+            uses,
+            comparison,
+        ),
         Err(error) => Err(error),
     };
     match compared {
