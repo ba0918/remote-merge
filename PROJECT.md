@@ -8,7 +8,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 
 - Rust。主な依存は tokio、russh、clap、similar、serde。
 - ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`、`crates/remote-merge-settings/`、`crates/remote-merge-ssh/`、`crates/remote-merge-config/`、`crates/remote-merge-agent/`、`crates/remote-merge-engine/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
-- `crates/remote-merge-core/src/`: diff・error・filter とその単体テスト。製品は同じ型を `remote_merge::{diff, error, filter}` から再公開する。
+- `crates/remote-merge-core/src/`: diff・error・filter とその単体テスト。製品は diff と error を `remote_merge::{diff, error}` から再公開する。
 - `crates/remote-merge-core/src/content/` は内容指定、厳密なデコード、BOM と元バイトの行範囲の唯一の構築処理を持つ。diff の PairScript は改行を含む行から変更列を作り、表示、競合、元バイトの選択へ投影する。config の content は二層の内容設定と接続先名、相対パス、CLI 指定の解決を持つ。engine の treat/content は PathComparison と実際の Side から一つのパスの解釈を作り、diff と部分マージが共有する。raw の比較と I/O と保存形式はこの解釈を使わない。
 - `crates/remote-merge-core/src/relative_path/`: root_dir からの相対パスの型 `RelPath`（入力の形の検査 `RelPath::parse` を通ったときだけ作れる。コマンドの入口・エージェントの受け取り口・バックアップの記録の読み込みで使う）と、root_dir の下の一つの項目を表す `EntryPath`（root_dir 全体を表せない型）。経路の操作（製品の `TargetIo`、engine の `local_io`、エージェントの受け取り口とクライアント）は、項目の操作（読み書き・削除・権限の変更・symlink の作成・ハッシュ・項目のリンク先）では `EntryPath` を、範囲の操作（走査・子の一覧・パスの確認）では `RelPath` を受け取り、自分では入力の形も root_dir の外かどうかも検査しない。
 - `crates/remote-merge-core/src/op_failure/`: 操作の失敗の一つの型 `OpFailure`（ない・ディレクトリでない・権限がない・上限を超える・I/O・接続断・root_dir がないの七つ）、OS の誤りからの訳し方（`from_io_error`）、大きさの上限の判定（`check_size`）、利用者に示す文言を一か所で作る `OpError`。どの経路も操作の結果をこの型で返し、扱い（止めるか続けるか）は経路の外で決める。

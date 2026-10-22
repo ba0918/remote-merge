@@ -4,7 +4,7 @@ pub mod agent;
 pub mod backup;
 pub mod cli;
 pub mod config;
-pub use remote_merge_core::{diff, error, filter};
+pub use remote_merge_core::{diff, error};
 pub mod init;
 pub mod runtime;
 pub mod service;
