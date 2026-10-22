@@ -131,10 +131,11 @@ fn collect_below(dir: &Path, logical: &[u8], depth: Depth, exclude: &Exclude) ->
                 continue;
             }
             // 情報を読めない項目は、その項目自身のパスで答える（どう扱うかは規則が決める）
-            match std::fs::symlink_metadata(child.path()) {
+            let child_path = child.path();
+            match std::fs::symlink_metadata(&child_path) {
                 Err(error) => child_unreadable(&mut tree, child_rel, &error),
                 Ok(meta) => {
-                    let entry = entry_with_metadata(&child.path(), child_rel.clone(), &meta);
+                    let entry = entry_with_metadata(&child_path, child_rel.clone(), &meta);
                     if entry.kind == RawKind::Directory && depth == Depth::All {
                         stack.push(child_rel);
                     }
