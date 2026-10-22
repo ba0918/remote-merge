@@ -48,36 +48,6 @@ pub struct SshClient {
 const CHANNEL_DATA_CHUNK_SIZE: usize = 32 * 1024;
 
 impl SshClient {
-    /// サーバに接続してSSHクライアントを返す
-    pub async fn connect(
-        server_name: &str,
-        server_config: &ServerConfig,
-        ssh_config: &SshConfig,
-    ) -> crate::error::Result<Self> {
-        Self::connect_with_passphrase(server_name, server_config, ssh_config, None).await
-    }
-
-    /// PassphraseProvider を指定して接続する
-    pub async fn connect_with_passphrase(
-        server_name: &str,
-        server_config: &ServerConfig,
-        ssh_config: &SshConfig,
-        passphrase_provider: Option<&dyn PassphraseProvider>,
-    ) -> crate::error::Result<Self> {
-        let verifier = super::host_key_verifier::verifier_from_policy(
-            ssh_config.strict_host_key_checking,
-            ssh_config.auto_yes,
-        );
-        Self::connect_with_verifier(
-            server_name,
-            server_config,
-            ssh_config,
-            &*verifier,
-            passphrase_provider,
-        )
-        .await
-    }
-
     /// HostKeyVerifier を指定して接続する
     pub async fn connect_with_verifier(
         server_name: &str,

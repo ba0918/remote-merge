@@ -1,4 +1,4 @@
-//! パスフレーズ取得を UI 層に委譲するための trait と実装。
+//! パスフレーズ取得を UI 層に委譲するための trait。端末から尋ねる実装は製品が持つ。
 //!
 //! SSH 鍵がパスフレーズで保護されている場合、russh の `load_secret_key` に
 //! パスフレーズを渡す必要がある。取得方法を trait で抽象化し、
@@ -17,30 +17,6 @@ pub trait PassphraseProvider: Send + Sync {
     fn get_passphrase(&self, key_path: &str) -> Option<Zeroizing<String>>;
 }
 
-/// CLI（ターミナル）からマスク入力でパスフレーズを取得する。
-///
-/// `rpassword::prompt_password` を使用。
-/// 端末が利用不可の場合は `None` を返す。
-pub struct CliPassphraseProvider;
-
-impl PassphraseProvider for CliPassphraseProvider {
-    fn get_passphrase(&self, key_path: &str) -> Option<Zeroizing<String>> {
-        let prompt = format!("Enter passphrase for key '{}': ", key_path);
-        match rpassword::prompt_password(&prompt) {
-            Ok(pass) if !pass.is_empty() => Some(Zeroizing::new(pass)),
-            Ok(_) => None,
-            Err(e) => {
-                tracing::debug!(target: "remote_merge::ssh::passphrase_provider", "Failed to read passphrase from terminal: {}", e);
-                tracing::warn!(
-                    target: "remote_merge::warning",
-                    "Could not read the passphrase from the terminal."
-                );
-                None
-            }
-        }
-    }
-}
-
 /// サーバ名からパスフレーズ用の環境変数名を生成する。
 ///
 /// 正規化ルール: ハイフン → アンダースコア、大文字化。
@@ -52,15 +28,6 @@ pub(crate) fn passphrase_env_key(server_name: &str) -> String {
 
 /// パスフレーズ入力のリトライ上限
 pub(crate) const MAX_PASSPHRASE_RETRIES: u32 = 3;
-
-/// CLI/TUI 共通のデフォルトプロバイダを作成する。
-///
-/// ターミナルからのマスク入力でパスフレーズを取得する。
-/// 環境変数チェックは `load_secret_key_with_passphrase` 内で
-/// サーバ名を使って先行チェックするため、プロバイダには含めない。
-pub fn build_default_provider() -> CliPassphraseProvider {
-    CliPassphraseProvider
-}
 
 #[cfg(test)]
 mod tests {

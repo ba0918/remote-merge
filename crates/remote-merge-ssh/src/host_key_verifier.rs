@@ -49,7 +49,7 @@ impl HostKeyVerifier for RejectVerifier {
     }
 }
 
-/// CLI 用（表示先と入力を渡して確認 / --yes で自動承認）
+/// CLI 用の確認（--yes なら尋ねずに承認する）。端末につなぐのは製品
 pub struct CliVerifier {
     pub auto_yes: bool,
 }
@@ -91,32 +91,16 @@ impl CliVerifier {
     }
 }
 
-impl HostKeyVerifier for CliVerifier {
-    fn verify_host_key(&self, host: &str, port: u16, key_type: &str, fingerprint: &str) -> bool {
-        self.verify_host_key_with_input(
-            host,
-            port,
-            key_type,
-            fingerprint,
-            &mut std::io::stdin().lock(),
-            &mut std::io::stderr(),
-        )
-    }
-}
-
-/// StrictHostKeyChecking 設定からデフォルトの HostKeyVerifier を選択する
-///
-/// Ask は標準入力で確認する。答えを読めない（入力の終わり）ときは拒否するので、
-/// 確認手段のない接続も未知の鍵を受け入れない。
-pub fn verifier_from_policy(
+/// StrictHostKeyChecking 設定から HostKeyVerifier を選ぶ。Ask は呼び出し側の確認 `ask` を使う
+pub fn choose_verifier(
     policy: crate::config::StrictHostKeyChecking,
-    auto_yes: bool,
+    ask: Box<dyn HostKeyVerifier>,
 ) -> Box<dyn HostKeyVerifier> {
     use crate::config::StrictHostKeyChecking;
     match policy {
         StrictHostKeyChecking::No => Box::new(AutoAcceptVerifier),
         StrictHostKeyChecking::Yes => Box::new(RejectVerifier),
-        StrictHostKeyChecking::Ask => Box::new(CliVerifier { auto_yes }),
+        StrictHostKeyChecking::Ask => ask,
     }
 }
 

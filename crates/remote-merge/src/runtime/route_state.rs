@@ -11,6 +11,7 @@ use remote_merge_core::route_choice::{AgentState, RouteChoice, choose_route};
 
 use super::core::CoreRuntime;
 use crate::ssh::client::SshClient;
+use crate::ssh::passphrase_provider::CliPassphraseProvider;
 
 impl CoreRuntime {
     /// サーバにつなぐ。初めてならエージェントを使えるかを決め、使えなければファイルを読み書きする前に
@@ -44,12 +45,16 @@ impl CoreRuntime {
             server_name,
             server_config.host
         );
-        let provider = crate::ssh::passphrase_provider::build_default_provider();
-        match self.rt.block_on(SshClient::connect_with_passphrase(
+        let verifier = crate::ssh::host_key_verifier::verifier_from_policy(
+            self.config.ssh.strict_host_key_checking,
+            self.config.ssh.auto_yes,
+        );
+        match self.rt.block_on(SshClient::connect_with_verifier(
             server_name,
             server_config,
             &self.config.ssh,
-            Some(&provider),
+            &*verifier,
+            Some(&CliPassphraseProvider),
         )) {
             Ok(client) => {
                 tracing::info!("SSH connected: server={}", server_name);

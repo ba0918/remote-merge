@@ -435,7 +435,14 @@ async fn test_ssh_connection_timeout() {
             .expect("connection attempt did not release peer");
     };
     let connect = async {
-        let result = SshClient::connect("test", &server_config, &ssh_config).await;
+        let result = SshClient::connect_with_verifier(
+            "test",
+            &server_config,
+            &ssh_config,
+            &MockVerifier::new(false),
+            None,
+        )
+        .await;
         release_tx
             .send(())
             .expect("peer stopped before connection completed");
