@@ -5,6 +5,7 @@
 
 use remote_merge_core::compare::{Command, Follow, Incomplete, Role, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
+use remote_merge_engine::service::path_resolver::{parse_path_arguments, paths_not_found};
 use remote_merge_engine::treat::content::{Context, Overrides};
 use remote_merge_engine::treat::diff::exit_code;
 use remote_merge_engine::treat::diff_file::Sources;
@@ -24,7 +25,6 @@ use crate::runtime::{
     LostDestination, RuntimeTargets, UnfollowableLinks,
 };
 use crate::service::output::{OutputFormat, format_json, format_multi_diff_text};
-use crate::service::path_resolver::{parse_path_arguments, paths_not_found};
 use crate::service::types::MultiDiffOutput;
 
 /// diff サブコマンドの引数

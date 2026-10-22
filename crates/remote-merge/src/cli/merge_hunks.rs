@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 
 use remote_merge_core::compare::{Role, SideState, Undecidable, Verdict};
 use remote_merge_core::relative_path::RelPath;
+use remote_merge_engine::service::path_resolver::paths_not_found;
 use remote_merge_engine::treat::content::{Context, prepare};
 use remote_merge_engine::treat::hunk_merge::{HunkError, merge_prepared};
 use remote_merge_engine::treat::incomplete::incomplete_error;
@@ -18,7 +19,6 @@ use super::merge_files::merge_request;
 use super::merge_hunks_result::{failed, no_changes, written};
 use super::plan_apply::start_backup_session;
 use crate::runtime::{Applied, ApplyOptions, ChangeKind, CompareSides, CoreRuntime, PlannedChange};
-use crate::service::path_resolver::paths_not_found;
 use crate::service::types::{HunkMergeInfo, MergeFileResult};
 
 const DIRECTION: &str = "left_to_right";

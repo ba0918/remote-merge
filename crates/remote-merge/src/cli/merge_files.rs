@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use remote_merge_core::compare::{Command, Follow, PathComparison, Selection, choose_method};
 use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::relative_path::RelPath;
+use remote_merge_engine::service::path_resolver::paths_not_found;
 use remote_merge_engine::treat::incomplete::incomplete_error;
 use remote_merge_engine::treat::merge::{MergeEntry, exit_code};
 use remote_merge_engine::treat::merge_plan::{
@@ -21,7 +22,6 @@ use crate::runtime::{
     ApplyOptions, CompareRequest, CompareScope, CompareSides, Comparison, CoreRuntime, EntryLimit,
     ExternalLinks, LostDestination, NamedFiles, UnfollowableLinks,
 };
-use crate::service::path_resolver::paths_not_found;
 use crate::service::types::{MergeOutcome, MergeOutput};
 use crate::side::Side;
 

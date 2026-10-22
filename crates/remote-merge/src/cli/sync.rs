@@ -6,6 +6,7 @@
 
 use std::io::BufRead;
 
+use remote_merge_engine::service::path_resolver::parse_path_arguments;
 use remote_merge_engine::treat::sides::sync_sides;
 use remote_merge_engine::treat::sync::{exit_code, sync_summary};
 
@@ -14,7 +15,6 @@ use super::sync_targets::sync_targets;
 use crate::config::{AppConfig, resolve_max_entries};
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{OutputFormat, format_json, format_sync_text};
-use crate::service::path_resolver::parse_path_arguments;
 use crate::service::types::{SourceInfo, SyncOutput, SyncTargetStatus, exit_code as codes};
 use remote_merge_core::relative_path::RelPath;
 

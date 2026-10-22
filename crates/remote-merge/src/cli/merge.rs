@@ -4,6 +4,7 @@
 //! engine の treat の表で書き込み・スキップ・failed に訳し、書き込み先を変更の直前にもう一度判定して
 //! から変える。ファイル全体の merge は merge_files、--hunks は merge_hunks が行う。
 
+use remote_merge_engine::service::path_resolver::parse_path_arguments;
 use remote_merge_engine::treat::sides::{merge_sides, reference_side, remote_to_remote_blocked};
 
 use super::compare_steps::used_reference;
@@ -13,7 +14,6 @@ use crate::service::output::{
     OutputFormat, format_json, format_merge_outcome_json, format_merge_outcome_text,
     format_merge_text,
 };
-use crate::service::path_resolver::parse_path_arguments;
 use crate::service::types::{MergeOutcome, MergeOutput, exit_code};
 use remote_merge_core::relative_path::RelPath;
 
