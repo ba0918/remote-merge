@@ -1,16 +1,19 @@
 #![cfg(unix)]
 //! --with-permissions の merge が、読み込み元の権限として走査したツリーの値を写すこと
-//! （docs/ir/merge/permissions.md の REQ-merge-036）の契約テスト。
+//! （docs/ir/merge/permissions.md の REQ-merge-036）と、権限を写せなかったファイルを、中身を書いた
+//! ことを添えて失敗として出すこと（REQ-merge-037）の契約テスト。
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use super::agent_support::{AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, failure};
 use super::common::stdout_json;
 use super::server_faults::Faults;
 
 const FILE: &str = "a.txt";
+/// 中身は書いたが権限を写せなかった失敗の error が含む語
+const CONTENT_WRITTEN: &str = "content written";
 
 fn mode_of(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o7777
@@ -85,4 +88,52 @@ async fn req_merge_014_a_hunk_merge_with_permissions_copies_the_source_mode() {
         Some(1)
     );
     assert_eq!(mode_of(&fixture.local().join(FILE)), 0o600);
+}
+
+// @kotowari[REQ-merge-037, EX-merge-044]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_permission_copy_reports_the_written_content_with_exit_code_2() {
+    let fixture = AgentFixture::new(
+        Setup::default(),
+        Faults {
+            refuse_agent: Some("Chmod"),
+            ..Faults::default()
+        },
+    )
+    .await;
+    fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
+
+    let output = fixture.run(&["merge", "a.txt", "--with-permissions"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = stdout_json(&output);
+    assert!(
+        failure(&result["failed"], "a.txt").contains(CONTENT_WRITTEN),
+        "{result}"
+    );
+    assert_eq!(fixture.read_remote("a.txt"), "local\n");
+    assert!(fixture.server.faults().count("Chmod") > 0);
+}
+
+// @kotowari[EX-merge-051]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_setuid_source_mode_is_not_copied_and_the_written_content_is_reported() {
+    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
+    fixture.put("run.sh", Some("#!/bin/sh\necho new\n"), Some("#!/bin/sh\n"));
+    let local = fixture.local().join("run.sh");
+    let remote = fixture.remote().join("run.sh");
+    fs::set_permissions(&local, fs::Permissions::from_mode(0o4755)).unwrap();
+    fs::set_permissions(&remote, fs::Permissions::from_mode(0o644)).unwrap();
+
+    let output = fixture.run(&["merge", "run.sh", "--with-permissions"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = stdout_json(&output);
+    let error = failure(&result["failed"], "run.sh");
+    assert!(
+        error.contains(CONTENT_WRITTEN) && error.contains("setuid"),
+        "{error}"
+    );
+    assert_eq!(fixture.read_remote("run.sh"), "#!/bin/sh\necho new\n");
+    assert_eq!(mode_of(&remote), 0o644);
 }

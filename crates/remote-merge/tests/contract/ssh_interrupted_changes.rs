@@ -1,8 +1,7 @@
 #![cfg(unix)]
 //! `接続断` でその書き込み先への処理を止め、どこまで済んだかを failed に出すこと
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-003・REQ-ssh-023、
-//! docs/ir/merge/permissions.md の REQ-merge-037、docs/ir/backup/failure.md の REQ-backup-017）の
-//! 契約テスト。
+//! docs/ir/backup/failure.md の REQ-backup-017）の契約テスト。
 //!
 //! failed の error は文言を固定せず、区別すべきことを示す語で見分ける。
 //! 書いていない: "not written"、書きかけ: "partially written"、消していない: "not deleted"、
@@ -15,9 +14,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use serde_json::Value;
-
-use super::agent_support::{AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, failure, paths};
 use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
 
@@ -29,30 +26,6 @@ const UNKNOWN: &str = "result unknown";
 const UNTOUCHED: &str = "not attempted";
 const READ_FAILED: &str = "read failed";
 const CONTENT_WRITTEN: &str = "content written";
-
-/// `failed` の中の `path` の error
-fn failure<'a>(failed: &'a Value, path: &str) -> &'a str {
-    failed
-        .as_array()
-        .unwrap_or_else(|| panic!("failed missing: {failed}"))
-        .iter()
-        .find(|entry| entry["path"] == path)
-        .unwrap_or_else(|| panic!("{path} is not in failed: {failed}"))["error"]
-        .as_str()
-        .unwrap()
-}
-
-fn paths(entries: &Value) -> Vec<&str> {
-    entries
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| entry["path"].as_str().unwrap())
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 async fn three_files(faults: Faults) -> AgentFixture {
     let fixture = AgentFixture::new(Setup::default(), faults).await;
@@ -450,29 +423,6 @@ async fn a_sync_whose_only_change_is_partially_written_is_partial() {
     assert!(error.contains(PARTIAL), "{error}");
 }
 
-/// 手元に保存したバックアップの session の名前
-pub fn backup_sessions(fixture: &AgentFixture) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut pending = vec![fixture.home.path().to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() || path.starts_with(fixture.remote()) {
-                continue;
-            }
-            if dir.file_name().is_some_and(|name| name == "sessions") {
-                found.push(entry.file_name().to_string_lossy().into_owned());
-            } else {
-                pending.push(path);
-            }
-        }
-    }
-    found
-}
-
 // @kotowari[EX-ssh-051]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_write_cut_between_its_chunks_is_reported_as_partial_with_the_backup_location() {
@@ -496,7 +446,7 @@ async fn a_write_cut_between_its_chunks_is_reported_as_partial_with_the_backup_l
     let result = stdout_json(&output);
     let error = failure(&result["failed"], "big.bin");
     assert!(error.contains(PARTIAL), "{error}");
-    let sessions = backup_sessions(&fixture);
+    let sessions = fixture.backup_sessions();
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     assert!(
         error.contains(&format!("{}/big.bin", sessions[0])),
@@ -606,55 +556,4 @@ async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_
     assert_eq!(fixture.read_remote("a.txt"), "remote old\n");
     assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
     assert!(!fixture.remote().join("c.txt").exists());
-}
-
-// @kotowari[REQ-merge-037, EX-merge-044]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_refused_permission_copy_reports_the_written_content_with_exit_code_2() {
-    let fixture = AgentFixture::new(
-        Setup::default(),
-        Faults {
-            refuse_agent: Some("Chmod"),
-            ..Faults::default()
-        },
-    )
-    .await;
-    fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
-
-    let output = fixture.run(&["merge", "a.txt", "--with-permissions"]);
-
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = stdout_json(&output);
-    assert!(
-        failure(&result["failed"], "a.txt").contains(CONTENT_WRITTEN),
-        "{result}"
-    );
-    assert_eq!(fixture.read_remote("a.txt"), "local\n");
-    assert!(fixture.server.faults().count("Chmod") > 0);
-}
-
-// @kotowari[EX-merge-051]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_setuid_source_mode_is_not_copied_and_the_written_content_is_reported() {
-    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
-    fixture.put("run.sh", Some("#!/bin/sh\necho new\n"), Some("#!/bin/sh\n"));
-    let local = fixture.local().join("run.sh");
-    let remote = fixture.remote().join("run.sh");
-    fs::set_permissions(&local, fs::Permissions::from_mode(0o4755)).unwrap();
-    fs::set_permissions(&remote, fs::Permissions::from_mode(0o644)).unwrap();
-
-    let output = fixture.run(&["merge", "run.sh", "--with-permissions"]);
-
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let result = stdout_json(&output);
-    let error = failure(&result["failed"], "run.sh");
-    assert!(
-        error.contains(CONTENT_WRITTEN) && error.contains("setuid"),
-        "{error}"
-    );
-    assert_eq!(fixture.read_remote("run.sh"), "#!/bin/sh\necho new\n");
-    assert_eq!(
-        fs::metadata(&remote).unwrap().permissions().mode() & 0o7777,
-        0o644
-    );
 }

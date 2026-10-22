@@ -6,6 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Output;
 
+use serde_json::Value;
 use tempfile::TempDir;
 
 use super::common::{deploy_agent_for, isolated_command};
@@ -157,4 +158,51 @@ impl AgentFixture {
     pub fn read_remote(&self, relative: &str) -> String {
         fs::read_to_string(self.remote().join(relative)).unwrap()
     }
+
+    /// 手元に保存したバックアップの session の名前
+    pub fn backup_sessions(&self) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut pending = vec![self.home.path().to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() || path.starts_with(self.remote()) {
+                    continue;
+                }
+                if dir.file_name().is_some_and(|name| name == "sessions") {
+                    found.push(entry.file_name().to_string_lossy().into_owned());
+                } else {
+                    pending.push(path);
+                }
+            }
+        }
+        found
+    }
+}
+
+/// `failed` の中の `path` の error
+pub fn failure<'a>(failed: &'a Value, path: &str) -> &'a str {
+    failed
+        .as_array()
+        .unwrap_or_else(|| panic!("failed missing: {failed}"))
+        .iter()
+        .find(|entry| entry["path"] == path)
+        .unwrap_or_else(|| panic!("{path} is not in failed: {failed}"))["error"]
+        .as_str()
+        .unwrap()
+}
+
+pub fn paths(entries: &Value) -> Vec<&str> {
+    entries
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| entry["path"].as_str().unwrap())
+                .collect()
+        })
+        .unwrap_or_default()
 }

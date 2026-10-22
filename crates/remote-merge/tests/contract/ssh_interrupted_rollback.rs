@@ -11,7 +11,6 @@ use serde_json::Value;
 use super::agent_support::{AgentFixture, Setup};
 use super::common::stdout_json;
 use super::server_faults::{AgentCut, CutPoint, CutScope, Faults, Repeat};
-use super::ssh_interrupted_changes::backup_sessions;
 
 const NOT_WRITTEN: &str = "not written";
 const UNKNOWN: &str = "result unknown";
@@ -57,7 +56,7 @@ fn assert_first_not_written_and_second_untouched(fixture: &AgentFixture, result:
         );
     }
     // 書き戻す前に取ったものは保存しない（merge のバックアップだけが残る）
-    assert_eq!(backup_sessions(fixture).len(), 1, "{result}");
+    assert_eq!(fixture.backup_sessions().len(), 1, "{result}");
 }
 
 // @kotowari[EX-ssh-053]

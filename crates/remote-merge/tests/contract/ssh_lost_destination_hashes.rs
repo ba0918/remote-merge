@@ -6,25 +6,13 @@
 
 use serde_json::Value;
 
-use super::agent_support::{AgentFixture, Setup};
+use super::agent_support::{AgentFixture, Setup, failure};
 use super::common::stdout_json;
 use super::server_faults::{CutPoint, Faults, Repeat};
 
 /// 書き込み先の中身のハッシュの要求を毎回切る
 fn hashes_cut_every_time() -> Faults {
     Faults::cut_agent("HashContents", 1, CutPoint::BeforeResponse, Repeat::Every)
-}
-
-/// `failed` の中の `path` の error
-fn failure<'a>(failed: &'a Value, path: &str) -> &'a str {
-    failed
-        .as_array()
-        .unwrap_or_else(|| panic!("failed missing: {failed}"))
-        .iter()
-        .find(|entry| entry["path"] == path)
-        .unwrap_or_else(|| panic!("{path} is not in failed: {failed}"))["error"]
-        .as_str()
-        .unwrap()
 }
 
 /// 書き込み先にある "a.txt"・"b.txt" と、書き込み先にない "c.txt" を置いた fixture

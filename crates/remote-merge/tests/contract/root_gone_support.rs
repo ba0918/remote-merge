@@ -4,7 +4,7 @@ use std::fs;
 
 use serde_json::Value;
 
-pub use super::agent_support::{AgentFixture, Setup};
+pub use super::agent_support::{AgentFixture, Setup, failure, paths};
 use super::server_faults::Faults;
 use super::server_removal::Removal;
 pub use super::server_removal::When;
@@ -59,30 +59,6 @@ pub fn gone_root_at(
         dir: fixture.remote(),
         replace_with_file: matches!(gone, Gone::ReplacedByFile),
     });
-}
-
-/// `failed` の中の `path` の error
-pub fn failure<'a>(failed: &'a Value, path: &str) -> &'a str {
-    failed
-        .as_array()
-        .unwrap_or_else(|| panic!("failed missing: {failed}"))
-        .iter()
-        .find(|entry| entry["path"] == path)
-        .unwrap_or_else(|| panic!("{path} is not in failed: {failed}"))["error"]
-        .as_str()
-        .unwrap()
-}
-
-pub fn paths(entries: &Value) -> Vec<&str> {
-    entries
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| entry["path"].as_str().unwrap())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// `gone` で root_dir がない失敗になり、`untouched` は行わず、root_dir がない文言は一度だけ出て、
