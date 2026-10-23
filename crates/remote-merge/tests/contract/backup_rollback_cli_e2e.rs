@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::process::{Output, Stdio};
 
-use super::common::{CliEnv, assert_exit_error, assert_exit_success};
+use super::common::{CliEnv, assert_exit_error, assert_exit_success, stdout_json};
 
 fn merge(env: &CliEnv, paths: &[&str]) {
     let output = env
@@ -16,6 +16,27 @@ fn merge(env: &CliEnv, paths: &[&str]) {
         .output()
         .expect("failed to execute merge");
     assert_exit_success(&output);
+}
+
+/// `path` を --format json で merge し、そのバックアップのセッション ID を返す。後の merge のセッションを
+/// rollback --list の先頭で探すと、壁時計が秒の境目を越えて戻ったときに前の merge のセッションが先頭に残る
+fn merge_session_id(env: &CliEnv, path: &str) -> String {
+    let output = env
+        .cmd_with("merge")
+        .arg(path)
+        .args(["--left", "local", "--right", "develop", "--force"])
+        .args(["--format", "json"])
+        .output()
+        .expect("failed to execute merge");
+    assert_exit_success(&output);
+    let json = stdout_json(&output);
+    let backup = json["merged"][0]["backup"]
+        .as_str()
+        .unwrap_or_else(|| panic!("backup missing: {json}"));
+    let (session_id, _) = backup
+        .split_once('/')
+        .unwrap_or_else(|| panic!("backup is not <session>/<path>: {backup}"));
+    session_id.to_owned()
 }
 
 fn newest_session_id(env: &CliEnv) -> String {
@@ -180,10 +201,9 @@ fn rollback_restores_only_the_selected_older_session() {
         &[("a.txt", "a-local\n"), ("b.txt", "b-local\n")],
         &[("a.txt", "a-original\n"), ("b.txt", "b-original\n")],
     );
-    merge(&env, &["a.txt"]);
-    let older = newest_session_id(&env);
-    merge(&env, &["b.txt"]);
-    assert_ne!(newest_session_id(&env), older);
+    let older = merge_session_id(&env, "a.txt");
+    let newer = merge_session_id(&env, "b.txt");
+    assert_ne!(newer, older);
 
     let output = env
         .cmd_with("rollback")
