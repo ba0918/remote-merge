@@ -19,7 +19,7 @@ use tempfile::TempDir;
 use super::args_support::{merge_args, rollback_args, sync_args};
 use super::backup_support::{
     config, config_with_servers, fixed_now, listed_sessions, merge_files, restore,
-    rollback_list_args, targets, targets_at,
+    rollback_list_args, store_entries, targets, targets_at,
 };
 
 // ── 書き込み先の区別 ──
@@ -739,6 +739,75 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     assert_ne!(merged_session(&first), merged_session(&second));
 }
 
+// 保持期間が 0 日なら、先の merge のセッションは同じ秒のうちに期限切れになり、後の merge の整理で消える。
+// そのときに ID の予約まで消すと、同じ秒に始まった後の merge が同じ ID を受け取り、先の merge が示した ID
+// が別の操作のバックアップを指す（先の merge がまだ保存している途中なら、二つの操作のバックアップが一つの
+// セッションに混ざる）
+// @kotowari[REQ-backup-023, REQ-backup-047]
+#[test]
+fn merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let mut config = config(&local, &develop, true);
+    config.backup.retention_days = 0;
+    fs::write(local.path().join("file.txt"), "first content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let first = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets(&develop, &store),
+    );
+    fs::write(
+        local.path().join("file.txt"),
+        "second content that differs\n",
+    )
+    .unwrap();
+    let second = merge_files(merge_args(&["file.txt"]), config, targets(&develop, &store));
+
+    assert_ne!(merged_session(&first), merged_session(&second));
+}
+
+// sync と rollback は確認の問いに答えるまで待つので、始めてから何日もたってセッションを予約することがある。
+// その間に、同じ秒に始まった先の merge のセッションが期限切れの整理で予約ごと消えても、先の merge が示した
+// ID を後の rollback に割り当てない（割り当てると、その ID が別の操作のバックアップを指す）。ここでは確認に
+// 答えた時を、予約する時刻を後にずらして起こす
+// @kotowari[REQ-backup-023]
+#[test]
+fn a_rollback_confirmed_days_after_it_started_gets_an_id_unlike_a_removed_session() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let config = config(&local, &develop, true);
+    fs::write(local.path().join("file.txt"), "first\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let started = at(2020, 1, 1);
+    let first = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &store, started),
+    );
+    fs::write(local.path().join("file.txt"), "second\n").unwrap();
+    let cleaning = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &store, at(2020, 1, 8)),
+    );
+    let mut args = rollback_args("develop");
+    args.session = Some(merged_session(&cleaning));
+
+    let (rollback, _) = restore(
+        args,
+        config,
+        targets_at(&develop, &store, started).with_reservation_time(at(2020, 1, 8)),
+    );
+
+    assert_ne!(
+        rollback.restored[0].pre_rollback_backup.as_deref(),
+        Some(merged_session(&first).as_str())
+    );
+}
+
 /// 同じ集約先と同じ時刻で、merge を threads 本同時に始める。
 /// どれかがエラーで終わればパニックし、成功したもののセッション ID を返す。
 fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
@@ -1026,6 +1095,42 @@ fn listing_and_cleanup_share_the_retention_boundary() {
         targets_at(&develop, &store, boundary),
     );
     assert!(!listed_ids(config, &develop, &store).contains(&"20200101-000000".into()));
+}
+
+/// 集約先 `store` の中の全てのファイルとディレクトリの、`store` からの相対パス（パスの順）
+fn relative_store_entries(store: &TempDir) -> Vec<std::path::PathBuf> {
+    store_entries(store.path())
+        .into_iter()
+        .map(|path| path.strip_prefix(store.path()).unwrap().to_path_buf())
+        .collect()
+}
+
+// 期限切れの整理で消したセッションのために作ったもの（ID の予約を含む）が残ると、merge・sync のたびに
+// 集約先に溜まり続ける。集約先の中の配置によらず確かめるため、同じ merge だけをした集約先と比べる
+// @kotowari[REQ-backup-047]
+#[test]
+fn cleanup_leaves_nothing_of_a_removed_session_in_the_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let cleaned = TempDir::new().unwrap();
+    let config = expired_session_fixture(&local, &develop, &cleaned);
+    merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &cleaned, at(2020, 1, 8)),
+    );
+    let fresh = TempDir::new().unwrap();
+    fs::write(develop.path().join("file.txt"), "first\n").unwrap();
+    merge_files(
+        merge_args(&["file.txt"]),
+        config,
+        targets_at(&develop, &fresh, at(2020, 1, 8)),
+    );
+
+    assert_eq!(
+        relative_store_entries(&cleaned),
+        relative_store_entries(&fresh)
+    );
 }
 
 // @kotowari[REQ-backup-026, REQ-backup-040]

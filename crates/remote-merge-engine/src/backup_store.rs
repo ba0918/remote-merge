@@ -21,6 +21,25 @@ pub struct BackupStore {
     root: Option<PathBuf>,
     startup_directory: PathBuf,
     now: DateTime<Utc>,
+    reservation_time: ReservationTime,
+}
+
+/// セッション ID の日時にする、セッションを予約する時点の時刻の決め方
+#[derive(Clone, Copy, Debug)]
+pub enum ReservationTime {
+    /// 予約するときのシステムの時刻
+    System,
+    /// 決めた時刻
+    Fixed(DateTime<Utc>),
+}
+
+impl ReservationTime {
+    fn now(self) -> DateTime<Utc> {
+        match self {
+            Self::System => Utc::now(),
+            Self::Fixed(time) => time,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -75,11 +94,18 @@ pub struct SymlinkBackup<'a> {
 }
 
 impl BackupStore {
-    pub fn new(root: Option<PathBuf>, startup_directory: PathBuf, now: DateTime<Utc>) -> Self {
+    /// `now` は期限切れの判定に使う時刻、`reservation_time` はセッション ID の日時にする時刻
+    pub fn new(
+        root: Option<PathBuf>,
+        startup_directory: PathBuf,
+        now: DateTime<Utc>,
+        reservation_time: ReservationTime,
+    ) -> Self {
         Self {
             root,
             startup_directory,
             now,
+            reservation_time,
         }
     }
 
@@ -103,9 +129,12 @@ impl BackupStore {
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
             .collect::<Vec<_>>();
+        // ID の日時は、コマンドを始めた時刻ではなく予約する時刻にする。始めた時刻にすると、確認の問いで
+        // 何日も待った実行が、期限切れの整理で予約ごと消えた同じ秒の ID を受け取る（REQ-backup-023）
+        let reserved_at = self.reservation_time.now();
         loop {
             let refs = existing.iter().map(String::as_str).collect::<Vec<_>>();
-            let id = next_session_id(self.now, &refs).map_err(|_| {
+            let id = next_session_id(reserved_at, &refs).map_err(|_| {
                 anyhow::anyhow!(
                     "backup session id could not be allocated: the sequence for this time is at its maximum"
                 )

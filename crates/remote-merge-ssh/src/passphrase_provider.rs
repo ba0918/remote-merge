@@ -18,12 +18,9 @@ pub trait PassphraseProvider: Send + Sync {
 }
 
 /// サーバ名からパスフレーズ用の環境変数名を生成する。
-///
-/// 正規化ルール: ハイフン → アンダースコア、大文字化。
 /// 例: "my-server" → "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"
 pub(crate) fn passphrase_env_key(server_name: &str) -> String {
-    let normalized = server_name.replace('-', "_").to_uppercase();
-    format!("REMOTE_MERGE_KEY_PASSPHRASE_{}", normalized)
+    crate::server_env::server_env_name("REMOTE_MERGE_KEY_PASSPHRASE_", server_name)
 }
 
 /// パスフレーズ入力のリトライ上限
@@ -34,10 +31,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_env_name_is_the_server_name_uppercased_with_hyphens_as_underscores() {
+    fn the_env_name_is_the_server_name_uppercased_with_hyphens_and_dots_as_underscores() {
         for (server_name, expected) in [
             ("develop", "REMOTE_MERGE_KEY_PASSPHRASE_DEVELOP"),
             ("my-server", "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER"),
+            ("web.prod", "REMOTE_MERGE_KEY_PASSPHRASE_WEB_PROD"),
+            (
+                "app-1.example.com",
+                "REMOTE_MERGE_KEY_PASSPHRASE_APP_1_EXAMPLE_COM",
+            ),
             (
                 "my-cool-server",
                 "REMOTE_MERGE_KEY_PASSPHRASE_MY_COOL_SERVER",

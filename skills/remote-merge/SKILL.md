@@ -179,7 +179,9 @@ Backups are stored only on the machine running `remote-merge`, under
 `$XDG_DATA_HOME/remote-merge/backups/` or, when `XDG_DATA_HOME` is unset, empty, or relative,
 `~/.local/share/remote-merge/backups/`. The internal layout is not a public contract. Sessions
 are separated by write target and use UTC IDs in the form `YYYYMMDD-HHMMSS`, with `-N` (`N >= 2`)
-when multiple operations start in the same second.
+when an ID for the same second already exists. The time in the ID is when the operation reserves
+its session just before writing (for `sync` and `rollback`, after the confirmation prompt is
+answered), not when the command started.
 
 Sessions are looked up only by the current identity of the write target. Sessions that earlier
 versions saved under a different identity are no longer listed, rolled back or cleaned up by
@@ -364,9 +366,11 @@ remote-merge [OPTIONS] <COMMAND>
 | Variable | Description |
 |----------|-------------|
 | `REMOTE_MERGE_PASSWORD_{SERVER}` | SSH password for password auth (e.g., `REMOTE_MERGE_PASSWORD_DEVELOP`) |
-| `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}` | SSH key passphrase (e.g., `REMOTE_MERGE_KEY_PASSPHRASE_STAGING`). Server name is uppercased, `-` and `.` become `_` |
+| `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}` | SSH key passphrase (e.g., `REMOTE_MERGE_KEY_PASSPHRASE_STAGING`) |
 | `REMOTE_MERGE_AGENT_BINARY` | Override Agent binary path (for development/testing) |
 | `REMOTE_MERGE_AGENT_DIR` | Override Agent binary search directory (absolute path, no `..`) |
+
+In `REMOTE_MERGE_PASSWORD_{SERVER}` and `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}`, `{SERVER}` is the server name uppercased, with `-` and `.` replaced by `_` (e.g., server `web-1.prod` → `REMOTE_MERGE_PASSWORD_WEB_1_PROD`).
 
 These environment variables are useful for non-interactive CI/CD pipelines and automated agent workflows where prompting is not possible.
 

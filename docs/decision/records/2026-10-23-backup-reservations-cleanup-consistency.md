@@ -1,0 +1,36 @@
+# 期限切れの整理でセッション ID の予約を消すことと仕様の突き合わせ
+
+## Context
+
+バックアップを保存したセッションの ID の予約（集約先の "reservations" の下の、その ID の名前の空のディレクトリ）は、セッションを終えても期限切れの整理でも消えず、merge・sync・rollback のたびに一つずつ集約先に溜まり、予約のたびにその全部を読んでいた。
+利用者は 2026-10-23 に、期限切れのセッションを消す整理でその ID の予約も一緒に消す修正を、仕様に一文足す前提で受け入れた。実装（12a76352）は、整理がセッションのディレクトリを消したとき（消そうとしたときに既になかったときを含む）だけ予約を消し、セッションが残るときは予約も残す。
+この記録は、その振る舞いを IR に書くかと、変わったコードと [REQ-backup-023](../../ir/backup/sessions.md#REQ-backup-023) の食い違いをどう直したかを残す。
+
+Position: 予約を消すことを [REQ-backup-047](../../ir/backup/sessions.md#REQ-backup-047) として IR に書いた（A1）。保持期間が 0 日のときに同じ ID が別の操作に割り当てられる食い違いは、日時から 24 時間たっていない ID の予約を残すようにコードを直して解いた（A2）。保持期間 0 日の期限の扱いそのものは変えていない（A3）。
+
+## Agreements
+
+- A1 期限切れバックアップの整理でセッションを集約先から消したときは、そのセッション ID の予約も消し、そのセッションのために作ったものを集約先に残さない。整理の後もセッションが集約先に残るとき（設定にない書き込み先の領域が残るか、同時に動く別の操作が中に保存したとき）は、予約も残す。これを IR が持つ振る舞いとし、[REQ-backup-047](../../ir/backup/sessions.md#REQ-backup-047) に書く。この部分のコードは変えない。
+  - why: IR に入るかは次のように判断した。予約は、製品が利用者のマシンの集約先（[REQ-backup-004](../../ir/backup/storage.md#REQ-backup-004) の XDG のデータ領域）に作るものである。消さなければ merge・sync・rollback のたびに集約先に一つずつ溜まり、予約のたびに読む数も増える（crates/remote-merge-engine/src/backup_store.rs の reserve_session は予約の場所を全部読む）。IR は、集約先に何が残るかを既に決めている。[REQ-backup-015](../../ir/backup/storage.md#REQ-backup-015) は何も記録しなかった操作のセッションを集約先に残さないとし、[REQ-backup-011](../../ir/backup/storage.md#REQ-backup-011)・[REQ-backup-012](../../ir/backup/storage.md#REQ-backup-012) は集約先の中のものの権限と置くファイルを、[REQ-backup-009](../../ir/backup/sessions.md#REQ-backup-009)・[REQ-backup-025](../../ir/backup/sessions.md#REQ-backup-025) は整理が何をいつ消すかを決める。[REQ-backup-045](../../ir/backup/failure.md#REQ-backup-045) は予約を製品の段階として挙げている。整理が予約を消すかどうかも、これらと同じく集約先に残るものの違いとして利用者に見えるので、IR に入るかを迷う場合には当たらない。予約の場所の名前と配置は IR に書かず、「セッション ID の予約」とだけ書いた。IR の部分どうしとも矛盾しない。予約は ID を重ねないためのもの（[adopt-backup A22](./2026-09-27-adopt-backup.md#A22)）で、next_session_id（crates/remote-merge-engine/src/backup/mod.rs）は今の時刻と同じ秒の ID だけを見て連番を決める。整理で消えたセッションの ID は集約先のどこにも残らないので、後でその ID が割り当てられても、REQ-backup-023 の「集約先全体で重複せず」には反しない（下の Verification の測定 3）。ただし、測定 3 の C は A と同じ秒に始まって A と同じ ID を受け取っていて、REQ-backup-023 の後半の「別々の操作が同じ秒に始まっても同じ ID にならない」には反していた。これは [backup-session-id-reservation-time A1](./2026-10-23-backup-session-id-reservation-time.md#A1) で、ID の日時を予約した時刻にして直した。セッションが残るときに予約を残すのは、残ったセッションの ID を予約に残して、別の操作に割り当てないためである。[foundation-5 F50](./2026-10-12-foundation-5.md#F50) が消さないとした共有の場所は予約の場所そのもので、一つのセッションの予約ではない。先に消されていた予約は消すものがないとして続け、ない以外の理由で消せないときはパスと理由を示す誤りにする実装は、[foundation-5 F66](./2026-10-12-foundation-5.md#F66) の扱いと同じである。
+  - decided_by: consistency phase（実装と仕様の整合確認役）
+- A2 期限切れの整理でセッションを消しても、セッション ID の日時部分（UTC）からの経過時間が 24 時間に満たないときは、その ID の予約を残す。これを [REQ-backup-047](../../ir/backup/sessions.md#REQ-backup-047) に書き、コードを直す（9fd90a5b）。
+  - why: 12a76352 のままでは、保持期間（retention_days）が 0 日のときに [REQ-backup-023](../../ir/backup/sessions.md#REQ-backup-023) の「別々の操作が同じ秒に始まっても同時に走っても同じ ID にならない」に反した。保持期間が 0 日なら、[REQ-backup-026](../../ir/backup/sessions.md#REQ-backup-026) により今の秒のセッションも期限切れになり、後から書き込みの段に入った merge・sync の整理で消える。そのときに予約も消すと、同じ秒に始まってまだ予約していない実行が同じ ID を受け取る（下の Verification の測定 1・2 と契約テスト）。実行の時刻は始まったときに一度だけ決まり（crates/remote-merge/src/runtime/mod.rs の RuntimeTargets::production の now）、予約は比べた後の書き込みの段で行う（crates/remote-merge/src/cli/plan_apply.rs の start_backup_session）。そのため、整理する側の時刻からは、その秒に始まってまだ予約していない実行が残っているかを判断できない。REQ-backup-023 の出典（[adopt-backup A22](./2026-09-27-adopt-backup.md#A22)・[backup-session-id-properties A2](./2026-09-27-backup-session-id-properties.md#A2)）に IR を改める理由はなく、IR の部分どうしも矛盾しないので、コードを IR に合わせた。24 時間は、保持期間の最小の正の値（1 日。REQ-backup-026 の retention_days × 24 時間）にそろえた。保持期間が 1 日以上なら期限切れのセッションはどれも 24 時間以上前の ID なので、振る舞いは 12a76352 と変わらない。この後も同じ ID が割り当てられうるのは、始まってから予約するまでに 24 時間以上かかる実行があるときだけで、保持期間が 1 日以上のときにも同じ範囲が残る。利用者が受け入れた理由の「古い番号は新しい実行とぶつからない」は、この範囲で成り立つ。この残る範囲は、確認の問いで待つ sync と rollback で起き、REQ-backup-023 に反していた。[backup-session-id-reservation-time A1](./2026-10-23-backup-session-id-reservation-time.md#A1) で、ID の日時を予約した時刻にして閉じた。
+  - rejected: 整理する実行と同じ秒の ID の予約だけを残す案は、整理する実行が次の秒に始まったときに同じ食い違いが残る（測定 2）。retention_days が 1 以上のときだけ予約を消す案は、保持期間 0 日では 24 時間より前の ID の予約も一つも消さず、24 時間の形より得るものがない。予約の場所を一覧してセッションのない古い予約を整理で消す案は、保持期間 0 日でも予約が溜まらないが、利用者が受け入れた「期限切れのセッションを消すときに一緒に消す」形を変えるので、この突き合わせでは選ばない。
+  - decided_by: consistency phase（実装と仕様の整合確認役）
+- A3 保持期間 0 日で今の秒のセッションが期限切れになり、同時に動く別の merge・sync の整理が、保存している途中の操作の領域を消すことは変えない。A2 で予約を残すので、保持期間 0 日では、日時から 24 時間たたないうちに整理で消えたセッションの予約は、これまでどおり集約先に残る。
+  - why: 保持期間 0 日を設定が受け付け、今の秒のセッションが期限切れになることは 12a76352 より前からあり（測定 1 で、変更の前でも先の実行の "a.txt" の記録が消える）、この変更では直さないと依頼で決められている。残る予約は ID を重ねないためのもので、REQ-backup-047 の但し書きのとおりである。
+  - decided_by: consistency phase（実装と仕様の整合確認役。範囲は依頼による）
+
+## Verification
+
+- 測定はリポジトリに入れない使い捨ての結合テストで行った。crates/remote-merge-engine/tests/ に置いたテストから、時刻を決めた BackupStore を直接呼び、`cargo test -p remote-merge-engine --test <テスト名> -- --nocapture` で ID と集約先の中を出した。変更の前（b8dde42a）は、`git show b8dde42a:crates/remote-merge-engine/src/backup_store_cleanup.rs` で整理だけを戻して同じテストを動かした。
+- 測定 1（保持期間 0 日、同じ秒 2026-10-23 12:00:00 の二つの実行）: A が予約・領域の用意・"a.txt" の保存をした後で、B が整理と予約をし、その後で A が "a2.txt"、B が "b.txt" を保存した。12a76352 では A と B がどちらも "20261023-120000" を受け取り、一覧は一つのセッションに "a2.txt" と "b.txt" を出した。b8dde42a と 9fd90a5b では B は "20261023-120000-2" で、一覧は "a2.txt" と "b.txt" を別のセッションに出した。どれでも "a.txt" の記録は B の整理で消えた（A3）。
+- 測定 2（保持期間 0 日、A と C が 12:00:00、B が 12:00:01 に始まる）: A が予約して保存し、B が整理して予約し、C が整理して予約した。12a76352 では C が A と同じ "20261023-120000" を受け取った。b8dde42a と 9fd90a5b では C は "20261023-120000-2" だった。
+- 測定 3（保持期間 1 日）: A が 2026-10-21 12:00:00 に保存して終え、B が 2 日後に整理し、その後で 2026-10-21 12:00:00 に始まった C が予約した。12a76352 と 9fd90a5b では C は A と同じ "20261021-120000" を受け取ったが、A のセッションは集約先から消えていて、同じ ID のセッションが二つ集約先にあることはない。b8dde42a では "20261021-120000-2" だった。
+- 測定 4（保持期間 1 日、毎日 1 回ずつ 5 日の実行）: b8dde42a では予約が 5 つ残り、セッションは最後の 1 つだった。12a76352 と 9fd90a5b では予約もセッションも最後の 1 つだけだった。
+- 契約テスト crates/remote-merge/tests/contract/backup_sessions.rs の merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention（保持期間 0 日で同じ秒の二つの merge）は、c5e4acef で二つの merge がどちらも "20260914-120000" になって失敗し、9fd90a5b で成功する。cleanup_leaves_nothing_of_a_removed_session_in_the_store（期限切れの整理をした集約先と、同じ merge だけをした集約先の中を比べる）は、b8dde42a の整理では整理した側にだけ "reservations/20200101-000000" が残って失敗し、9fd90a5b で成功する。比べるだけなので、集約先の中の配置は確かめない。
+- REQ-backup-047 の「整理の後もセッションが残るときは予約も残す」は、契約テストでは確かめていない。製品のコマンドの上でこれが見えるのは、残ったセッションと同じ秒に始まった実行が予約するときだけで、それには時刻を戻すか、始まってから 24 時間以上たって予約する実行が要る。engine の単体テスト an_expired_session_left_for_an_unconfigured_target_keeps_its_reservation が予約の場所を見て確かめている。
+
+## Revisions
+
+- 2026-10-23: A2 の why の「実行の時刻は始まったときに一度だけ決まり」から「判断できない」までの理由と、rejected が整理する実行と同じ秒の ID の予約だけを残す案を測定 2 で退けた根拠は、ID の日時がコマンドを始めた時刻だったときのものである。ID の日時を予約した時刻にした後（[backup-session-id-reservation-time A1](./2026-10-23-backup-session-id-reservation-time.md#A1)）は成り立たない。24 時間を残す今の根拠は [backup-reservation-margin-consistency A1](./2026-10-23-backup-reservation-margin-consistency.md#A1) で読み替えた。A2 の決定（日時から 24 時間に満たない ID の予約を残す）は変わらない。

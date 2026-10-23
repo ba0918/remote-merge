@@ -13,6 +13,7 @@ pub(crate) mod known_hosts_location;
 pub(crate) mod login_shell;
 mod password;
 pub(crate) mod preferred;
+mod server_env;
 
 pub(crate) use remote_merge_core::error;
 
