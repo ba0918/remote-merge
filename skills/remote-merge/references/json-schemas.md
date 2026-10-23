@@ -1,5 +1,7 @@
 # JSON Output Schemas
 
+The CLI writes each JSON value on a single line with no whitespace outside strings, ending with one newline (LF), and `logs` writes one such line per entry; the examples below are pretty-printed only for readability.
+
 ## Error Response
 
 When `--format json` is specified and an error occurs, all subcommands (status, diff, merge, sync, rollback, logs) return a JSON error object on stdout:
