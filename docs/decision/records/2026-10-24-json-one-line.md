@@ -7,7 +7,7 @@
 [REQ-cli-018](../../ir/cli/results.md#REQ-cli-018) は JSON として解釈できることだけを約束していて、整形するかどうかは書いていなかった。
 利用者は、引き継ぎメモの「振る舞いを変える提案」のうち、この一行の JSON にする案を選んだ。この記録は、出力の形と、それを仕様にどう書くかを決めたものである。
 
-Position: 問いを出し尽くし、[REQ-cli-102](../../ir/cli/results.md#REQ-cli-102) を足して、REQ-cli-018 に logs の場合と引数の解析で止まる場合を書き足した。仕様の見直しの指摘は直し、利用者の承認を待っている。
+Position: 問いを出し尽くし、[REQ-cli-102](../../ir/cli/results.md#REQ-cli-102) を足して、REQ-cli-018 に logs の場合と引数の解析で止まる場合を書き足した。利用者が承認し、この仕様のとおりに実装した。実装の後の仕様との突き合わせで、REQ-cli-018 に --help と --version の場合の文が足された（[2026-10-24-json-one-line-consistency.md](./2026-10-24-json-one-line-consistency.md) と [2026-10-24-json-one-line-consistency-2.md](./2026-10-24-json-one-line-consistency-2.md)）。
 
 ## Agreements
 
