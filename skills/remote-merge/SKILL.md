@@ -179,7 +179,9 @@ Backups are stored only on the machine running `remote-merge`, under
 `$XDG_DATA_HOME/remote-merge/backups/` or, when `XDG_DATA_HOME` is unset, empty, or relative,
 `~/.local/share/remote-merge/backups/`. The internal layout is not a public contract. Sessions
 are separated by write target and use UTC IDs in the form `YYYYMMDD-HHMMSS`, with `-N` (`N >= 2`)
-when multiple operations start in the same second.
+when an ID for the same second already exists. The time in the ID is when the operation reserves
+its session just before writing (for `sync` and `rollback`, after the confirmation prompt is
+answered), not when the command started.
 
 Sessions are looked up only by the current identity of the write target. Sessions that earlier
 versions saved under a different identity are no longer listed, rolled back or cleaned up by
