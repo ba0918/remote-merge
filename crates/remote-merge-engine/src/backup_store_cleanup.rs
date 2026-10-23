@@ -32,8 +32,17 @@ impl BackupStore {
                 self.now,
             );
             if expired == Some(true) {
-                let reservation = root.join("reservations").join(&session_id);
-                removed += remove_expired_session(&session.path(), &reservation, &target_keys)?;
+                // 日時から 1 日たっていない ID は、同じ秒に始まってまだ予約していない別の実行がいるかも
+                // しれないので、セッションを消しても予約を残す（保持期間が 0 日のときに起きる）。予約を
+                // 消すと、その実行に同じ ID が割り当てられる（REQ-backup-023）
+                let releasable = crate::backup::is_session_expired(
+                    &session_id,
+                    config.backup.retention_days.max(1),
+                    self.now,
+                ) == Some(true);
+                let reservation = releasable.then(|| root.join("reservations").join(&session_id));
+                removed +=
+                    remove_expired_session(&session.path(), reservation.as_deref(), &target_keys)?;
             }
         }
         Ok(removed)
@@ -41,10 +50,10 @@ impl BackupStore {
 }
 
 /// 期限切れのセッション `session` の書き込み先 `target_keys` の領域を消し、空になったセッションとその
-/// 予約 `reservation` も消す。先に消されていたものは、消すものがないとする
+/// 予約 `reservation`（None なら予約は残す）も消す。先に消されていたものは、消すものがないとする
 fn remove_expired_session(
     session: &Path,
-    reservation: &Path,
+    reservation: Option<&Path>,
     target_keys: &[String],
 ) -> anyhow::Result<usize> {
     let mut removed = 0;
@@ -68,6 +77,9 @@ fn remove_expired_session(
             Err(error) if error.kind() == ErrorKind::DirectoryNotEmpty => return Ok(removed),
             Err(error) => return Err(not_removed(session, &error)),
         }
+        let Some(reservation) = reservation else {
+            return Ok(removed);
+        };
         match fs::remove_dir(reservation) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}

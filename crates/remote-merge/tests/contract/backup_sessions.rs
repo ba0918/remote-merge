@@ -739,6 +739,35 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     assert_ne!(merged_session(&first), merged_session(&second));
 }
 
+// 保持期間が 0 日なら、先の merge のセッションは同じ秒のうちに期限切れになり、後の merge の整理で消える。
+// そのときに ID の予約まで消すと、同じ秒に始まった後の merge が同じ ID を受け取り、先の merge が示した ID
+// が別の操作のバックアップを指す（先の merge がまだ保存している途中なら、二つの操作のバックアップが一つの
+// セッションに混ざる）
+// @kotowari[REQ-backup-023]
+#[test]
+fn merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let mut config = config(&local, &develop, true);
+    config.backup.retention_days = 0;
+    fs::write(local.path().join("file.txt"), "first content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let first = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets(&develop, &store),
+    );
+    fs::write(
+        local.path().join("file.txt"),
+        "second content that differs\n",
+    )
+    .unwrap();
+    let second = merge_files(merge_args(&["file.txt"]), config, targets(&develop, &store));
+
+    assert_ne!(merged_session(&first), merged_session(&second));
+}
+
 /// 同じ集約先と同じ時刻で、merge を threads 本同時に始める。
 /// どれかがエラーで終わればパニックし、成功したもののセッション ID を返す。
 fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
