@@ -1,13 +1,16 @@
 #!/bin/bash
 # CentOS 5 のカーネル（2.6.18-419.el5、x86_64）を qemu で起動し、今の版の musl の remote-merge を
-# エージェントとして起動・走査・読み書きさせ、手元と同じ答えを返すことと、エージェント・core・
-# protocol の単体テストが root と一般の利用者で通ることを確かめる（docs/decision/records/
-# 2026-10-12-foundation.md の A12、2026-10-12-foundation-5.md の F27）。tmpfs と ext3 の二通りで走らせる。
+# エージェントとして起動・走査・読み書きさせ、手元と同じ答えを返すことと、単体テスト（手元の側だけで
+# 動くものは除く。run.sh）が通ることを確かめる。エージェントと core のテストは root と一般の利用者で、
+# protocol のテストは root で走らせる（docs/decision/records/2026-10-12-foundation.md の A12、
+# 2026-10-12-foundation-5.md の F27）。tmpfs と ext3 の二通りで走らせる。
 #
 # 使い方: reproduce.sh <作業ディレクトリ>（リポジトリの外に置く。リポジトリには何も書かない）
 # 作業ディレクトリに前もって置くもの:
 #   dl/kernel-2.6.18-419.el5.x86_64.rpm（sha256 は下で確かめる。CentOS 5 の vault にある）
-#   bb/busybox（静的にリンクした x86_64 の BusyBox。確かめたのは v1.37.0）
+#   bb/busybox（静的にリンクした x86_64 の BusyBox。一般の利用者で走らせる run.sh の手順が chpst を
+#   使うので、chpst を含むもの。確かめたのは v1.37.0 を defconfig でビルドしたもの。Alpine の
+#   busybox-static には chpst がない）
 # 要るもの: docker、rustup の x86_64-unknown-linux-musl、mke2fs、/dev/kvm（なければ NOKVM=1）
 set -e
 D=$(cd "$(dirname "$0")" && pwd); R=$(cd "$D/../.." && pwd)

@@ -56,6 +56,9 @@ step "random check"
 (timeout 5 head -c 1 /dev/random > /dev/null; echo "dev_random_read_exit=$?") > $O/random.txt 2>&1
 cat /proc/sys/kernel/random/entropy_avail >> $O/random.txt
 
+# agent のテストのうち bridge_tests は、手元の側の SSH の中継を tokio の実行環境の上で確かめる。2.6.18 では
+# 実行環境を作れず（ENOSYS）、手元の側はサーバの上では動かないので、ここでは走らせない
+CLIENT_SIDE=agent::ssh_transport::bridge_tests::
 for t in $P/tests/*; do
   n=$(basename $t)
   mkdir -p $W/t-$n
@@ -67,6 +70,11 @@ for t in $P/tests/*; do
       step "test $n (proptest seeded)"
       (cd $W/t-$n && HOME=$W/t-$n TMPDIR=$W/t-$n PROPTEST_RNG_SEED=1 timeout 300 $t an_entry_never_joins_back_to_the_root_dir_itself) > $O/test-$n-proptest.txt 2>&1
       echo "exit=$?" >> $O/test-$n-proptest.txt; tail -3 $O/test-$n-proptest.txt >&2
+      ;;
+    remote_merge_agent-*)
+      step "test $n (skip $CLIENT_SIDE)"
+      (cd $W/t-$n && HOME=$W/t-$n TMPDIR=$W/t-$n timeout 300 $t --skip $CLIENT_SIDE) > $O/test-$n.txt 2>&1
+      echo "exit=$?" >> $O/test-$n.txt; tail -3 $O/test-$n.txt >&2
       ;;
     *)
       step "test $n"
@@ -81,7 +89,7 @@ for t in $P/tests/remote_merge_core-* $P/tests/remote_merge_agent-*; do
   # 祖先が root の 755 になるよう $W の直下に作り、rm に渡す
   rm -rf $W/ut-$n; mkdir -p $W/ut-$n; [ "$(id -u)" = 0 ] && chown 1000:1000 $W/ut-$n
   step "test-user $n"
-  (cd $W/ut-$n && asuser env HOME=$W/ut-$n TMPDIR=$W/ut-$n timeout 300 $t --skip an_entry_never_joins_back_to_the_root_dir_itself) > $O/test-user-$n.txt 2>&1
+  (cd $W/ut-$n && asuser env HOME=$W/ut-$n TMPDIR=$W/ut-$n timeout 300 $t --skip an_entry_never_joins_back_to_the_root_dir_itself --skip $CLIENT_SIDE) > $O/test-user-$n.txt 2>&1
   echo "exit=$?" >> $O/test-user-$n.txt; tail -3 $O/test-user-$n.txt >&2
 done
 step done
