@@ -191,6 +191,9 @@ mod flow_support;
 #[path = "contract/init.rs"]
 mod init;
 #[cfg(feature = "test-utils")]
+#[path = "contract/json_one_line.rs"]
+mod json_one_line;
+#[cfg(feature = "test-utils")]
 #[path = "contract/listing_support.rs"]
 mod listing_support;
 #[path = "contract/local_route_support.rs"]

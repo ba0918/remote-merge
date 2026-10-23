@@ -219,6 +219,15 @@ fn test_format_json() {
 }
 
 #[test]
+fn json_is_written_on_one_line_without_blanks_outside_strings() {
+    let error = JsonError {
+        error: "a b".into(),
+    };
+
+    assert_eq!(format_json(&error).unwrap(), r#"{"error":"a b"}"#);
+}
+
+#[test]
 fn test_output_format_parse() {
     assert_eq!(OutputFormat::parse("text").unwrap(), OutputFormat::Text);
     assert_eq!(OutputFormat::parse("json").unwrap(), OutputFormat::Json);

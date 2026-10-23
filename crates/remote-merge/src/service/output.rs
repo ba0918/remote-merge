@@ -602,7 +602,7 @@ pub fn format_sync_text(output: &SyncOutput) -> String {
 
 /// 任意の Serialize 可能な型を JSON 文字列にする
 pub fn format_json<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
-    Ok(serde_json::to_string_pretty(value)?)
+    Ok(serde_json::to_string(value)?)
 }
 
 #[cfg(test)]
