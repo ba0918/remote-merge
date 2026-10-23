@@ -60,6 +60,15 @@ auth が "key" のサーバで key を省くと "~/.ssh/id_rsa" を使い、key 
 
 鍵ファイルを読めないときは "Failed to load SSH private key: パス" のエラーで止まり、パスには key を省いたときは "~/.ssh/id_rsa" を、key を書いたときは置き換えた後のパスを示す。
 
+### REQ-config-050: 環境変数のパスフレーズで鍵を開く
+- kind: state_driven
+- source: docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A2, docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A3
+- verification: unit
+
+auth が "key" のサーバの鍵がパスフレーズで保護されているとき、環境変数 REMOTE_MERGE_KEY_PASSPHRASE_<サーバ名> が空でなく設定されていれば、パスフレーズを尋ねる前にその値で鍵を開き、開けたときは尋ねない。
+環境変数の名前の <サーバ名> は、REQ-config-019 と同じく、サーバ名を大文字にし、"-" と "." を "_" にしたものである。
+環境変数が空か、ないか、その値で鍵を開けないときは端末でパスフレーズを尋ね、鍵を開けるパスフレーズを得られないときは、REQ-config-020 の鍵ファイルを読めないときと同じ "Failed to load SSH private key: パス" のエラーで止まる。
+
 ### REQ-config-029: auth が key のサーバの password を使わない
 - kind: state_driven
 - source: docs/decision/records/2026-10-04-config-flag-resolution.md#A5
