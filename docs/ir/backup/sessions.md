@@ -68,6 +68,14 @@
 
 セッション ID の日時部分（UTC）からの経過時間が retention_days × 24 時間以上のセッションを期限切れとし、一覧の期限切れ表示と整理の対象に同じ判定を使う。
 
+### REQ-backup-047: 期限切れの整理でセッション ID の予約も消す
+- kind: event_driven
+- source: docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A1, docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A2
+- verification: unit
+
+期限切れバックアップの整理でセッションを集約先から消したときは、そのセッション ID の予約も消し、そのセッションのために作ったものを集約先に残さない。ただし、セッション ID の日時部分（UTC）からの経過時間が 24 時間に満たないときは、同じ秒に始まった別の操作にその ID を割り当てないように、予約を残す（REQ-backup-023）。
+整理の後もセッションが集約先に残るとき（設定にない書き込み先の領域が残るか、同時に動く別の操作が中に保存したとき）は、予約も残す。
+
 ## Examples
 
 ```gherkin
