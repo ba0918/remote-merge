@@ -9,9 +9,9 @@
 IR は "docs/ir/"、承認済み仕様のコミットは "3d36e087"、実装するブランチは "feat/json-one-line" とする。
 
 - `docs/ir/cli/results.md#REQ-cli-102`（新しい要件。この計画でテストを足す）
-- `docs/ir/cli/results.md#REQ-cli-018`（今回二文を足した前からの要件。前からのテストはそのまま残る）
-- Examples: EX-cli-116, EX-cli-117, EX-cli-118, EX-cli-119, EX-cli-120, EX-cli-121, EX-cli-122, EX-cli-123, EX-cli-124
-- 判断の根拠は `docs/decision/records/2026-10-24-json-one-line.md` にある。手引きと CHANGELOG の扱いは同記録の A9・A10・D1、作らないものは P1〜P3。
+- `docs/ir/cli/results.md#REQ-cli-018`（前からの要件。承認済み仕様で二文（logs の記録が残らない場合と、引数の解析で止まる場合）を足し、実装の後の仕様との突き合わせで --help/-h と --version/-V の場合の一文を足した。前からのテストはそのまま残る）
+- Examples: EX-cli-116, EX-cli-117, EX-cli-118, EX-cli-119, EX-cli-120, EX-cli-121, EX-cli-122, EX-cli-123, EX-cli-124, EX-cli-125, EX-cli-126
+- 判断の根拠は `docs/decision/records/2026-10-24-json-one-line.md` にある。手引きと CHANGELOG の扱いは同記録の A9・A10・D1、作らないものは P1〜P3。REQ-cli-018 の --help と --version の文と EX-cli-125・EX-cli-126 の根拠は、`docs/decision/records/2026-10-24-json-one-line-consistency.md` と `docs/decision/records/2026-10-24-json-one-line-consistency-2.md` の A1 にある。
 
 ## Approach and why
 
@@ -26,9 +26,11 @@ REQ-cli-102 は標準出力のバイト列についての約束なので、テ�
 
 一行かどうかは生のバイト列で確かめる。最後のバイトが LF で、LF がちょうど一つ（logs では行の数だけ）あること。str::lines() で数えると、最後の LF がないときや CR LF を見逃すので使わない。「文字列の外に空白がない」は、文字列の中か外かをエスケープ（\" と \\）を含めて追い、外にある空白・タブ・CR を探す小さな確かめの道具を、新しい契約テストのファイルに一つ作って確かめる。この確かめは LF の確かめとは別に走らせ（LF の確かめで先に止まらないようにする）、S1 の RED で、今の整形した出力（": " の空白や字下げ）に対してこの確かめが落ちるのを見る。それで、道具が本物の出力で空白を見つけられることを示す。道具そのもののテストは書かない（対象がテストの道具自身になり、証拠の条件の「対象は製品か検査で、オラクル自身ではない」に合わない）。読み直した JSON を serde_json の to_string で書き直して比べる方法は使わない。serde_json に preserve_order の機能を入れていないので、書き直すと欄の順が変わり、正しい出力でも一致しない。
 
-新しい契約テストは一つのファイル `crates/remote-merge/tests/contract/json_one_line.rs` にまとめ、`crates/remote-merge/tests/contract.rs` に `#[cfg(feature = "test-utils")]` を付けて登録する。中には SSH の試験サーバを使うテスト（EX-cli-116・118・121・122）と使わないテスト（EX-cli-117・119・120・123・124 と logs の失敗）が混ざるが、ファイルを分けずにモジュールごと囲む。CI と pre-push はどちらも --all-features で走るので、囲んだテストもそこで必ず走る。
+新しい契約テストは一つのファイル `crates/remote-merge/tests/contract/json_one_line.rs` にまとめ、`crates/remote-merge/tests/contract.rs` に `#[cfg(feature = "test-utils")]` を付けて登録する。中には SSH の試験サーバを使うテスト（EX-cli-116・118・121・122）と使わないテスト（EX-cli-117・119・120・123・124・125・126 と logs の失敗）が混ざるが、ファイルを分けずにモジュールごと囲む。CI と pre-push はどちらも --all-features で走るので、囲んだテストもそこで必ず走る。
 
 logs の一件一行、記録の残らない logs、引数の解析で止まる場合は、今の振る舞いを仕様に書いたもの（決定の記録の A5・A7・A11）で、コードは変えない。そのテストは最初から通る。
+
+--help/-h で使い方を、--version/-V で版を出す場合（EX-cli-125・EX-cli-126）は、実装の後の仕様との突き合わせで REQ-cli-018 に足した。これも今の振る舞いを仕様に書いたもので、コードは変えず、そのテストは最初から通る。この計画のどの段も、この文と例とテストを作らない。
 
 手引きについて、この計画で二つ決めた（どちらも承認のときに利用者に示した）。一つは、決定の記録の D1 が実装に任せた一文の置き場所を、SKILL.md と json-schemas.md の両方に一文ずつと決めたこと。JSON の例はすべて json-schemas.md にあり、SKILL.md は --format json を使うよう勧める側なので、どちらを読んでも分かるようにする。もう一つは、json-schemas.md の Error Response 節の「--format json でエラーになると、すべてのサブコマンドが JSON のエラーを返す」に、引数の解析で止まったときは JSON を出さないことを書き足すこと。REQ-cli-018 に足した文（決定の記録の A11）と手引きを合わせるためで、振る舞いは変えない。
 
@@ -66,9 +68,11 @@ S1 と S2 は、新しい振る舞いの契約テストを先に書き、今の�
 | S2 | REQ-cli-102 | EX-cli-117 |
 | S3 | REQ-cli-102, REQ-cli-018 | EX-cli-119, EX-cli-120, EX-cli-123, EX-cli-124 |
 | S4 | なし（決定の記録の A9・A10・D1。IR ではない） | なし |
-| S5 | REQ-cli-102, REQ-cli-018 | EX-cli-116〜EX-cli-124 のすべて |
+| S5 | REQ-cli-102, REQ-cli-018 | EX-cli-116〜EX-cli-126 のすべて |
 
 REQ-cli-102 の「logs が失敗したらエラーの JSON の一行だけを出す」にはシナリオがないので、S2 で REQ-cli-102 の印を付けたテストを一つ足して確かめる。
+
+EX-cli-125・EX-cli-126 は実装の後の仕様との突き合わせで足した例で、S1〜S4 のどれにも属さない。そのテストがあることは S5 で確かめる。
 
 ## Left to the implementer
 
@@ -86,7 +90,7 @@ REQ-cli-102 の「logs が失敗したらエラーの JSON の一行だけを出
 
 - 整形した JSON を出す指定（決定の記録の P1）
 - 欄の名前・順・中身を変えるトークン削減（P2）と、取り消し・中止が JSON で何も出さない件の見直し（P3）
-- 引数の解析で止まったときに JSON を出すこと、--help と --version の扱いを REQ-cli-018 に書くこと
+- 引数の解析で止まったときや、--help/-h・--version/-V で使い方や版を出すときに JSON を出すこと（REQ-cli-018 は、どれも JSON を出さない今の振る舞いを書く）
 - 版を上げることとリリース
 - --format text など、JSON 以外の出力
 
@@ -142,7 +146,7 @@ REQ-cli-102 の「logs が失敗したらエラーの JSON の一行だけを出
 - Specification: `docs/ir/cli/results.md#REQ-cli-102`, `docs/ir/cli/results.md#REQ-cli-018`
 - Prerequisites: S1, S2, S3, S4
 - May change: なし（直すときは該当する段に戻る）
-- Done when: 整形の検査・Clippy・全体のテストが通り、REQ-cli-102 と EX-cli-116〜EX-cli-124 のどれも kotowari query で tests が空でなく、kotowari check がこのブランチで変えたファイルとこの計画の ID にエラーを出さない
-- Shown by: check — `cargo fmt --all --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo nextest run --workspace --all-features`; `for id in REQ-cli-102 EX-cli-116 EX-cli-117 EX-cli-118 EX-cli-119 EX-cli-120 EX-cli-121 EX-cli-122 EX-cli-123 EX-cli-124; do kotowari query $id | jq -e '.items[0].tests | length > 0' > /dev/null || echo "no test: $id"; done`（何も出ないこと）; `kotowari check --format json | jq -r '.findings[] | select(.severity == "error") | "\(.kind) \(.path) \(.detail)"'` の出力に、このブランチで変えたファイルとこの計画の ID が出ないこと
+- Done when: 整形の検査・Clippy・全体のテストが通り、REQ-cli-102 と EX-cli-116〜EX-cli-126 のどれも kotowari query で tests が空でなく、kotowari check がこのブランチで変えたファイルとこの計画の ID にエラーを出さない
+- Shown by: check — `cargo fmt --all --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo nextest run --workspace --all-features`; `for id in REQ-cli-102 EX-cli-116 EX-cli-117 EX-cli-118 EX-cli-119 EX-cli-120 EX-cli-121 EX-cli-122 EX-cli-123 EX-cli-124 EX-cli-125 EX-cli-126; do kotowari query $id | jq -e '.items[0].tests | length > 0' > /dev/null || echo "no test: $id"; done`（何も出ないこと）; `kotowari check --format json | jq -r '.findings[] | select(.severity == "error") | "\(.kind) \(.path) \(.detail)"'` の出力に、このブランチで変えたファイルとこの計画の ID が出ないこと
 - Left to the implementer: none
 - Stop and hand back if: この計画と関係のないテストが落ちる（直さずに、落ちたテストと出力を報告する）
