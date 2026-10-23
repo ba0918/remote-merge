@@ -12,6 +12,8 @@ When `--format json` is specified and an error occurs, all subcommands (status, 
 
 Exit code is `2` on error. Config-not-found errors display both searched paths (project `.remote-merge.toml` and global `~/.config/remote-merge/config.toml`).
 
+Errors found while parsing the command-line arguments are the exception, such as a missing required argument (`merge` without a path) or a value of the wrong type (`logs --tail abc`). The argument parser reports them on stderr, nothing is written to stdout, and the exit code is `2`. Values that the command checks itself, such as an unknown `logs --level`, still return the JSON error object.
+
 ## status
 
 ```json
