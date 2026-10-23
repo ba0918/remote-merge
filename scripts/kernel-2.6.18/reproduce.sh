@@ -1,9 +1,9 @@
 #!/bin/bash
 # CentOS 5 のカーネル（2.6.18-419.el5、x86_64）を qemu で起動し、今の版の musl の remote-merge を
-# エージェントとして起動・走査・読み書きさせ、手元と同じ答えを返すことと、エージェント・core・
-# protocol の単体テスト（手元の側だけで動くものは除く。run.sh）が root と一般の利用者で通ることを
-# 確かめる（docs/decision/records/2026-10-12-foundation.md の A12、2026-10-12-foundation-5.md の
-# F27）。tmpfs と ext3 の二通りで走らせる。
+# エージェントとして起動・走査・読み書きさせ、手元と同じ答えを返すことと、単体テスト（手元の側だけで
+# 動くものは除く。run.sh）が通ることを確かめる。エージェントと core のテストは root と一般の利用者で、
+# protocol のテストは root で走らせる（docs/decision/records/2026-10-12-foundation.md の A12、
+# 2026-10-12-foundation-5.md の F27）。tmpfs と ext3 の二通りで走らせる。
 #
 # 使い方: reproduce.sh <作業ディレクトリ>（リポジトリの外に置く。リポジトリには何も書かない）
 # 作業ディレクトリに前もって置くもの:
