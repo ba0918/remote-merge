@@ -58,6 +58,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use remote_merge_engine::backup_store::ReservationTime;
 
 pub use self::compare_flow::{
     Asked, CollectedStates, CompareRequest, CompareScope, CompareSides, Comparison, EntryLimit,
@@ -74,6 +75,7 @@ pub struct RuntimeTargets {
     backup_store: Option<PathBuf>,
     startup_directory: PathBuf,
     now: DateTime<Utc>,
+    reservation_time: ReservationTime,
 }
 
 impl RuntimeTargets {
@@ -87,6 +89,7 @@ impl RuntimeTargets {
             ),
             startup_directory: std::env::current_dir().unwrap_or_default(),
             now: Utc::now(),
+            reservation_time: ReservationTime::System,
         }
     }
 
@@ -106,8 +109,16 @@ impl RuntimeTargets {
         self
     }
 
+    /// コマンドを始めた時刻を `now` に決める。セッションを予約する時刻も `now` に決める
     pub fn with_now(mut self, now: DateTime<Utc>) -> Self {
         self.now = now;
+        self.reservation_time = ReservationTime::Fixed(now);
+        self
+    }
+
+    /// セッションを予約する時刻（セッション ID の日時）を `time` に決める。`with_now` の後に呼ぶ
+    pub fn with_reservation_time(mut self, time: DateTime<Utc>) -> Self {
+        self.reservation_time = ReservationTime::Fixed(time);
         self
     }
 

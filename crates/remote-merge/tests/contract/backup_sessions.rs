@@ -768,6 +768,46 @@ fn merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retentio
     assert_ne!(merged_session(&first), merged_session(&second));
 }
 
+// sync と rollback は確認の問いに答えるまで待つので、始めてから何日もたってセッションを予約することがある。
+// その間に、同じ秒に始まった先の merge のセッションが期限切れの整理で予約ごと消えても、先の merge が示した
+// ID を後の rollback に割り当てない（割り当てると、その ID が別の操作のバックアップを指す）。ここでは確認に
+// 答えた時を、予約する時刻を後にずらして起こす
+// @kotowari[REQ-backup-023]
+#[test]
+fn a_rollback_confirmed_days_after_it_started_gets_an_id_unlike_a_removed_session() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let config = config(&local, &develop, true);
+    fs::write(local.path().join("file.txt"), "first\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let started = at(2020, 1, 1);
+    let first = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &store, started),
+    );
+    fs::write(local.path().join("file.txt"), "second\n").unwrap();
+    let cleaning = merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &store, at(2020, 1, 8)),
+    );
+    let mut args = rollback_args("develop");
+    args.session = Some(merged_session(&cleaning));
+
+    let (rollback, _) = restore(
+        args,
+        config,
+        targets_at(&develop, &store, started).with_reservation_time(at(2020, 1, 8)),
+    );
+
+    assert_ne!(
+        rollback.restored[0].pre_rollback_backup.as_deref(),
+        Some(merged_session(&first).as_str())
+    );
+}
+
 /// 同じ集約先と同じ時刻で、merge を threads 本同時に始める。
 /// どれかがエラーで終わればパニックし、成功したもののセッション ID を返す。
 fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {

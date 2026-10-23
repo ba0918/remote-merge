@@ -9,7 +9,12 @@ fn finishing_a_session_that_saved_nothing_keeps_the_place_other_runs_reserve_in(
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("store");
     let now = Utc::now();
-    let first = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), now);
+    let first = BackupStore::new(
+        Some(root.clone()),
+        temp.path().to_path_buf(),
+        now,
+        ReservationTime::Fixed(now),
+    );
     let id = first.reserve_session().unwrap();
 
     first.finish_session(&id);
@@ -61,11 +66,21 @@ fn removing_an_expired_session_also_removes_its_reservation() {
     let root = temp.path().join("store");
     let config = config_with_root(temp.path(), temp.path());
     let two_days_ago = Utc::now() - chrono::Duration::days(2);
-    let old = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), two_days_ago);
+    let old = BackupStore::new(
+        Some(root.clone()),
+        temp.path().to_path_buf(),
+        two_days_ago,
+        ReservationTime::Fixed(two_days_ago),
+    );
     let id = saved_session(&old, &config, temp.path());
     let reservation = root.join("reservations").join(&id);
     assert!(reservation.exists(), "{reservation:?}");
-    let store = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), Utc::now());
+    let store = BackupStore::new(
+        Some(root.clone()),
+        temp.path().to_path_buf(),
+        Utc::now(),
+        ReservationTime::System,
+    );
 
     assert_eq!(store.cleanup_expired(&config).unwrap(), 1);
 
@@ -81,11 +96,21 @@ fn an_expired_session_left_for_an_unconfigured_target_keeps_its_reservation() {
     let root = temp.path().join("store");
     let config = config_with_root(temp.path(), temp.path());
     let two_days_ago = Utc::now() - chrono::Duration::days(2);
-    let old = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), two_days_ago);
+    let old = BackupStore::new(
+        Some(root.clone()),
+        temp.path().to_path_buf(),
+        two_days_ago,
+        ReservationTime::Fixed(two_days_ago),
+    );
     let id = saved_session(&old, &config, temp.path());
     let unconfigured = root.join("sessions").join(&id).join("unconfigured");
     fs::create_dir_all(&unconfigured).unwrap();
-    let store = BackupStore::new(Some(root.clone()), temp.path().to_path_buf(), Utc::now());
+    let store = BackupStore::new(
+        Some(root.clone()),
+        temp.path().to_path_buf(),
+        Utc::now(),
+        ReservationTime::System,
+    );
 
     assert_eq!(store.cleanup_expired(&config).unwrap(), 1);
 
@@ -106,7 +131,12 @@ fn an_expired_session_another_run_removed_first_is_not_an_error() {
     fs::create_dir_all(&sessions).unwrap();
     std::os::unix::fs::symlink(temp.path().join("gone"), sessions.join("20000101-000000")).unwrap();
     let config = config_with_root(temp.path(), temp.path());
-    let store = BackupStore::new(Some(root), temp.path().to_path_buf(), Utc::now());
+    let store = BackupStore::new(
+        Some(root),
+        temp.path().to_path_buf(),
+        Utc::now(),
+        ReservationTime::System,
+    );
 
     assert_eq!(store.cleanup_expired(&config).unwrap(), 0);
 }
@@ -128,7 +158,12 @@ fn sessions_that_cannot_be_read_are_an_error_and_not_zero_removed() {
     fs::set_permissions(&sessions, fs::Permissions::from_mode(0o000)).unwrap();
     let applies = fs::read_dir(&sessions).is_err();
     let config = config_with_root(temp.path(), temp.path());
-    let store = BackupStore::new(Some(root), temp.path().to_path_buf(), Utc::now());
+    let store = BackupStore::new(
+        Some(root),
+        temp.path().to_path_buf(),
+        Utc::now(),
+        ReservationTime::System,
+    );
 
     let result = store.cleanup_expired(&config);
     fs::set_permissions(&sessions, fs::Permissions::from_mode(0o700)).unwrap();
