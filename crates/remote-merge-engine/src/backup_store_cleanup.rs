@@ -32,16 +32,21 @@ impl BackupStore {
                 self.now,
             );
             if expired == Some(true) {
-                removed += remove_expired_session(&session.path(), &target_keys)?;
+                let reservation = root.join("reservations").join(&session_id);
+                removed += remove_expired_session(&session.path(), &reservation, &target_keys)?;
             }
         }
         Ok(removed)
     }
 }
 
-/// 期限切れのセッション `session` の書き込み先 `target_keys` の領域を消し、空になったセッションも消す。
-/// 先に消されていたものは、消すものがないとする
-fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Result<usize> {
+/// 期限切れのセッション `session` の書き込み先 `target_keys` の領域を消し、空になったセッションとその
+/// 予約 `reservation` も消す。先に消されていたものは、消すものがないとする
+fn remove_expired_session(
+    session: &Path,
+    reservation: &Path,
+    target_keys: &[String],
+) -> anyhow::Result<usize> {
     let mut removed = 0;
     for key in target_keys {
         let area = session.join(key);
@@ -57,13 +62,16 @@ fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Res
     if left.next().is_none() {
         match fs::remove_dir(session) {
             Ok(()) => {}
-            // 先に消されたか、同時に動く別の実行が中に保存した
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
-                ) => {}
+            // 先に消された
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            // 同時に動く別の実行が中に保存したので、セッションも予約も残す
+            Err(error) if error.kind() == ErrorKind::DirectoryNotEmpty => return Ok(removed),
             Err(error) => return Err(not_removed(session, &error)),
+        }
+        match fs::remove_dir(reservation) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(not_removed(reservation, &error)),
         }
     }
     Ok(removed)
