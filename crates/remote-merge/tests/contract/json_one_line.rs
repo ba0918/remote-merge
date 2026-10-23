@@ -3,11 +3,20 @@
 //! （docs/ir/cli/results.md の REQ-cli-102）の契約テスト。約束は標準出力のバイト列についてのものなので、
 //! 実行ファイルを起動して標準出力の生のバイト列を確かめる。
 
+use std::fs;
 use std::process::Output;
 
+use tempfile::TempDir;
+
 use super::agent_support::{AgentFixture, Setup};
-use super::common::{CliEnv, stdout_json};
+use super::common::{CliEnv, isolated_command, stdout_json};
 use super::server_faults::Faults;
+
+/// 診断ログの、INFO・WARN・ERROR の三件の記録
+const THREE_ENTRIES: &str = r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"remote_merge::app","message":"info entry","fields":{}}
+{"timestamp":"2026-01-01T00:00:01Z","level":"WARN","target":"remote_merge::app","message":"warn entry","fields":{}}
+{"timestamp":"2026-01-01T00:00:02Z","level":"ERROR","target":"remote_merge::app","message":"error entry","fields":{}}
+"#;
 
 /// `stdout` が JSON を一つずつ一行に書いた `lines` 行で、各行が LF で終わる形から外れているところを、
 /// 一つ目で止めずにすべて挙げる
@@ -217,5 +226,52 @@ async fn ex_cli_122_a_partially_failed_sync_prints_its_result_as_one_json_line()
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let json = stdout_json(&output);
     assert_eq!(json["targets"].as_array().map(Vec::len), Some(2), "{json}");
+    assert_json_lines(&output, 1);
+}
+
+/// 診断ログに `log` を置いて（`None` なら置かずに）`logs <args> --format json` を起動する
+fn logs_json(log: Option<&str>, args: &[&str]) -> Output {
+    let home = TempDir::new().unwrap();
+    if let Some(log) = log {
+        let dir = home.path().join("cache/remote-merge");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("debug.log"), log).unwrap();
+    }
+    isolated_command(home.path())
+        .arg("logs")
+        .args(args)
+        .args(["--format", "json"])
+        .output()
+        .unwrap()
+}
+
+// @kotowari[REQ-cli-102, EX-cli-117]
+#[test]
+fn ex_cli_117_a_json_diff_stopped_by_an_invalid_configuration_prints_one_error_line() {
+    let dir = TempDir::new().unwrap();
+    let invalid_config = dir.path().join("invalid.toml");
+    fs::write(&invalid_config, "[local\n").unwrap();
+
+    let output = isolated_command(dir.path())
+        .arg("--config")
+        .arg(&invalid_config)
+        .args(["diff", "example.txt", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let json = stdout_json(&output);
+    assert!(json["error"].is_string(), "{json}");
+    assert_json_lines(&output, 1);
+}
+
+// @kotowari[REQ-cli-102]
+#[test]
+fn req_cli_102_a_failed_json_logs_prints_only_the_error_as_one_line() {
+    let output = logs_json(Some(THREE_ENTRIES), &["--level", "bogus"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let json = stdout_json(&output);
+    assert!(json["error"].is_string(), "{json}");
     assert_json_lines(&output, 1);
 }

@@ -302,8 +302,8 @@ fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
                 let err = remote_merge::service::output::JsonError {
                     error: remote_merge::runtime::command_error_message(&e),
                 };
-                let json = serde_json::to_string_pretty(&err)
-                    .unwrap_or_else(|_| r#"{"error": "internal serialization error"}"#.to_string());
+                let json = serde_json::to_string(&err)
+                    .unwrap_or_else(|_| r#"{"error":"internal serialization error"}"#.to_string());
                 println!("{}", json);
             } else {
                 eprintln!(
