@@ -32,9 +32,9 @@ impl BackupStore {
                 self.now,
             );
             if expired == Some(true) {
-                // 日時から 1 日たっていない ID は、その秒のうちにこれから予約する別の実行がいるかもしれない
-                // ので、セッションを消しても予約を残す（保持期間が 0 日のときに起きる）。予約を消すと、その
-                // 実行に同じ ID が割り当てられる（REQ-backup-023）
+                // 保持期間が 0 日なら、このコマンドを始めた秒の ID も期限切れになる。その予約を消すと、その秒の
+                // うちにこれから予約する別の実行に同じ ID が割り当てられる（REQ-backup-023）。その秒を含めて、
+                // 日時から 1 日（保持期間の最小の正の値）たっていない ID の予約は、セッションを消しても残す
                 let releasable = crate::backup::is_session_expired(
                     &session_id,
                     config.backup.retention_days.max(1),
