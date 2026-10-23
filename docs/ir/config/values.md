@@ -44,10 +44,10 @@ strict_host_key_checking は大文字と小文字を区別せずに "ask" を as
 
 ### REQ-config-019: 環境変数のパスワードを優先する
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A6, docs/decision/records/2026-10-15-flag-resolution.md#A9, docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A1
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A6, docs/decision/records/2026-10-15-flag-resolution.md#A9, docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A1, docs/decision/records/2026-10-23-server-env-var-unreadable-values.md#A1
 - verification: unit
 
-auth が "password" のサーバのパスワードには、環境変数 REMOTE_MERGE_PASSWORD_<サーバ名> が空でなく設定されていればそれを設定の password より優先して使い、空の環境変数は設定されていないものとして扱う。
+auth が "password" のサーバのパスワードには、環境変数 REMOTE_MERGE_PASSWORD_<サーバ名> が空でなく設定されていればそれを設定の password より優先して使い、空の環境変数と、値が UTF-8 として読めない環境変数は設定されていないものとして扱う。
 環境変数の名前の <サーバ名> は、サーバ名を大文字にし、"-" と "." を "_" にしたものである（サーバ "web-1.prod" なら REMOTE_MERGE_PASSWORD_WEB_1_PROD）。
 設定の password の平文は受け付け、その値を使って接続するときは "Server '<サーバ名>': using plaintext password from config. Key authentication is recommended." の警告を標準エラーに出す。接続時にパスワードを尋ねることはない。
 
@@ -62,12 +62,13 @@ auth が "key" のサーバで key を省くと "~/.ssh/id_rsa" を使い、key 
 
 ### REQ-config-050: 環境変数のパスフレーズで鍵を開く
 - kind: state_driven
-- source: docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A2, docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A3
+- source: docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A2, docs/decision/records/2026-10-23-server-env-var-names-consistency.md#A3, docs/decision/records/2026-10-23-server-env-var-unreadable-values.md#A1
 - verification: unit
 
 auth が "key" のサーバの鍵がパスフレーズで保護されているとき、環境変数 REMOTE_MERGE_KEY_PASSPHRASE_<サーバ名> が空でなく設定されていれば、パスフレーズを尋ねる前にその値で鍵を開き、開けたときは尋ねない。
 環境変数の名前の <サーバ名> は、REQ-config-019 と同じく、サーバ名を大文字にし、"-" と "." を "_" にしたものである。
-環境変数が空か、ないか、その値で鍵を開けないときは端末でパスフレーズを尋ね、鍵を開けるパスフレーズを得られないときは、REQ-config-020 の鍵ファイルを読めないときと同じ "Failed to load SSH private key: パス" のエラーで止まる。
+空の環境変数と、値が UTF-8 として読めない環境変数は、REQ-config-019 と同じく設定されていないものとして扱う。
+環境変数が設定されていないか、その値で鍵を開けないときは端末でパスフレーズを尋ね、鍵を開けるパスフレーズを得られないときは、REQ-config-020 の鍵ファイルを読めないときと同じ "Failed to load SSH private key: パス" のエラーで止まる。
 
 ### REQ-config-029: auth が key のサーバの password を使わない
 - kind: state_driven
