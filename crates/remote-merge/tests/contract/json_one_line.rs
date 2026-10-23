@@ -10,6 +10,7 @@ use tempfile::TempDir;
 
 use super::agent_support::{AgentFixture, Setup};
 use super::common::{CliEnv, isolated_command, stdout_json};
+use super::merge_support;
 use super::server_faults::Faults;
 
 /// 診断ログの、INFO・WARN・ERROR の三件の記録
@@ -274,4 +275,51 @@ fn req_cli_102_a_failed_json_logs_prints_only_the_error_as_one_line() {
     let json = stdout_json(&output);
     assert!(json["error"].is_string(), "{json}");
     assert_json_lines(&output, 1);
+}
+
+// @kotowari[REQ-cli-102, EX-cli-119]
+#[test]
+fn ex_cli_119_json_logs_prints_one_line_for_each_entry() {
+    let output = logs_json(Some(THREE_ENTRIES), &[]);
+
+    assert!(output.status.success(), "{output:?}");
+    assert_json_lines(&output, 3);
+    let messages: Vec<serde_json::Value> = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap()["message"].clone())
+        .collect();
+    assert_eq!(messages, ["info entry", "warn entry", "error entry"]);
+}
+
+// @kotowari[REQ-cli-018, EX-cli-120]
+#[test]
+fn ex_cli_120_json_logs_without_entries_prints_nothing_and_exits_with_zero() {
+    let output = logs_json(None, &[]);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+}
+
+// @kotowari[REQ-cli-018, EX-cli-123]
+#[test]
+fn ex_cli_123_json_logs_with_no_entry_left_by_the_level_prints_nothing_and_exits_with_zero() {
+    let info_only = format!("{}\n", THREE_ENTRIES.lines().next().unwrap());
+
+    let output = logs_json(Some(&info_only), &["--level", "error"]);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+}
+
+// @kotowari[REQ-cli-018, EX-cli-124]
+#[test]
+fn ex_cli_124_a_json_merge_stopped_by_argument_parsing_prints_nothing_and_exits_with_two() {
+    let fixture = merge_support::fixture();
+
+    let output = fixture.run_cli(&["--left", "local", "--right", "develop", "--format", "json"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
 }
