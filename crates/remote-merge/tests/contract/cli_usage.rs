@@ -42,7 +42,7 @@ fn starting_without_a_subcommand_shows_usage_and_writes_nothing() {
 // @kotowari[REQ-cli-076]
 #[test]
 fn help_and_version_are_exempt_and_answer_on_stdout_with_success() {
-    for flag in ["--help", "--version"] {
+    for flag in ["--help", "-h", "--version", "-V"] {
         let home = TempDir::new().unwrap();
 
         let output = isolated_command(home.path()).arg(flag).output().unwrap();
@@ -51,13 +51,12 @@ fn help_and_version_are_exempt_and_answer_on_stdout_with_success() {
         assert!(output.stderr.is_empty(), "{flag}: {output:?}");
         assert!(!output.stdout.is_empty(), "{flag}: nothing was shown");
     }
-    let home = TempDir::new().unwrap();
-    let version = isolated_command(home.path())
-        .arg("--version")
-        .output()
-        .unwrap();
-    assert!(
-        String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")),
-        "{version:?}"
-    );
+    for flag in ["--version", "-V"] {
+        let home = TempDir::new().unwrap();
+        let version = isolated_command(home.path()).arg(flag).output().unwrap();
+        assert!(
+            String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")),
+            "{flag}: {version:?}"
+        );
+    }
 }
