@@ -35,7 +35,7 @@ remote-merge --version
 curl -fsSL https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.sh | sh
 ```
 
-Windows はまだ配布していません（バイナリの配布は Linux と macOS だけです。`scripts/install.ps1` は Windows 対応のときに使います）。
+Windows には対応していません（バイナリの配布は Linux と macOS だけです）。Windows では WSL の中で上の Linux の手順を使ってください。
 
 バージョン指定やインストール先の変更も可能:
 
