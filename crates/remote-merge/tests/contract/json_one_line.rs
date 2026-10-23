@@ -1,7 +1,8 @@
 #![cfg(unix)]
 //! --format json の出力を、空白のない一行の JSON と LF 一つで標準出力に書くこと
-//! （docs/ir/cli/results.md の REQ-cli-102）の契約テスト。約束は標準出力のバイト列についてのものなので、
-//! 実行ファイルを起動して標準出力の生のバイト列を確かめる。
+//! （docs/ir/cli/results.md の REQ-cli-102）と、--format json でも JSON を出さずに終わる場合
+//! （同じ文書の REQ-cli-018 の、記録の残らない logs、引数の解析で止まったとき、--help と --version）の
+//! 契約テスト。約束は標準出力のバイト列についてのものなので、実行ファイルを起動して標準出力の生のバイト列を確かめる。
 
 use std::fs;
 use std::process::Output;
