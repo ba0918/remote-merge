@@ -6,14 +6,14 @@
 
 ### REQ-cli-018: JSON 指定は失敗時も JSON を返す
 - kind: invariant
-- source: docs/decision/records/2026-09-25-spec-migration.md#A43, docs/decision/records/2026-10-15-flag-resolution.md#A2, docs/decision/records/2026-10-24-json-one-line.md#A7, docs/decision/records/2026-10-24-json-one-line.md#A11, docs/decision/records/2026-10-24-json-one-line-consistency.md#A1
+- source: docs/decision/records/2026-09-25-spec-migration.md#A43, docs/decision/records/2026-10-15-flag-resolution.md#A2, docs/decision/records/2026-10-24-json-one-line.md#A7, docs/decision/records/2026-10-24-json-one-line.md#A11, docs/decision/records/2026-10-24-json-one-line-consistency.md#A1, docs/decision/records/2026-10-24-json-one-line-consistency-2.md#A1
 - verification: unit
 
 --format json に対応する CLI コマンドは、成功とエラーのどちらの場合も JSON として解釈できる結果を返す。
 確認を断った取り消しは成功にもエラーにも当たらず、JSON を出さない。
 logs は、--level・--since・--tail で絞った後に残った記録を一件ずつ JSON として返し、残った記録がなければ標準出力に何も出さずに終了コード 0 で終わる。
 引数の解析で止まったとき（必須の引数がない、値の形が合わない）は、JSON を出さずに終了コード 2 で終わる。
---help か -h を受けた引数の解析が使い方を標準出力に出すときは、結果にもエラーにも当たらず、JSON を出さずに終了コード 0 で終わる。
+--help か -h を受けた引数の解析が使い方を、--version か -V を受けた引数の解析が版を標準出力に出すときは、結果にもエラーにも当たらず、JSON を出さずに終了コード 0 で終わる。
 
 ### REQ-cli-102: JSON 指定の出力は一つの JSON を一行で書く
 - kind: invariant
@@ -108,6 +108,12 @@ Then 標準出力は空で、終了コードは 2 になる
 Scenario: --help を付けると JSON でなく使い方を出す
 Given 設定は有効である
 When JSON 形式で CLI merge をパスを付けずに --help を付けて実行する
+Then 標準出力は空でなく JSON として解釈できず、終了コードは 0 になる
+
+@id=EX-cli-126 @about=REQ-cli-018 @source=docs/decision/records/2026-10-24-json-one-line-consistency-2.md#A1
+Scenario: サブコマンドの前に --version を付けると JSON でなく版を出す
+Given 設定ファイルがない
+When サブコマンドの前に --version を付けて、JSON 形式で CLI status を実行する
 Then 標準出力は空でなく JSON として解釈できず、終了コードは 0 になる
 
 @id=EX-cli-037 @about=REQ-cli-019 @source=docs/decision/records/2026-09-25-spec-migration.md#A43,docs/decision/records/2026-09-25-spec-migration.md#A42
