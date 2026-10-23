@@ -19,7 +19,7 @@ use tempfile::TempDir;
 use super::args_support::{merge_args, rollback_args, sync_args};
 use super::backup_support::{
     config, config_with_servers, fixed_now, listed_sessions, merge_files, restore,
-    rollback_list_args, targets, targets_at,
+    rollback_list_args, store_entries, targets, targets_at,
 };
 
 // ── 書き込み先の区別 ──
@@ -743,7 +743,7 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
 // そのときに ID の予約まで消すと、同じ秒に始まった後の merge が同じ ID を受け取り、先の merge が示した ID
 // が別の操作のバックアップを指す（先の merge がまだ保存している途中なら、二つの操作のバックアップが一つの
 // セッションに混ざる）
-// @kotowari[REQ-backup-023]
+// @kotowari[REQ-backup-023, REQ-backup-047]
 #[test]
 fn merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention() {
     let local = TempDir::new().unwrap();
@@ -1055,6 +1055,42 @@ fn listing_and_cleanup_share_the_retention_boundary() {
         targets_at(&develop, &store, boundary),
     );
     assert!(!listed_ids(config, &develop, &store).contains(&"20200101-000000".into()));
+}
+
+/// 集約先 `store` の中の全てのファイルとディレクトリの、`store` からの相対パス（パスの順）
+fn relative_store_entries(store: &TempDir) -> Vec<std::path::PathBuf> {
+    store_entries(store.path())
+        .into_iter()
+        .map(|path| path.strip_prefix(store.path()).unwrap().to_path_buf())
+        .collect()
+}
+
+// 期限切れの整理で消したセッションのために作ったもの（ID の予約を含む）が残ると、merge・sync のたびに
+// 集約先に溜まり続ける。集約先の中の配置によらず確かめるため、同じ merge だけをした集約先と比べる
+// @kotowari[REQ-backup-047]
+#[test]
+fn cleanup_leaves_nothing_of_a_removed_session_in_the_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let cleaned = TempDir::new().unwrap();
+    let config = expired_session_fixture(&local, &develop, &cleaned);
+    merge_files(
+        merge_args(&["file.txt"]),
+        config.clone(),
+        targets_at(&develop, &cleaned, at(2020, 1, 8)),
+    );
+    let fresh = TempDir::new().unwrap();
+    fs::write(develop.path().join("file.txt"), "first\n").unwrap();
+    merge_files(
+        merge_args(&["file.txt"]),
+        config,
+        targets_at(&develop, &fresh, at(2020, 1, 8)),
+    );
+
+    assert_eq!(
+        relative_store_entries(&cleaned),
+        relative_store_entries(&fresh)
+    );
 }
 
 // @kotowari[REQ-backup-026, REQ-backup-040]
