@@ -18,7 +18,7 @@ fn resolve_password_with(
     config_password: Option<&str>,
     read_env: impl FnOnce(&str) -> Result<String, std::env::VarError>,
 ) -> Option<(Zeroizing<String>, PasswordSource)> {
-    let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
+    let env_key = crate::server_env::server_env_name("REMOTE_MERGE_PASSWORD_", server_name);
     if let Ok(val) = read_env(&env_key)
         && !val.is_empty()
     {
@@ -69,9 +69,9 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_password_server_name_uppercased() {
-        let (pass, source) = resolve_password_with("My-sErver_ß", None, |key| {
-            assert_eq!(key, "REMOTE_MERGE_PASSWORD_MY-SERVER_SS");
+    fn the_env_name_is_the_server_name_uppercased_with_hyphens_and_dots_as_underscores() {
+        let (pass, source) = resolve_password_with("My-sErver.x_ß", None, |key| {
+            assert_eq!(key, "REMOTE_MERGE_PASSWORD_MY_SERVER_X_SS");
             Ok("found".to_string())
         })
         .expect("パスワードが解決されるべき");
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn runtime_environment_is_read_in_child_process() {
         const CHILD: &str = "REMOTE_MERGE_PASSWORD_TEST_CHILD";
-        const KEY: &str = "REMOTE_MERGE_PASSWORD_RUNTIME-BOUNDARY";
+        const KEY: &str = "REMOTE_MERGE_PASSWORD_RUNTIME_BOUNDARY";
         if let Ok(case) = std::env::var(CHILD) {
             let (pass, source) = resolve_password("runtime-boundary", Some("config-pass"))
                 .expect("パスワードが解決されるべき");

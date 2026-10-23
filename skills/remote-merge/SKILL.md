@@ -366,9 +366,11 @@ remote-merge [OPTIONS] <COMMAND>
 | Variable | Description |
 |----------|-------------|
 | `REMOTE_MERGE_PASSWORD_{SERVER}` | SSH password for password auth (e.g., `REMOTE_MERGE_PASSWORD_DEVELOP`) |
-| `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}` | SSH key passphrase (e.g., `REMOTE_MERGE_KEY_PASSPHRASE_STAGING`). Server name is uppercased, `-` and `.` become `_` |
+| `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}` | SSH key passphrase (e.g., `REMOTE_MERGE_KEY_PASSPHRASE_STAGING`) |
 | `REMOTE_MERGE_AGENT_BINARY` | Override Agent binary path (for development/testing) |
 | `REMOTE_MERGE_AGENT_DIR` | Override Agent binary search directory (absolute path, no `..`) |
+
+In `REMOTE_MERGE_PASSWORD_{SERVER}` and `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}`, `{SERVER}` is the server name uppercased, with `-` and `.` replaced by `_` (e.g., server `web-1.prod` → `REMOTE_MERGE_PASSWORD_WEB_1_PROD`).
 
 These environment variables are useful for non-interactive CI/CD pipelines and automated agent workflows where prompting is not possible.
 

@@ -1,20 +1,28 @@
+#![expect(
+    unsafe_code,
+    reason = "パスフレーズを尋ねる端末を持たせないため、起動するプロセスを libc の setsid で新しいセッションにする"
+)]
 #![cfg(unix)]
 //! 設定の値の読み方と検査（docs/ir/config/values.md）のうち、実行ファイルを通して観測するものの契約テスト。
 //!
-//! strict_host_key_checking の警告は標準エラーに出るため、パスワードと鍵のパスは SSH の接続で初めて使われるため、
-//! 実行ファイルを SSH の試験サーバに対して起動して確かめる。
+//! strict_host_key_checking の警告は標準エラーに出るため、パスワードと鍵のパスとパスフレーズは SSH の接続で
+//! 初めて使われるため、実行ファイルを SSH の試験サーバに対して起動して確かめる。
 //! 設定は既存の隔離の確認を通らない値を含むため、起動の前に `CliEnv::assert_isolated_values_config` をかける。
 
 use std::fs;
-use std::path::PathBuf;
-use std::process::Output;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
 
 /// ローカルの側にだけ置くファイル。接続できたときに status の JSON の "files" に出る
 const LOCAL_ONLY: &str = "only-local.txt";
 
-/// 試験サーバの develop に `status --left local --right develop` を起動する、隔離した実行環境。
+/// "-" と "." を含むサーバ名。環境変数の名前では、どちらも "_" になる
+const DOTTED_SERVER: &str = "web-1.prod";
+
+/// 試験サーバに `status --left local --right <サーバ名>` を起動する、隔離した実行環境。
 ///
 /// 環境変数は全て消し、HOME・XDG の変数・PATH と、テストが渡すものだけを設定する。
 struct Workspace {
@@ -43,14 +51,15 @@ impl Workspace {
         )
     }
 
-    /// `config` を書き、隔離を確かめてから起動する
-    fn status(
+    /// `config` を書いて隔離を確かめ、右を `server` にした status の Command を作る
+    fn status_command(
         &self,
+        server: &str,
         config: &str,
         require_no_host_key_checking: bool,
         envs: &[(&str, &str)],
         format: &[&str],
-    ) -> Output {
+    ) -> Command {
         let config_path = self.dirs.temp.path().join("values-config.toml");
         fs::write(&config_path, config).unwrap();
         self.dirs.assert_isolated_values_config(
@@ -62,14 +71,46 @@ impl Workspace {
         let mut cmd = isolated_command(&self.home());
         cmd.envs(envs.iter().copied());
         cmd.arg("--config").arg(&config_path);
-        cmd.args(["status", "--left", "local", "--right", "develop"]);
+        cmd.args(["status", "--left", "local", "--right", server]);
         cmd.args(format);
-        cmd.output().expect("failed to execute status")
+        cmd
     }
 
-    /// --format json で起動し、標準出力の JSON を返す
+    /// 右を develop にして起動する
+    fn status(
+        &self,
+        config: &str,
+        require_no_host_key_checking: bool,
+        envs: &[(&str, &str)],
+        format: &[&str],
+    ) -> Output {
+        self.status_command(
+            "develop",
+            config,
+            require_no_host_key_checking,
+            envs,
+            format,
+        )
+        .output()
+        .expect("failed to execute status")
+    }
+
+    /// 右を develop にし、--format json で起動して、標準出力の JSON を返す
     fn status_json(&self, config: &str, envs: &[(&str, &str)]) -> serde_json::Value {
-        let output = self.status(config, true, envs, &["--format", "json"]);
+        self.status_json_on("develop", config, envs)
+    }
+
+    /// 右を `server` にし、--format json で起動して、標準出力の JSON を返す
+    fn status_json_on(
+        &self,
+        server: &str,
+        config: &str,
+        envs: &[(&str, &str)],
+    ) -> serde_json::Value {
+        let output = self
+            .status_command(server, config, true, envs, &["--format", "json"])
+            .output()
+            .expect("failed to execute status");
         serde_json::from_slice(&output.stdout)
             .unwrap_or_else(|err| panic!("status did not print JSON ({err}): {output:?}"))
     }
@@ -90,6 +131,13 @@ fn with_password(config: &str, password: &str) -> String {
         &format!("password = {password:?}"),
     );
     assert_ne!(replaced, config, "fixture password line missing");
+    replaced
+}
+
+/// サーバ develop の名前を `name` に変えた設定
+fn with_server_name(config: &str, name: &str) -> String {
+    let replaced = config.replace("[servers.develop]", &format!("[servers.{name:?}]"));
+    assert_ne!(replaced, config, "fixture server header missing");
     replaced
 }
 
@@ -195,6 +243,32 @@ fn empty_server_env_var_is_treated_as_unset() {
     assert_not_connected(&json, "wrong env var");
 }
 
+// @kotowari[REQ-config-019]
+#[test]
+fn password_env_var_name_turns_hyphens_and_dots_in_the_server_name_into_underscores() {
+    let workspace = Workspace::new();
+    let config = with_server_name(
+        &with_password(&workspace.base_config(), "wrong-password"),
+        DOTTED_SERVER,
+    );
+
+    // 設定の password が正しくなくても、REMOTE_MERGE_PASSWORD_WEB_1_PROD のパスワードで接続できる
+    let json = workspace.status_json_on(
+        DOTTED_SERVER,
+        &config,
+        &[("REMOTE_MERGE_PASSWORD_WEB_1_PROD", "fixture-password")],
+    );
+    assert_connected(&json, "underscored env var");
+
+    // 環境変数の名前だけを変える: サーバ名を大文字にしただけの名前は読まれず、設定の正しくない password で接続できない
+    let json = workspace.status_json_on(
+        DOTTED_SERVER,
+        &config,
+        &[("REMOTE_MERGE_PASSWORD_WEB-1.PROD", "fixture-password")],
+    );
+    assert_not_connected(&json, "uppercased-only env var");
+}
+
 // ─── 鍵のパス（REQ-config-020） ─────────────────
 
 /// develop を auth = "key" にし、password の行を除いた設定（key は `key_line` があれば足す）
@@ -241,6 +315,82 @@ fn key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_re
             expanded.display()
         )),
         "{output:?}"
+    );
+}
+
+// ─── 環境変数のパスフレーズ（REQ-config-050） ─────────────────
+
+/// 鍵を暗号化したパスフレーズ
+const KEY_PASSPHRASE: &str = "fixture passphrase";
+
+/// `path` に、`KEY_PASSPHRASE` で暗号化した鍵を書く
+fn write_encrypted_key(path: &Path) {
+    use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
+    let key =
+        russh::keys::PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap();
+    // 既定の bcrypt の回数は最適化しない組み立てで遅いので、回数を最小にする
+    let kdf = Kdf::Bcrypt {
+        salt: vec![7; 16],
+        rounds: 1,
+    };
+    let encrypted = key
+        .encrypt_with(Cipher::Aes256Ctr, kdf, 0, KEY_PASSPHRASE)
+        .unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, encrypted.to_openssh(LineEnding::LF).unwrap()).unwrap();
+}
+
+/// 端末を持たない新しいセッションで起動する。製品はパスフレーズを端末（"/dev/tty"）から尋ねるので、
+/// テストを端末から動かしても入力を待たず、尋ねても答えを得られない
+fn output_without_terminal(mut command: Command) -> Output {
+    // SAFETY: pre_exec の関数は fork の後の子で動くので、async-signal-safe な関数だけを呼ぶ。setsid はその一つ
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.output().expect("failed to execute status")
+}
+
+// @kotowari[REQ-config-050]
+#[test]
+fn key_passphrase_env_var_name_turns_hyphens_and_dots_in_the_server_name_into_underscores() {
+    let workspace = Workspace::new();
+    let key = workspace.home().join("keys/encrypted");
+    write_encrypted_key(&key);
+    let config = with_server_name(
+        &with_key_auth(&workspace.base_config(), Some("key = \"~/keys/encrypted\"")),
+        DOTTED_SERVER,
+    );
+    let load_error = format!("Failed to load SSH private key: {}", key.display());
+    let run = |env_name: &str| {
+        output_without_terminal(workspace.status_command(
+            DOTTED_SERVER,
+            &config,
+            true,
+            &[(env_name, KEY_PASSPHRASE)],
+            &[],
+        ))
+    };
+
+    // REMOTE_MERGE_KEY_PASSPHRASE_WEB_1_PROD のパスフレーズで鍵を開け、鍵を読めないエラーにならない
+    // （試験サーバは鍵による認証を受け付けないので、その先の認証で止まる）
+    let output = run("REMOTE_MERGE_KEY_PASSPHRASE_WEB_1_PROD");
+    assert!(
+        !combined(&output).contains(&load_error),
+        "underscored env var: {output:?}"
+    );
+
+    // 環境変数の名前だけを変える: "." を残した名前は読まれず、端末がないので尋ねても答えを得られず、
+    // 鍵を読めないエラーで止まる
+    let output = run("REMOTE_MERGE_KEY_PASSPHRASE_WEB_1.PROD");
+    assert!(!output.status.success(), "dotted env var: {output:?}");
+    assert!(
+        combined(&output).contains(&load_error),
+        "dotted env var: {output:?}"
     );
 }
 
