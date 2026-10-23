@@ -71,10 +71,10 @@ ID の日時は、コマンドを始めた時刻ではなく、操作が書き�
 
 ### REQ-backup-047: 期限切れの整理でセッション ID の予約も消す
 - kind: event_driven
-- source: docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A1, docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A2, docs/decision/records/2026-10-23-backup-session-id-reservation-time.md#A2
+- source: docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A1, docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A2, docs/decision/records/2026-10-23-backup-session-id-reservation-time.md#A2, docs/decision/records/2026-10-23-backup-reservation-margin-consistency.md#A1
 - verification: unit
 
-期限切れバックアップの整理でセッションを集約先から消したときは、そのセッション ID の予約も消し、そのセッションのために作ったものを集約先に残さない。ただし、セッション ID の日時部分（UTC）からの経過時間が 24 時間に満たないときは、その秒のうちにこれから予約する別の操作にその ID を割り当てないように、予約を残す（REQ-backup-023）。
+期限切れバックアップの整理でセッションを集約先から消したときは、そのセッション ID の予約も消し、そのセッションのために作ったものを集約先に残さない。ただし、セッション ID の日時部分（UTC）からの経過時間が 24 時間に満たないときは、予約を残す（REQ-backup-023）。整理するコマンドを始めた秒の ID は、その秒のうちにこれから予約する別の操作が受け取りうるので、その秒を含めて 24 時間を幅として残す。
 整理の後もセッションが集約先に残るとき（設定にない書き込み先の領域が残るか、同時に動く別の操作が中に保存したとき）は、予約も残す。
 
 ## Examples
