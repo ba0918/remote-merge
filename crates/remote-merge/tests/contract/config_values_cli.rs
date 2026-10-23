@@ -1,12 +1,17 @@
+#![expect(
+    unsafe_code,
+    reason = "パスフレーズを尋ねる端末を持たせないため、起動するプロセスを libc の setsid で新しいセッションにする"
+)]
 #![cfg(unix)]
 //! 設定の値の読み方と検査（docs/ir/config/values.md）のうち、実行ファイルを通して観測するものの契約テスト。
 //!
-//! strict_host_key_checking の警告は標準エラーに出るため、パスワードと鍵のパスは SSH の接続で初めて使われるため、
-//! 実行ファイルを SSH の試験サーバに対して起動して確かめる。
+//! strict_host_key_checking の警告は標準エラーに出るため、パスワードと鍵のパスとパスフレーズは SSH の接続で
+//! 初めて使われるため、実行ファイルを SSH の試験サーバに対して起動して確かめる。
 //! 設定は既存の隔離の確認を通らない値を含むため、起動の前に `CliEnv::assert_isolated_values_config` をかける。
 
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
@@ -310,6 +315,82 @@ fn key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_re
             expanded.display()
         )),
         "{output:?}"
+    );
+}
+
+// ─── 環境変数のパスフレーズ（REQ-config-050） ─────────────────
+
+/// 鍵を暗号化したパスフレーズ
+const KEY_PASSPHRASE: &str = "fixture passphrase";
+
+/// `path` に、`KEY_PASSPHRASE` で暗号化した鍵を書く
+fn write_encrypted_key(path: &Path) {
+    use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
+    let key =
+        russh::keys::PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).unwrap();
+    // 既定の bcrypt の回数は最適化しない組み立てで遅いので、回数を最小にする
+    let kdf = Kdf::Bcrypt {
+        salt: vec![7; 16],
+        rounds: 1,
+    };
+    let encrypted = key
+        .encrypt_with(Cipher::Aes256Ctr, kdf, 0, KEY_PASSPHRASE)
+        .unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, encrypted.to_openssh(LineEnding::LF).unwrap()).unwrap();
+}
+
+/// 端末を持たない新しいセッションで起動する。製品はパスフレーズを端末（"/dev/tty"）から尋ねるので、
+/// テストを端末から動かしても入力を待たず、尋ねても答えを得られない
+fn output_without_terminal(mut command: Command) -> Output {
+    // SAFETY: pre_exec の関数は fork の後の子で動くので、async-signal-safe な関数だけを呼ぶ。setsid はその一つ
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.output().expect("failed to execute status")
+}
+
+// @kotowari[REQ-config-050]
+#[test]
+fn key_passphrase_env_var_name_turns_hyphens_and_dots_in_the_server_name_into_underscores() {
+    let workspace = Workspace::new();
+    let key = workspace.home().join("keys/encrypted");
+    write_encrypted_key(&key);
+    let config = with_server_name(
+        &with_key_auth(&workspace.base_config(), Some("key = \"~/keys/encrypted\"")),
+        DOTTED_SERVER,
+    );
+    let load_error = format!("Failed to load SSH private key: {}", key.display());
+    let run = |env_name: &str| {
+        output_without_terminal(workspace.status_command(
+            DOTTED_SERVER,
+            &config,
+            true,
+            &[(env_name, KEY_PASSPHRASE)],
+            &[],
+        ))
+    };
+
+    // REMOTE_MERGE_KEY_PASSPHRASE_WEB_1_PROD のパスフレーズで鍵を開け、鍵を読めないエラーにならない
+    // （試験サーバは鍵による認証を受け付けないので、その先の認証で止まる）
+    let output = run("REMOTE_MERGE_KEY_PASSPHRASE_WEB_1_PROD");
+    assert!(
+        !combined(&output).contains(&load_error),
+        "underscored env var: {output:?}"
+    );
+
+    // 環境変数の名前だけを変える: "." を残した名前は読まれず、端末がないので尋ねても答えを得られず、
+    // 鍵を読めないエラーで止まる
+    let output = run("REMOTE_MERGE_KEY_PASSPHRASE_WEB_1.PROD");
+    assert!(!output.status.success(), "dotted env var: {output:?}");
+    assert!(
+        combined(&output).contains(&load_error),
+        "dotted env var: {output:?}"
     );
 }
 
