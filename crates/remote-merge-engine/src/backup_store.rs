@@ -517,26 +517,16 @@ fn warn_untidy(path: &Path, error: &std::io::Error) {
 }
 
 fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(path)?;
-        set_dir_permissions(path)?;
-    }
-    #[cfg(not(unix))]
-    fs::create_dir_all(path)?;
-    Ok(())
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)?;
+    set_dir_permissions(path)
 }
 
 #[cfg(unix)]
 fn set_dir_permissions(path: &Path) -> std::io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-}
-#[cfg(not(unix))]
-fn set_dir_permissions(_: &Path) -> std::io::Result<()> {
-    Ok(())
 }
 
 fn write_file_owner_only(path: &Path, content: &[u8]) -> std::io::Result<()> {

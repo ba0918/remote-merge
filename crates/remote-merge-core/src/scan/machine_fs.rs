@@ -1,5 +1,5 @@
-//! このマシンのファイルの情報を生の項目にする。Unix ではバイト列の名前とデバイス番号・inode
-//! 番号・ナノ秒の更新時刻を読み、Unix 以外では標準ライブラリで読める範囲で読む
+//! このマシンのファイルの情報を生の項目にする。バイト列の名前とデバイス番号・inode 番号・ナノ秒の
+//! 更新時刻を読む
 use std::ffi::OsStr;
 use std::fs::Metadata;
 use std::io;
@@ -35,20 +35,10 @@ pub fn bytes_of(name: &OsStr) -> Vec<u8> {
     name.as_bytes().to_vec()
 }
 
-#[cfg(not(unix))]
-pub fn bytes_of(name: &OsStr) -> Vec<u8> {
-    name.to_string_lossy().into_owned().into_bytes()
-}
-
 #[cfg(unix)]
 pub fn path_of(bytes: &[u8]) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     PathBuf::from(OsStr::from_bytes(bytes))
-}
-
-#[cfg(not(unix))]
-pub fn path_of(bytes: &[u8]) -> PathBuf {
-    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// 項目の情報を生の項目にする。`link` は symlink のときに読んだリンク文字列
@@ -99,7 +89,6 @@ pub fn why_unreached(error: &io::Error) -> Unreached {
     if error.kind() == io::ErrorKind::NotFound {
         return Unreached::Missing;
     }
-    #[cfg(unix)]
     if error.raw_os_error() == Some(libc::ENOTDIR) {
         return Unreached::NotDirectory;
     }
@@ -115,27 +104,10 @@ fn mtime_of(meta: &Metadata) -> RawTime {
     }
 }
 
-#[cfg(not(unix))]
-fn mtime_of(meta: &Metadata) -> RawTime {
-    match crate::listing::modified(meta) {
-        Ok(time) => RawTime::read(time.timestamp(), time.timestamp_subsec_nanos()),
-        Err(_) => RawTime::Unreadable,
-    }
-}
-
 #[cfg(unix)]
 fn mode_of(meta: &Metadata) -> u32 {
     use std::os::unix::fs::MetadataExt;
     meta.mode()
-}
-
-#[cfg(not(unix))]
-fn mode_of(meta: &Metadata) -> u32 {
-    if meta.permissions().readonly() {
-        0o444
-    } else {
-        0o644
-    }
 }
 
 #[cfg(unix)]
@@ -144,15 +116,5 @@ fn id_of(meta: &Metadata) -> DirId {
     DirId {
         dev: meta.dev(),
         ino: meta.ino(),
-    }
-}
-
-/// Unix 以外ではデバイス番号と inode 番号を読めないので、循環は見分けない
-#[cfg(not(unix))]
-fn id_of(_: &Metadata) -> DirId {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    DirId {
-        dev: 0,
-        ino: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
     }
 }

@@ -188,15 +188,4 @@ impl CoreRuntime {
             _guard: Some(guard),
         })
     }
-
-    /// Unix 以外のプラットフォームではエージェントは利用不可
-    #[cfg(not(unix))]
-    pub(crate) fn start_agent_via_ssh(
-        &mut self,
-        _server_name: &str,
-    ) -> Result<ConnectedAgent, AgentState> {
-        Err(AgentState::CannotStart {
-            reason: "the agent runs only on Unix platforms".to_string(),
-        })
-    }
 }

@@ -3,8 +3,7 @@
     reason = "実効 uid での X_OK の確認は libc::faccessat(AT_EACCESS) を使う"
 )]
 //! このマシンのファイルシステムを調べる基本操作。ローカルの経路とエージェントの経路が同じものを使う。
-//! Unix では標準ライブラリと libc で調べる。Unix 以外では標準ライブラリだけで調べ、検索権限の
-//! ビットがないので、OS が権限のエラーを返したときだけ "permission denied" にする。
+//! 標準ライブラリと libc で調べる。
 
 use std::path::Path;
 
@@ -29,10 +28,6 @@ impl PathOps for OsPathOps {
                 })
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(EntryKind::Missing),
-            #[cfg(not(unix))]
-            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-                Err(ResolveError::PermissionDenied)
-            }
             Err(_) => Err(ResolveError::CannotRead),
         }
     }
@@ -54,29 +49,12 @@ impl PathOps for OsPathOps {
         }
     }
 
-    /// 検索権限のビットがないので、権限のエラーは中の要素を調べたときに受け取る
-    #[cfg(not(unix))]
-    fn can_search(&self, _directory: &str) -> Result<bool, ResolveError> {
-        Ok(true)
-    }
-
     #[cfg(unix)]
     fn read_link(&self, path: &str) -> Result<Vec<u8>, ResolveError> {
         use std::os::unix::ffi::OsStringExt;
         std::fs::read_link(path)
             .map(|target| target.into_os_string().into_vec())
             .map_err(|_| ResolveError::CannotRead)
-    }
-
-    /// バイト列で読めないので、UTF-8 でないリンク文字列はここで止める
-    #[cfg(not(unix))]
-    fn read_link(&self, path: &str) -> Result<Vec<u8>, ResolveError> {
-        let target = std::fs::read_link(path).map_err(|_| ResolveError::CannotRead)?;
-        target
-            .into_os_string()
-            .into_string()
-            .map(String::into_bytes)
-            .map_err(|_| ResolveError::NonUtf8Path)
     }
 }
 
