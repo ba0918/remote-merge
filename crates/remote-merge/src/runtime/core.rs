@@ -15,10 +15,6 @@ use crate::ssh::client::SshClient;
 #[cfg(unix)]
 pub type BoxedAgentClient = AgentClient<UnixStream, UnixStream>;
 
-/// Windows 向けの Agent クライアント型（プレースホルダー: Agent は Unix のみサポート）
-#[cfg(not(unix))]
-pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Cursor<Vec<u8>>>;
-
 /// テストだけ: パスを受けて呼ぶ関数
 #[cfg(feature = "test-utils")]
 pub type PathHook = Box<dyn Fn(&str)>;

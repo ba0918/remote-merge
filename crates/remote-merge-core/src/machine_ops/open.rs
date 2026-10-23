@@ -85,14 +85,3 @@ fn open_without_following(
     use std::os::unix::fs::OpenOptionsExt;
     options.custom_flags(libc::O_NOFOLLOW).open(path)
 }
-
-#[cfg(not(unix))]
-fn open_without_following(
-    options: &mut std::fs::OpenOptions,
-    path: &Path,
-) -> std::io::Result<std::fs::File> {
-    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(std::io::Error::other("the destination is a symbolic link"));
-    }
-    options.open(path)
-}

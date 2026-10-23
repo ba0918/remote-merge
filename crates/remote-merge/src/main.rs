@@ -538,19 +538,11 @@ fn try_main() -> anyhow::Result<()> {
             default_uid,
             default_gid,
         } => {
-            #[cfg(unix)]
-            {
-                let metadata_config = remote_merge::agent::dispatch::MetadataConfig {
-                    default_uid,
-                    default_gid,
-                };
-                remote_merge::agent::server::run_agent_server(root, metadata_config)?;
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = (root, default_uid, default_gid);
-                anyhow::bail!("The agent subcommand is only supported on Unix platforms");
-            }
+            let metadata_config = remote_merge::agent::dispatch::MetadataConfig {
+                default_uid,
+                default_gid,
+            };
+            remote_merge::agent::server::run_agent_server(root, metadata_config)?;
         }
     }
 

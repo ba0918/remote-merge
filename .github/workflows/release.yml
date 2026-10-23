@@ -55,10 +55,6 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-15
             archive: tar.gz
-          # TODO: Windows support (separate cycle)
-          # - target: x86_64-pc-windows-msvc
-          #   os: windows-2025
-          #   archive: zip
 
     steps:
       - name: Check out
@@ -86,22 +82,13 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --target "$TARGET"
 
-      - name: Package (Unix)
-        if: matrix.archive == 'tar.gz'
+      - name: Package
         env:
           TARGET: ${{ matrix.target }}
         run: |
           cd "target/$TARGET/release"
           tar czf "../../../remote-merge-$TARGET.tar.gz" remote-merge
           cd ../../..
-
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          Compress-Archive -Path "target/$env:TARGET/release/remote-merge.exe" -DestinationPath "remote-merge-$env:TARGET.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

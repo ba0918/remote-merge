@@ -41,17 +41,6 @@ pub fn chmod(root: &Path, entry: &EntryPath, mode: PermissionMode) -> Result<(),
         .map_err(|error| failed(&error))
 }
 
-/// 権限のビットのない環境では、書き込みの可否だけを変える
-#[cfg(not(unix))]
-pub fn chmod(root: &Path, entry: &EntryPath, mode: PermissionMode) -> Result<(), OpFailure> {
-    let path = full_path(root, entry);
-    let mut permissions = std::fs::metadata(&path)
-        .map_err(|error| failed(&error))?
-        .permissions();
-    permissions.set_readonly(mode.bits() & 0o200 == 0);
-    std::fs::set_permissions(&path, permissions).map_err(|error| failed(&error))
-}
-
 /// symlink を作る。作成先に何かがあれば置き換えずに失敗する（REQ-merge-040）
 #[cfg(unix)]
 pub fn create_symlink(root: &Path, entry: &EntryPath, target: &str) -> Result<(), OpFailure> {
@@ -72,11 +61,4 @@ pub fn create_symlink_creating(
         Ok(()) => Ok(new_dirs),
         Err(error) => Err(undo_parents(&new_dirs, failed(&error), remove_dir)),
     }
-}
-
-#[cfg(not(unix))]
-pub fn create_symlink(_root: &Path, _entry: &EntryPath, _target: &str) -> Result<(), OpFailure> {
-    Err(OpFailure::Io(
-        "symbolic links are not supported on this machine".to_string(),
-    ))
 }
