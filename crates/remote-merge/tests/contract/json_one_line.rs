@@ -340,3 +340,22 @@ fn ex_cli_125_a_json_merge_with_help_prints_usage_instead_of_json_and_exits_with
         "{output:?}"
     );
 }
+
+// @kotowari[REQ-cli-018, EX-cli-126]
+#[test]
+fn ex_cli_126_version_before_a_json_status_prints_the_version_instead_of_json_and_exits_with_zero()
+{
+    let home = TempDir::new().unwrap();
+
+    let output = isolated_command(home.path())
+        .args(["--version", "status", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(!output.stdout.is_empty(), "{output:?}");
+    assert!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).is_err(),
+        "{output:?}"
+    );
+}
