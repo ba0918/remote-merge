@@ -1,5 +1,7 @@
 # JSON Output Schemas
 
+The CLI writes each JSON value on a single line with no whitespace outside strings, ending with one newline (LF), and `logs` writes one such line per entry; the examples below are pretty-printed only for readability.
+
 ## Error Response
 
 When `--format json` is specified and an error occurs, all subcommands (status, diff, merge, sync, rollback, logs) return a JSON error object on stdout:
@@ -9,6 +11,8 @@ When `--format json` is specified and an error occurs, all subcommands (status, 
 ```
 
 Exit code is `2` on error. Config-not-found errors display both searched paths (project `.remote-merge.toml` and global `~/.config/remote-merge/config.toml`).
+
+Errors found while parsing the command-line arguments are the exception, such as a missing required argument (`merge` without a path) or a value of the wrong type (`logs --tail abc`). The argument parser reports them on stderr, nothing is written to stdout, and the exit code is `2`. Values that the command checks itself, such as an unknown `logs --level`, still return the JSON error object.
 
 ## status
 
