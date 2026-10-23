@@ -6,7 +6,7 @@
 [REQ-config-019](../../ir/config/values.md#REQ-config-019) は、パスワードの環境変数の名前をサーバ名を大文字にしただけのものとしていて、変更後のコードと食い違っていた。パスフレーズの環境変数は IR のどこにもなかった。
 この記録は、IR をどちらに合わせたか、IR に何を足し何を足さなかったかと、その根拠を残す。
 
-Position: REQ-config-019 の名前の作り方を変更後のコードに合わせ、[2026-09-28-adopt-config-values.md の A6](./2026-09-28-adopt-config-values.md#A6) の名前の作り方の部分をこの記録の A1 で置き換えた（A1）。パスフレーズの環境変数を [REQ-config-050](../../ir/config/values.md#REQ-config-050) として足し（A2）、尋ねる回数と文言は足さなかった（A3）。
+Position: REQ-config-019 の名前の作り方を変更後のコードに合わせ、[2026-09-28-adopt-config-values.md の A6](./2026-09-28-adopt-config-values.md#A6) の名前の作り方の部分をこの記録の A1 で置き換えた（A1）。パスフレーズの環境変数を [REQ-config-050](../../ir/config/values.md#REQ-config-050) として足し（A2）、尋ねる回数と文言は足さなかった（A3）。どちらの名前も "-" と "." を含むサーバ名で確かめる契約テストを足した（A4）。
 
 ## Agreements
 
@@ -19,3 +19,13 @@ Position: REQ-config-019 の名前の作り方を変更後のコードに合わ�
 - A3 パスフレーズを尋ねる回数（いまは 3 回）、尋ねるときの文言（いまは "Enter passphrase for key '<パス>': "）と、環境変数のパスフレーズや尋ねて得たパスフレーズで開けなかったとき・端末から読めなかったときの警告の文言は、[REQ-config-050](../../ir/config/values.md#REQ-config-050) に書かない。
   - why: この変更はこれらに触れておらず、利用者の決定の対象でもない。REQ-config-050 は端末で尋ねることと、得られないときに止まることまでを述べ、回数と文言を決めないので、いまのコードと矛盾しない。決めるときは、尋ねる流れを扱う変更で利用者に諮る。
   - decided_by: consistency phase（実装と仕様の整合確認役）
+- A4 "-" と "." を含むサーバ名 "web-1.prod" で、[REQ-config-019](../../ir/config/values.md#REQ-config-019) と [REQ-config-050](../../ir/config/values.md#REQ-config-050) の環境変数の名前を実行ファイルを通して確かめる契約テストを、crates/remote-merge/tests/contract/config_values_cli.rs に足す。どちらも、A1 の名前が読まれることと、名前だけを変えた古い作り方の名前が読まれないことを一つのテストで比べる。パスフレーズのテストは、起動するプロセスを libc の setsid で新しいセッションにして端末を持たせない。
+  - why: これまでの REQ-config-019 の契約テストはサーバ名 develop だけを使い、大文字にするだけの名前と A1 の名前がどちらも REMOTE_MERGE_PASSWORD_DEVELOP になるので、A1 を確かめられなかった。ssh の crate の単体テストは名前を作る関数を確かめるが、このプロジェクトで kotowari の印を読むのは契約テストだけである。製品はパスフレーズを端末（rpassword 7.5.4 の既定の入出力は "/dev/tty"）から尋ねるので、端末のある場所でテストを動かすと、名前を読み違えたときに入力を待って止まる。新しいセッションには端末がなく、尋ねても答えを得られないことが決まるので、読み違えたときは鍵を読めないエラーで落ちる。試験サーバは鍵による認証を受け付けないので、正しい名前のときに確かめられるのは、鍵を開けて鍵を読めないエラーにならないことまでである。
+  - decided_by: consistency phase（実装と仕様の整合確認役）
+
+## Verification
+
+- 変更前の名前での測定（リポジトリに入れない）: crates/remote-merge-ssh/src/server_env.rs の server_env_name をサーバ名を大文字にするだけの形（A6 の名前）に一時的に戻し、`cargo nextest run -p remote-merge --all-features --test contract -E 'test(/config_values_cli::password_env_var_name/)'` を動かした。REMOTE_MERGE_PASSWORD_WEB_1_PROD を渡しても読まれず、設定の正しくない password で `{"error":"SSH authentication failed (user: fixture-user@127.0.0.1)"}` になって失敗した。
+- crates/remote-merge-ssh/src/passphrase_provider.rs の passphrase_env_key を変更前の形（"-" だけを "_" にして大文字にする）に一時的に戻し、`cargo nextest run -p remote-merge --all-features --test contract -E 'test(/config_values_cli::key_passphrase/)'` を動かした。REMOTE_MERGE_KEY_PASSPHRASE_WEB_1_PROD は読まれず、"Could not read the passphrase from the terminal." の警告の後に "Failed to load SSH private key: <HOME>/keys/encrypted" で止まって失敗した。
+- どちらも戻した後（59b4e6c7）は成功する。正しい名前のパスフレーズのときの出力は "SSH authentication failed (user: fixture-user@127.0.0.1)" で、鍵を開けた後の鍵による認証で止まっていることを確かめた。
+- シェルの変数名: `sh -c 'export REMOTE_MERGE_PASSWORD_WEB-1.PROD=x'` は "export: REMOTE_MERGE_PASSWORD_WEB-1.PROD: bad variable name"、bash では "not a valid identifier" で失敗する。
