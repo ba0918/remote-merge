@@ -7,14 +7,17 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Output;
+use std::process::{Command, Output};
 
 use super::common::{CliEnv, gen_config, isolated_command, strip_ansi};
 
 /// ローカルの側にだけ置くファイル。接続できたときに status の JSON の "files" に出る
 const LOCAL_ONLY: &str = "only-local.txt";
 
-/// 試験サーバの develop に `status --left local --right develop` を起動する、隔離した実行環境。
+/// "-" と "." を含むサーバ名。環境変数の名前では、どちらも "_" になる
+const DOTTED_SERVER: &str = "web-1.prod";
+
+/// 試験サーバに `status --left local --right <サーバ名>` を起動する、隔離した実行環境。
 ///
 /// 環境変数は全て消し、HOME・XDG の変数・PATH と、テストが渡すものだけを設定する。
 struct Workspace {
@@ -43,14 +46,15 @@ impl Workspace {
         )
     }
 
-    /// `config` を書き、隔離を確かめてから起動する
-    fn status(
+    /// `config` を書いて隔離を確かめ、右を `server` にした status の Command を作る
+    fn status_command(
         &self,
+        server: &str,
         config: &str,
         require_no_host_key_checking: bool,
         envs: &[(&str, &str)],
         format: &[&str],
-    ) -> Output {
+    ) -> Command {
         let config_path = self.dirs.temp.path().join("values-config.toml");
         fs::write(&config_path, config).unwrap();
         self.dirs.assert_isolated_values_config(
@@ -62,14 +66,46 @@ impl Workspace {
         let mut cmd = isolated_command(&self.home());
         cmd.envs(envs.iter().copied());
         cmd.arg("--config").arg(&config_path);
-        cmd.args(["status", "--left", "local", "--right", "develop"]);
+        cmd.args(["status", "--left", "local", "--right", server]);
         cmd.args(format);
-        cmd.output().expect("failed to execute status")
+        cmd
     }
 
-    /// --format json で起動し、標準出力の JSON を返す
+    /// 右を develop にして起動する
+    fn status(
+        &self,
+        config: &str,
+        require_no_host_key_checking: bool,
+        envs: &[(&str, &str)],
+        format: &[&str],
+    ) -> Output {
+        self.status_command(
+            "develop",
+            config,
+            require_no_host_key_checking,
+            envs,
+            format,
+        )
+        .output()
+        .expect("failed to execute status")
+    }
+
+    /// 右を develop にし、--format json で起動して、標準出力の JSON を返す
     fn status_json(&self, config: &str, envs: &[(&str, &str)]) -> serde_json::Value {
-        let output = self.status(config, true, envs, &["--format", "json"]);
+        self.status_json_on("develop", config, envs)
+    }
+
+    /// 右を `server` にし、--format json で起動して、標準出力の JSON を返す
+    fn status_json_on(
+        &self,
+        server: &str,
+        config: &str,
+        envs: &[(&str, &str)],
+    ) -> serde_json::Value {
+        let output = self
+            .status_command(server, config, true, envs, &["--format", "json"])
+            .output()
+            .expect("failed to execute status");
         serde_json::from_slice(&output.stdout)
             .unwrap_or_else(|err| panic!("status did not print JSON ({err}): {output:?}"))
     }
@@ -90,6 +126,13 @@ fn with_password(config: &str, password: &str) -> String {
         &format!("password = {password:?}"),
     );
     assert_ne!(replaced, config, "fixture password line missing");
+    replaced
+}
+
+/// サーバ develop の名前を `name` に変えた設定
+fn with_server_name(config: &str, name: &str) -> String {
+    let replaced = config.replace("[servers.develop]", &format!("[servers.{name:?}]"));
+    assert_ne!(replaced, config, "fixture server header missing");
     replaced
 }
 
@@ -193,6 +236,32 @@ fn empty_server_env_var_is_treated_as_unset() {
         &[("REMOTE_MERGE_PASSWORD_DEVELOP", "wrong-password")],
     );
     assert_not_connected(&json, "wrong env var");
+}
+
+// @kotowari[REQ-config-019]
+#[test]
+fn password_env_var_name_turns_hyphens_and_dots_in_the_server_name_into_underscores() {
+    let workspace = Workspace::new();
+    let config = with_server_name(
+        &with_password(&workspace.base_config(), "wrong-password"),
+        DOTTED_SERVER,
+    );
+
+    // 設定の password が正しくなくても、REMOTE_MERGE_PASSWORD_WEB_1_PROD のパスワードで接続できる
+    let json = workspace.status_json_on(
+        DOTTED_SERVER,
+        &config,
+        &[("REMOTE_MERGE_PASSWORD_WEB_1_PROD", "fixture-password")],
+    );
+    assert_connected(&json, "underscored env var");
+
+    // 環境変数の名前だけを変える: サーバ名を大文字にしただけの名前は読まれず、設定の正しくない password で接続できない
+    let json = workspace.status_json_on(
+        DOTTED_SERVER,
+        &config,
+        &[("REMOTE_MERGE_PASSWORD_WEB-1.PROD", "fixture-password")],
+    );
+    assert_not_connected(&json, "uppercased-only env var");
 }
 
 // ─── 鍵のパス（REQ-config-020） ─────────────────
