@@ -30,3 +30,7 @@ Position: 予約を消すことを [REQ-backup-047](../../ir/backup/sessions.md#
 - 測定 4（保持期間 1 日、毎日 1 回ずつ 5 日の実行）: b8dde42a では予約が 5 つ残り、セッションは最後の 1 つだった。12a76352 と 9fd90a5b では予約もセッションも最後の 1 つだけだった。
 - 契約テスト crates/remote-merge/tests/contract/backup_sessions.rs の merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention（保持期間 0 日で同じ秒の二つの merge）は、c5e4acef で二つの merge がどちらも "20260914-120000" になって失敗し、9fd90a5b で成功する。cleanup_leaves_nothing_of_a_removed_session_in_the_store（期限切れの整理をした集約先と、同じ merge だけをした集約先の中を比べる）は、b8dde42a の整理では整理した側にだけ "reservations/20200101-000000" が残って失敗し、9fd90a5b で成功する。比べるだけなので、集約先の中の配置は確かめない。
 - REQ-backup-047 の「整理の後もセッションが残るときは予約も残す」は、契約テストでは確かめていない。製品のコマンドの上でこれが見えるのは、残ったセッションと同じ秒に始まった実行が予約するときだけで、それには時刻を戻すか、始まってから 24 時間以上たって予約する実行が要る。engine の単体テスト an_expired_session_left_for_an_unconfigured_target_keeps_its_reservation が予約の場所を見て確かめている。
+
+## Revisions
+
+- 2026-10-23: A2 の why の「実行の時刻は始まったときに一度だけ決まり」から「判断できない」までの理由と、rejected が整理する実行と同じ秒の ID の予約だけを残す案を測定 2 で退けた根拠は、ID の日時がコマンドを始めた時刻だったときのものである。ID の日時を予約した時刻にした後（[backup-session-id-reservation-time A1](./2026-10-23-backup-session-id-reservation-time.md#A1)）は成り立たない。24 時間を残す今の根拠は [backup-reservation-margin-consistency A1](./2026-10-23-backup-reservation-margin-consistency.md#A1) で読み替えた。A2 の決定（日時から 24 時間に満たない ID の予約を残す）は変わらない。

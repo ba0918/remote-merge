@@ -17,9 +17,14 @@ Position: ID の日時を、セッション ID を予約した時刻にして直
 - A2 [REQ-backup-047](../../ir/backup/sessions.md#REQ-backup-047) の、日時から 24 時間に満たない ID の予約を残す但し書きは変えない。残す理由は「その秒のうちにこれから予約する別の操作にその ID を割り当てないため」と書き直す。
   - why: A1 の後に整理が予約を消した ID を受け取りうるのは、その ID と同じ秒に予約する操作だけで、同じ秒に始まった操作ではない。保持期間が 0 日なら、整理するコマンドを始めた秒と同じ秒の ID も期限切れになるので、但し書きは今も要る（契約テスト merges_started_in_the_same_second_use_distinct_session_ids_with_zero_retention）。24 時間の幅は [backup-reservations-cleanup-consistency A2](./2026-10-23-backup-reservations-cleanup-consistency.md#A2) のとおり保持期間の最小の正の値にそろえたもので、A1 の後も変える理由はない。
   - decided_by: consistency phase（実装と仕様の整合確認役）
+  - superseded_by: [backup-reservation-margin-consistency A1](./2026-10-23-backup-reservation-margin-consistency.md#A1)
 
 ## Verification
 
 - 測定 1: リポジトリに入れない使い捨ての契約テストで、merge A を 2020-01-01 00:00:00 に（保持期間は既定の 7 日）、merge C を 2020-01-08 00:00:00 に同じ集約先で行い（C の整理が A のセッションと予約を消す）、その後で 2020-01-01 00:00:00 に始まった rollback（確認に遅れて答えたものの代わりに --force を付けた）で C のセッションを戻した。`cargo nextest run -p remote-merge --all-features -E 'test(/zz_probe_late_reserving/)' --no-capture` で、f7c07aa3 では rollback の pre_rollback_backup が A と同じ "20200101-000000" になった。整理だけを b8dde42a に戻すと "20200101-000000-2" だった。
 - 測定 2: docs/ir・README.md・skills/remote-merge をセッション ID で検索した。docs/ir と README.md には、ID の日時がどの時点の時刻かを決めた文はなかった。skills/remote-merge/SKILL.md は "-N" を "when multiple operations start in the same second" のときに付くと書いていた（ffe5ef72 で直した）。A21 の出典の旧資料（docs/archive/spec.md の「開始時にセッション ID を 1 回だけ決める」）は形式と順序だけが A21 に取り込まれ、ID をいつ決めるかは IR に入っていない。
 - 契約テスト crates/remote-merge/tests/contract/backup_sessions.rs の a_rollback_confirmed_days_after_it_started_gets_an_id_unlike_a_removed_session（測定 1 と同じ流れで、予約する時刻を 2020-01-08 にずらす）は、予約する時刻を渡すだけで使わないコードでは二つの ID がどちらも "20200101-000000" になって失敗し、b7c04aa8 で成功する。`cargo nextest run --workspace --all-features` は 2148 件すべて成功した。
+
+## Revisions
+
+- 2026-10-23: A2 の why の「A1 の後も変える理由はない」は、[backup-reservations-cleanup-consistency A2](./2026-10-23-backup-reservations-cleanup-consistency.md#A2) が狭い案を退けた根拠（同じ記録の測定 2）が A1 の後は成り立たないことを見ていなかった。A2 が書き直した残す理由の文も、24 時間に満たないどの ID にもその秒のうちに予約する操作がいるように読めた。どちらも [backup-reservation-margin-consistency A1](./2026-10-23-backup-reservation-margin-consistency.md#A1) で置き換えた。24 時間の但し書きは変わらない。
