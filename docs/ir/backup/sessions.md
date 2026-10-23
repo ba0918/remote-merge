@@ -34,11 +34,12 @@
 
 ### REQ-backup-022: セッション ID の形式と順序
 - kind: invariant
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A21, docs/decision/records/2026-09-27-backup-session-id-properties.md#A1, docs/decision/records/2026-10-15-flag-resolution.md#A1
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A21, docs/decision/records/2026-09-27-backup-session-id-properties.md#A1, docs/decision/records/2026-10-15-flag-resolution.md#A1, docs/decision/records/2026-10-23-backup-session-id-reservation-time.md#A1
 - verification: property
 
 セッション ID は UTC の "YYYYMMDD-HHMMSS" で、同じ日時の ID が既にあるときだけ "-N"（N は 2 以上）を付ける。ID は日時の順、同じ日時なら N を数値として比べた順（"-N" なしが最初）に並べ、一覧の順と --session 省略時の最新をこの順で決め、--session は "-N" 付きの ID も受け付ける。
 同じ日時の ID の連番が u64 の最大値まで使われているときは、次の ID を決められず、バックアップの保存はエラーで止まる。
+ID の日時は、コマンドを始めた時刻ではなく、操作が書き込みの前にセッション ID を予約した時刻で、sync と rollback では確認の問いに答えた後の時刻になる。
 
 ### REQ-backup-023: セッション ID は重複しない
 - kind: invariant
@@ -67,6 +68,14 @@
 - verification: unit
 
 セッション ID の日時部分（UTC）からの経過時間が retention_days × 24 時間以上のセッションを期限切れとし、一覧の期限切れ表示と整理の対象に同じ判定を使う。
+
+### REQ-backup-047: 期限切れの整理でセッション ID の予約も消す
+- kind: event_driven
+- source: docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A1, docs/decision/records/2026-10-23-backup-reservations-cleanup-consistency.md#A2, docs/decision/records/2026-10-23-backup-session-id-reservation-time.md#A2, docs/decision/records/2026-10-23-backup-reservation-margin-consistency.md#A1
+- verification: unit
+
+期限切れバックアップの整理でセッションを集約先から消したときは、そのセッション ID の予約も消し、そのセッションのために作ったものを集約先に残さない。ただし、セッション ID の日時部分（UTC）からの経過時間が 24 時間に満たないときは、予約を残す（REQ-backup-023）。整理するコマンドを始めた秒の ID は、その秒のうちにこれから予約する別の操作が受け取りうるので、その秒を含めて 24 時間を幅として残す。
+整理の後もセッションが集約先に残るとき（設定にない書き込み先の領域が残るか、同時に動く別の操作が中に保存したとき）は、予約も残す。
 
 ## Examples
 

@@ -32,16 +32,30 @@ impl BackupStore {
                 self.now,
             );
             if expired == Some(true) {
-                removed += remove_expired_session(&session.path(), &target_keys)?;
+                // 保持期間が 0 日なら、このコマンドを始めた秒の ID も期限切れになる。その予約を消すと、その秒の
+                // うちにこれから予約する別の実行に同じ ID が割り当てられる（REQ-backup-023）。その秒を含めて、
+                // 日時から 1 日（保持期間の最小の正の値）たっていない ID の予約は、セッションを消しても残す
+                let releasable = crate::backup::is_session_expired(
+                    &session_id,
+                    config.backup.retention_days.max(1),
+                    self.now,
+                ) == Some(true);
+                let reservation = releasable.then(|| root.join("reservations").join(&session_id));
+                removed +=
+                    remove_expired_session(&session.path(), reservation.as_deref(), &target_keys)?;
             }
         }
         Ok(removed)
     }
 }
 
-/// 期限切れのセッション `session` の書き込み先 `target_keys` の領域を消し、空になったセッションも消す。
-/// 先に消されていたものは、消すものがないとする
-fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Result<usize> {
+/// 期限切れのセッション `session` の書き込み先 `target_keys` の領域を消し、空になったセッションとその
+/// 予約 `reservation`（None なら予約は残す）も消す。先に消されていたものは、消すものがないとする
+fn remove_expired_session(
+    session: &Path,
+    reservation: Option<&Path>,
+    target_keys: &[String],
+) -> anyhow::Result<usize> {
     let mut removed = 0;
     for key in target_keys {
         let area = session.join(key);
@@ -57,13 +71,19 @@ fn remove_expired_session(session: &Path, target_keys: &[String]) -> anyhow::Res
     if left.next().is_none() {
         match fs::remove_dir(session) {
             Ok(()) => {}
-            // 先に消されたか、同時に動く別の実行が中に保存した
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
-                ) => {}
+            // 先に消された
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            // 同時に動く別の実行が中に保存したので、セッションも予約も残す
+            Err(error) if error.kind() == ErrorKind::DirectoryNotEmpty => return Ok(removed),
             Err(error) => return Err(not_removed(session, &error)),
+        }
+        let Some(reservation) = reservation else {
+            return Ok(removed);
+        };
+        match fs::remove_dir(reservation) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(not_removed(reservation, &error)),
         }
     }
     Ok(removed)

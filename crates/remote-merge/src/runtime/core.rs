@@ -59,9 +59,14 @@ impl CoreRuntime {
             backup_store,
             startup_directory,
             now,
+            reservation_time,
         } = targets;
-        let backup_store =
-            super::backup_store::BackupStore::new(backup_store, startup_directory, now);
+        let backup_store = super::backup_store::BackupStore::new(
+            backup_store,
+            startup_directory,
+            now,
+            reservation_time,
+        );
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
             ssh_clients: HashMap::new(),
