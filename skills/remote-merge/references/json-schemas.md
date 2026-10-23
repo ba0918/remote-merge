@@ -2,6 +2,8 @@
 
 The CLI writes each JSON value on a single line with no whitespace outside strings, ending with one newline (LF), and `logs` writes one such line per entry; the examples below are pretty-printed only for readability.
 
+Only LF separates the lines. A string value may contain U+2028, U+2029 or U+0085 unescaped, so split the output on LF alone, not with a function that also breaks lines at those characters (Python's `str.splitlines()` does).
+
 ## Error Response
 
 When `--format json` is specified and an error occurs, all subcommands (status, diff, merge, sync, rollback, logs) return a JSON error object on stdout:

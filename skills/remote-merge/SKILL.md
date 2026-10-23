@@ -15,7 +15,7 @@ Every operation needs a subcommand: running `remote-merge` without one prints us
 
 ## Autonomous Workflow
 
-Follow this progression. Always use `--format json` for machine-parseable output. It writes each JSON value on a single line with no whitespace outside strings, ending with one newline (LF); the JSON examples in [references/json-schemas.md](references/json-schemas.md) are pretty-printed only for readability.
+Follow this progression. Always use `--format json` for machine-parseable output. It writes each JSON value on a single line with no whitespace outside strings, ending with one newline (LF). Split the output into lines on LF only, since strings may contain U+2028, U+2029 or U+0085 unescaped. The JSON examples in [references/json-schemas.md](references/json-schemas.md) are pretty-printed only for readability.
 
 ### 1. Discover differences
 
