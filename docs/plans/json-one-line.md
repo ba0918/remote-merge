@@ -24,7 +24,7 @@ IR は "docs/ir/"、承認済み仕様のコミットは "3d36e087"、実装す�
 
 REQ-cli-102 は標準出力のバイト列についての約束なので、テストは実行ファイルを起動して標準出力の生のバイト列を確かめる契約テストにする。関数を呼ぶテスト（cli_results.rs の execute_diff など）は出力を書き出さないので、この約束を確かめられない。既存の CliEnv（試験 SSH サーバとエージェント）、agent_support の AgentFixture（故障を入れられる試験サーバ）、isolated_command（診断ログの置き場を一時ディレクトリの home/cache/remote-merge/debug.log にする）を使う。記録の置き方の手本は `crates/remote-merge/tests/contract/logs_level.rs` の logs 関数にある。
 
-一行かどうかは生のバイト列で確かめる。最後のバイトが LF で、LF がちょうど一つ（logs では行の数だけ）あること。str::lines() で数えると、最後の LF がないときや CR LF を見逃すので使わない。「文字列の外に空白がない」は、文字列の中か外かをエスケープ（\" と \\）を含めて追い、外にある空白・タブ・CR を探す小さな確かめの道具を、新しい契約テストのファイルに一つ作って確かめる。今の複数行の出力は LF の確かめで先に落ちるので、この道具が空白を見つけられることは、道具そのもののテストで別に示す。読み直した JSON を serde_json の to_string で書き直して比べる方法は使わない。serde_json に preserve_order の機能を入れていないので、書き直すと欄の順が変わり、正しい出力でも一致しない。
+一行かどうかは生のバイト列で確かめる。最後のバイトが LF で、LF がちょうど一つ（logs では行の数だけ）あること。str::lines() で数えると、最後の LF がないときや CR LF を見逃すので使わない。「文字列の外に空白がない」は、文字列の中か外かをエスケープ（\" と \\）を含めて追い、外にある空白・タブ・CR を探す小さな確かめの道具を、新しい契約テストのファイルに一つ作って確かめる。この確かめは LF の確かめとは別に走らせ（LF の確かめで先に止まらないようにする）、S1 の RED で、今の整形した出力（": " の空白や字下げ）に対してこの確かめが落ちるのを見る。それで、道具が本物の出力で空白を見つけられることを示す。道具そのもののテストは書かない（対象がテストの道具自身になり、証拠の条件の「対象は製品か検査で、オラクル自身ではない」に合わない）。読み直した JSON を serde_json の to_string で書き直して比べる方法は使わない。serde_json に preserve_order の機能を入れていないので、書き直すと欄の順が変わり、正しい出力でも一致しない。
 
 新しい契約テストは一つのファイル `crates/remote-merge/tests/contract/json_one_line.rs` にまとめ、`crates/remote-merge/tests/contract.rs` に `#[cfg(feature = "test-utils")]` を付けて登録する。中には SSH の試験サーバを使うテスト（EX-cli-116・118・121・122）と使わないテスト（EX-cli-117・119・120・123・124 と logs の失敗）が混ざるが、ファイルを分けずにモジュールごと囲む。CI と pre-push はどちらも --all-features で走るので、囲んだテストもそこで必ず走る。
 
@@ -48,7 +48,7 @@ logs の一件一行、記録の残らない logs、引数の解析で止まる�
 
 既存のテストが整形した形（複数行や ": " の空白）に頼って落ちたら、そのテストを一行の形で確かめるように直してよい。計画の前に探したときは、そうしたテストは見つからなかった（JSON を読んでから欄を見るものばかりだった）。
 
-新しいテストには、`#[test]`（または `#[tokio::test]`）の直前に `// @kotowari[REQ-cli-102, EX-cli-116]` の形の印を置く。`crates/remote-merge/tests/contract/` の下のテストは、印がないと kotowari check が test_without_id を出すので、確かめの道具のテストにも印（REQ-cli-102）を付ける。シナリオのテストの印には、必ずその要件の ID も入れる（REQ-cli-102 は、S5 の確かめが要件の ID を直接書いた印を数える。REQ-cli-018 には merge_cli.rs と sync_cli.rs に前からテストがあるが、EX-cli-120・123・124 の印も同じ形にそろえる）。
+新しいテストには、`#[test]`（または `#[tokio::test]`）の直前に `// @kotowari[REQ-cli-102, EX-cli-116]` の形の印を置く。`crates/remote-merge/tests/contract/` の下のテストは、印がないと kotowari check が test_without_id を出す。シナリオのテストの印には、必ずその要件の ID も入れる（REQ-cli-102 は、S5 の確かめが要件の ID を直接書いた印を数える。REQ-cli-018 には merge_cli.rs と sync_cli.rs に前からテストがあるが、EX-cli-120・123・124 の印も同じ形にそろえる）。
 
 一つのテストファイルだけを走らせるときは `cargo nextest run -p remote-merge --all-features --test contract json_one_line` を使う。--all-features がないと、囲んだモジュールはコンパイルされない。
 
@@ -98,8 +98,8 @@ REQ-cli-102 の「logs が失敗したらエラーの JSON の一行だけを出
 - Specification: `docs/ir/cli/results.md#REQ-cli-102`
 - Prerequisites: ブランチ feat/json-one-line の 3d36e087 の上で作業すること
 - May change: `crates/remote-merge/src/service/output.rs`（format_json だけ）, `crates/remote-merge/src/service/output_tests.rs`, `crates/remote-merge/tests/contract.rs`（json_one_line の登録だけ）, `crates/remote-merge/tests/contract/json_one_line.rs`
-- Done when: EX-cli-116・EX-cli-118・EX-cli-121・EX-cli-122 の場面で実行ファイルを --format json で起動すると、標準出力の生のバイト列が LF で終わり、LF をちょうど一つだけ含み、JSON として読め、文字列の外に空白・タブ・CR がない（EX-cli-118 では生のバイト列に E2 80 A8・E2 80 A9・C2 85 があり、"\u2028"・"\u2029"・"\u0085" という六文字の並びがない。EX-cli-121 では status・merge・sync・rollback のどれもそうなる。EX-cli-122 では終了コードが 0 でない）; 確かめの道具は {"a": 1}、{"a":1} の後にタブのあるもの、{ の直後に CR のあるものを拒み、文字列の中に空白とエスケープの \t（バックスラッシュと t の二文字）だけを持つ {"a":" \t"} と、文字列の中にエスケープした二重引用符と空白を持つものを通す
-- Shown by: test — EX-cli-116, EX-cli-118, EX-cli-121, EX-cli-122 の契約テスト（印は REQ-cli-102 とそれぞれの EX の ID）、確かめの道具のテスト（印は REQ-cli-102）、format_json が JsonError { error: "a b" } から {"error":"a b"} とちょうど同じ文字列を返す単体テスト（output_tests.rs に assert_eq で書く）。RED は、契約テストと単体テストが今の to_string_pretty の複数行の出力で落ちること
+- Done when: EX-cli-116・EX-cli-118・EX-cli-121・EX-cli-122 の場面で実行ファイルを --format json で起動すると、標準出力の生のバイト列が LF で終わり、LF をちょうど一つだけ含み、JSON として読め、文字列の外に空白・タブ・CR がない（EX-cli-118 では生のバイト列に E2 80 A8・E2 80 A9・C2 85 があり、"\u2028"・"\u2029"・"\u0085" という六文字の並びがない。EX-cli-121 では status・merge・sync・rollback のどれもそうなる。EX-cli-122 では終了コードが 0 でない）
+- Shown by: test — EX-cli-116, EX-cli-118, EX-cli-121, EX-cli-122 の契約テスト（印は REQ-cli-102 とそれぞれの EX の ID）、format_json が JsonError { error: "a b" } から {"error":"a b"} とちょうど同じ文字列を返す単体テスト（output_tests.rs に assert_eq で書く）。RED は、契約テストと単体テストが今の to_string_pretty の複数行の出力で落ちること。契約テストでは LF の確かめと空白の確かめを別々に走らせ、RED の出力で両方が落ちているのを見る
 - Left to the implementer: EX-cli-121 で使う各コマンドの引数（sync も rollback も確認の問いで止まらないようにする。テストの標準入力は空なので、問いを出すと取り消しになって何も出ない。sync は --force か --dry-run、rollback は --list か、--force か --dry-run を付けた取り消しにする）
 - Stop and hand back if: diff が U+2028・U+2029・U+0085 を含む中身をテキストとして扱わず、差分の行に出さない; EX-cli-122 を、AgentFixture::new に refuse_agent の故障を付けた書き込み先と、add_server で足した故障のない書き込み先への sync（`crates/remote-merge/tests/contract/sync_partial_status.rs` と agent_support.rs の add_server が手本）で起こせない
 
