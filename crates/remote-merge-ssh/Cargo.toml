@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-russh = "0.64"
+russh = "0.65"
 tokio = { version = "1", features = ["full"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 hmac = "0.13"

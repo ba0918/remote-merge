@@ -11,7 +11,7 @@ remote-merge-core = { path = "../remote-merge-core" }
 remote-merge-protocol = { path = "../remote-merge-protocol" }
 anyhow = "1"
 tracing = "0.1"
-russh = "0.64"
+russh = "0.65"
 tokio = { version = "1", features = ["full"] }
 libc = "0.2"
 
