@@ -42,8 +42,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use russh::keys::{Algorithm, PrivateKey, PublicKey};
-use russh::server::{Auth, Msg, Server as _, Session};
+use russh::keys::{Algorithm, PrivateKey};
+use russh::server::{Auth, Msg, Server as _, Session, VerifiedPublicKey};
 use russh::{ChannelId, server};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -102,7 +102,11 @@ impl server::Handler for ProcessAgentHandler {
         Ok(())
     }
 
-    async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(
+        &mut self,
+        _user: &str,
+        _key: VerifiedPublicKey<'_>,
+    ) -> Result<Auth, Self::Error> {
         Ok(Auth::Accept)
     }
 

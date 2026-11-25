@@ -34,7 +34,7 @@ test-utils = ["remote-merge-ssh/test-utils"]
 [dev-dependencies]
 sha2 = "0.11"
 remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
-russh = "0.64"
+russh = "0.65"
 walkdir = "2"
 tempfile = "3"
 proptest = "1.11.0"
